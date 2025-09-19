@@ -1,0 +1,163 @@
+[
+  {
+    "id": "abacus-ai",
+    "name": "Abacus AI",
+    "type": "transcription",
+    "baseUrl": "https://api.abacus.ai/v1",
+    "models": [
+      {
+        "id": "whisper-large-v3",
+        "name": "Whisper Large V3",
+        "description": "Máxima precisión para español chileno",
+        "costPerMinute": 0.05,
+        "accuracy": 97,
+        "speed": "standard",
+        "languages": [
+          "es",
+          "es-CL",
+          "en"
+        ]
+      },
+      {
+        "id": "whisper-medium",
+        "name": "Whisper Medium",
+        "description": "Balance precisión/costo",
+        "costPerMinute": 0.03,
+        "accuracy": 94,
+        "speed": "standard",
+        "languages": [
+          "es",
+          "es-CL",
+          "en"
+        ]
+      }
+    ],
+    "enabled": true,
+    "priority": 1,
+    "rateLimits": {
+      "requestsPerMinute": 60,
+      "requestsPerHour": 1000
+    },
+    "created_at": "2025-09-18T20:50:48.190Z",
+    "updated_at": "2025-09-18T20:50:48.190Z"
+  },
+  {
+    "id": "groq-api",
+    "name": "Groq API",
+    "type": "transcription",
+    "baseUrl": "https://api.groq.com/openai/v1",
+    "models": [
+      {
+        "id": "whisper-large-v3",
+        "name": "Whisper Large V3",
+        "description": "15x más rápido que OpenAI",
+        "costPerMinute": 0.01,
+        "accuracy": 95,
+        "speed": "ultra-fast",
+        "languages": [
+          "es",
+          "en",
+          "fr",
+          "de",
+          "it",
+          "pt"
+        ]
+      },
+      {
+        "id": "distil-whisper-large-v3",
+        "name": "Distil-Whisper Large V3",
+        "description": "Versión ultra optimizada",
+        "costPerMinute": 0.008,
+        "accuracy": 93,
+        "speed": "ultra-fast",
+        "languages": [
+          "es",
+          "en"
+        ]
+      }
+    ],
+    "enabled": true,
+    "priority": 2,
+    "rateLimits": {
+      "requestsPerMinute": 30,
+      "requestsPerHour": 500
+    },
+    "created_at": "2025-09-18T20:50:48.190Z",
+    "updated_at": "2025-09-18T20:50:48.190Z"
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI Whisper",
+    "type": "transcription",
+    "baseUrl": "https://api.openai.com/v1",
+    "models": [
+      {
+        "id": "whisper-1",
+        "name": "Whisper-1",
+        "description": "Modelo estándar de OpenAI",
+        "costPerMinute": 0.006,
+        "accuracy": 94,
+        "speed": "standard",
+        "languages": [
+          "es",
+          "en",
+          "fr",
+          "de",
+          "it",
+          "pt",
+          "ru",
+          "ja",
+          "ko",
+          "zh"
+        ]
+      }
+    ],
+    "enabled": false,
+    "priority": 3,
+    "rateLimits": {
+      "requestsPerMinute": 50,
+      "requestsPerHour": 1000
+    },
+    "created_at": "2025-09-18T20:50:48.190Z",
+    "updated_at": "2025-09-18T20:50:48.190Z"
+  },
+  {
+    "id": "assemblyai",
+    "name": "AssemblyAI",
+    "type": "transcription",
+    "baseUrl": "https://api.assemblyai.com/v2",
+    "models": [
+      {
+        "id": "best",
+        "name": "Best Model",
+        "description": "Mejor modelo de AssemblyAI",
+        "costPerMinute": 0.00037,
+        "accuracy": 95,
+        "speed": "standard",
+        "languages": [
+          "es",
+          "en"
+        ]
+      },
+      {
+        "id": "nano",
+        "name": "Nano Model",
+        "description": "Modelo más rápido y económico",
+        "costPerMinute": 0.00018,
+        "accuracy": 88,
+        "speed": "fast",
+        "languages": [
+          "en"
+        ]
+      }
+    ],
+    "enabled": false,
+    "priority": 4,
+    "rateLimits": {
+      "requestsPerMinute": 100,
+      "requestsPerHour": 2000
+    },
+    "created_at": "2025-09-18T20:50:48.190Z",
+    "updated_at": "2025-09-18T20:50:48.190Z"
+  }
+]

@@ -1,0 +1,248 @@
+# =============================================================================
+# ONDAVERIFICADA - GITIGNORE
+# =============================================================================
+# Archivo de exclusiones para Git - Evita subir archivos sensibles y temporales
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE ENTORNO Y CONFIGURACIÓN SENSIBLE
+# -----------------------------------------------------------------------------
+# Variables de entorno con credenciales y configuraciones sensibles
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Archivos de configuración con credenciales
+config/database.json
+config/secrets.json
+
+# -----------------------------------------------------------------------------
+# DEPENDENCIAS Y MÓDULOS
+# -----------------------------------------------------------------------------
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.yarn/install-state.gz
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE BUILD Y COMPILACIÓN
+# -----------------------------------------------------------------------------
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# -----------------------------------------------------------------------------
+# BASES DE DATOS Y ARCHIVOS DE DATOS
+# -----------------------------------------------------------------------------
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+
+# PostgreSQL dumps
+*.sql
+*.dump
+
+# Prisma
+prisma/dev.db*
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE MONITOREO Y LOGS
+# -----------------------------------------------------------------------------
+# Datos de monitoreo (pueden contener información sensible)
+monitoring-data/
+logs/
+*.log
+
+# Archivos de captura de audio
+captures/
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+
+# Archivos de sesiones y eventos
+sessions/
+events/
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS TEMPORALES Y CACHE
+# -----------------------------------------------------------------------------
+# Cache de sistema
+.cache/
+.temp/
+tmp/
+temp/
+
+# Cache de Next.js
+.next/cache/
+
+# Cache de Vercel
+.vercel/
+
+# Cache de ESLint
+.eslintcache
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DEL SISTEMA OPERATIVO
+# -----------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# -----------------------------------------------------------------------------
+# EDITORES E IDEs
+# -----------------------------------------------------------------------------
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains IDEs
+.idea/
+*.swp
+*.swo
+*~
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*.tmp
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE BACKUP Y RESPALDO
+# -----------------------------------------------------------------------------
+# Backups
+*.backup
+*.bak
+*.old
+*.orig
+*.save
+
+# Archivos de respaldo de base de datos
+database_backup_*
+db_backup_*
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE TESTING Y COVERAGE
+# -----------------------------------------------------------------------------
+# Coverage reports
+coverage/
+*.lcov
+.nyc_output/
+
+# Jest
+jest-coverage/
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE DEPLOYMENT Y PRODUCCIÓN
+# -----------------------------------------------------------------------------
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS ESPECÍFICOS DEL PROYECTO
+# -----------------------------------------------------------------------------
+# Archivos de importación temporal
+radios_para_importar.json
+import_temp/
+
+# Archivos de configuración local
+local_config.json
+dev_settings.json
+
+# Certificados y llaves
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# -----------------------------------------------------------------------------
+# ARCHIVOS DE ANÁLISIS Y REPORTES
+# -----------------------------------------------------------------------------
+# Reportes generados
+reports/
+analytics/
+*.report
+
+# Archivos de análisis
+analysis/
+metrics/
+
+# -----------------------------------------------------------------------------
+# OTROS ARCHIVOS TEMPORALES
+# -----------------------------------------------------------------------------
+# Archivos de lock temporales
+*.lock
+.lock
+
+# Archivos de proceso
+*.pid
+
+# Archivos de socket
+*.sock
+
+# =============================================================================
+# NOTA IMPORTANTE:
+# Este .gitignore está diseñado para proteger información sensible como:
+# - Credenciales de API y bases de datos
+# - Archivos de audio capturados
+# - Datos de monitoreo que pueden contener información privada
+# - Configuraciones locales específicas del desarrollador
+# =============================================================================

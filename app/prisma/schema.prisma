@@ -1,0 +1,384 @@
+
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// Usuarios del sistema
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      Role     @default(USER)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  sessions  MonitoringSession[]
+  reports   Report[]
+
+  @@map("users")
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+// Radios registradas en el sistema
+model Radio {
+  id          String   @id @default(cuid())
+  name        String
+  streamUrl   String
+  platform    Platform
+  region      String?
+  description String?
+  status      RadioStatus @default(ACTIVE)
+  priority    Int      @default(1) // 1=alta, 2=media, 3=baja
+  costPerHour Float    @default(0.0)
+  metadata    Json?    // Información adicional como calidad, bitrate, etc.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  sessions    MonitoringSession[]
+  detections  Detection[]
+  pricingRules RadioPricingRule[]
+
+  @@map("radios")
+}
+
+enum Platform {
+  YOUTUBE
+  TWITCH
+  FACEBOOK
+  ICECAST
+  SHOUTCAST
+  HTTP_STREAM
+  RTMP
+  OTHER
+}
+
+enum RadioStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  ERROR
+}
+
+// Frases publicitarias a detectar
+model Phrase {
+  id          String      @id @default(cuid())
+  phrase      String
+  brand       String
+  campaign    String?
+  category    Category    @default(PRODUCT)
+  description String?
+  confidence  Float       @default(0.85) // Umbral de confianza para detección
+  priority    Int         @default(1)    // 1=alta, 2=media, 3=baja
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relaciones
+  detections  Detection[]
+  variants    PhraseVariant[]
+
+  @@map("phrases")
+}
+
+// Variantes de frases (para mejor detección)
+model PhraseVariant {
+  id       String @id @default(cuid())
+  phraseId String
+  variant  String
+  similarity Float @default(0.8) // Similitud mínima para considerar match
+
+  phrase   Phrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+
+  @@map("phrase_variants")
+}
+
+enum Category {
+  PRODUCT
+  SERVICE
+  PROMOTION
+  EVENT
+  BRAND
+  INSTITUTIONAL
+}
+
+// Sesiones de monitoreo activas
+model MonitoringSession {
+  id                String         @id @default(cuid())
+  radioId          String
+  userId           String
+  status           SessionStatus  @default(ACTIVE)
+  startTime        DateTime       @default(now())
+  endTime          DateTime?
+  captureInterval  Int            @default(30)    // segundos entre capturas
+  captureDuration  Int            @default(10)    // duración de cada captura
+  totalCaptures    Int            @default(0)
+  totalDetections  Int            @default(0)
+  lastCaptureAt    DateTime?
+  lastDetectionAt  DateTime?
+  configuration    Json?          // Configuración específica de la sesión
+  metadata         Json?          // Metadatos adicionales
+  
+  // Relaciones
+  radio       Radio      @relation(fields: [radioId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id])
+  captures    Capture[]
+  detections  Detection[]
+
+  @@map("monitoring_sessions")
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+  ERROR
+  COMPLETED
+}
+
+// Capturas de audio realizadas
+model Capture {
+  id                String             @id @default(cuid())
+  sessionId         String
+  audioPath         String?            // Ruta al archivo de audio capturado
+  duration          Float              // Duración en segundos
+  fileSize          BigInt?            // Tamaño del archivo en bytes
+  format            String?            // Formato del audio (mp3, wav, etc.)
+  bitrate           Int?               // Bitrate del audio
+  sampleRate        Int?               // Sample rate
+  status            CaptureStatus      @default(PROCESSING)
+  capturedAt        DateTime           @default(now())
+  processedAt       DateTime?
+  transcriptionText String?            // Texto transcrito
+  confidence        Float?             // Confianza de la transcripción
+  provider          String?            // Proveedor de transcripción usado
+  processingTime    Float?             // Tiempo de procesamiento en ms
+  cost              Float              @default(0.0) // Costo de la transcripción
+  metadata          Json?              // Metadatos adicionales
+
+  // Relaciones
+  session    MonitoringSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  detections Detection[]
+
+  @@map("captures")
+}
+
+enum CaptureStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  TRANSCRIBED
+}
+
+// Detecciones de frases encontradas
+model Detection {
+  id               String    @id @default(cuid())
+  sessionId        String
+  captureId        String
+  radioId          String
+  phraseId         String
+  detectedText     String    // Texto exacto detectado
+  originalText     String    // Texto completo de la transcripción
+  confidence       Float     // Confianza de la detección (0-1)
+  similarity       Float     // Similitud con la frase original (0-1)
+  timestamp        DateTime  @default(now())
+  audioTimestamp   Float?    // Posición en el audio donde se detectó
+  verified         Boolean   @default(false) // Si fue verificada manualmente
+  falsePositive    Boolean   @default(false)
+  cost             Float     @default(0.0)   // Costo asociado a esta detección
+  metadata         Json?     // Metadatos adicionales
+
+  // Relaciones
+  session MonitoringSession @relation(fields: [sessionId], references: [id])
+  capture Capture           @relation(fields: [captureId], references: [id])
+  radio   Radio             @relation(fields: [radioId], references: [id])
+  phrase  Phrase            @relation(fields: [phraseId], references: [id])
+
+  @@map("detections")
+}
+
+// Configuración de APIs de transcripción
+model ApiConfiguration {
+  id          String   @id @default(cuid())
+  provider    String   @unique // abacus, groq, openai, etc.
+  apiKey      String?  // Encriptada
+  model       String?  // Modelo específico a usar
+  enabled     Boolean  @default(false)
+  priority    Int      @default(1)    // Orden de preferencia
+  costPerUnit Float    @default(0.0)  // Costo por unidad (minuto, request, etc.)
+  rateLimit   Int?     // Límite de requests por minuto
+  metadata    Json?    // Configuración específica del proveedor
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("api_configurations")
+}
+
+// Reglas de precios por radio
+model RadioPricingRule {
+  id            String   @id @default(cuid())
+  radioId       String
+  name          String
+  pricePerDetection Float
+  effectiveDate DateTime @default(now())
+  endDate       DateTime?
+  description   String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  radio Radio @relation(fields: [radioId], references: [id], onDelete: Cascade)
+
+  @@map("radio_pricing_rules")
+}
+
+// Reportes generados
+model Report {
+  id          String     @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  type        ReportType
+  filters     Json       // Filtros aplicados
+  data        Json       // Datos del reporte
+  format      String     @default("json")
+  status      ReportStatus @default(GENERATING)
+  filePath    String?    // Ruta al archivo generado
+  createdAt   DateTime   @default(now())
+  generatedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("reports")
+}
+
+enum ReportType {
+  DETECTIONS
+  ANALYTICS
+  COSTS
+  PERFORMANCE
+  CUSTOM
+}
+
+enum ReportStatus {
+  GENERATING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+// Jobs en cola para procesamiento
+model Job {
+  id          String    @id @default(cuid())
+  type        JobType
+  payload     Json      // Datos del job
+  status      JobStatus @default(PENDING)
+  priority    Int       @default(1)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  error       String?   // Error si falló
+  result      Json?     // Resultado si exitoso
+  scheduledAt DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("jobs")
+}
+
+enum JobType {
+  AUDIO_CAPTURE
+  TRANSCRIPTION
+  PHRASE_DETECTION
+  REPORT_GENERATION
+  SYSTEM_MAINTENANCE
+  DATA_CLEANUP
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  RETRYING
+}
+
+// Sistema de notificaciones
+model Notification {
+  id        String             @id @default(cuid())
+  title     String
+  message   String
+  type      NotificationType
+  priority  NotificationPriority @default(MEDIUM)
+  read      Boolean            @default(false)
+  data      Json?              // Datos adicionales
+  createdAt DateTime           @default(now())
+  readAt    DateTime?
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  DETECTION
+  ERROR
+  WARNING
+  INFO
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// Cache para optimización
+model Cache {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("cache")
+}
+
+// Logs del sistema
+model SystemLog {
+  id        String    @id @default(cuid())
+  level     LogLevel
+  message   String
+  context   String?   // Contexto donde ocurrió (session_id, radio_id, etc.)
+  metadata  Json?     // Datos adicionales
+  timestamp DateTime  @default(now())
+
+  @@map("system_logs")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
