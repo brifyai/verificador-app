@@ -14,13 +14,12 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Redirigir si ya está autenticado
+  // Si ya está logueado → redirigir
   useEffect(() => {
     if (status === 'authenticated' && session) {
-      console.log('Usuario autenticado, redirigiendo...');
       router.push('/dashboard');
     }
-  }, [session, status, router]);
+  }, [status, session, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,22 +28,19 @@ export default function LoginPage() {
 
     try {
       console.log('Intentando iniciar sesión...');
+
+      // 👉 Deja que NextAuth maneje la redirección
       const result = await signIn('credentials', {
-        redirect: false,
         email,
         password,
+        callbackUrl: '/dashboard', // 🚀 redirige al dashboard si es exitoso
       });
 
-      console.log('Resultado del login:', result);
+      console.log('Resultado de autenticación:', result);
 
-      if (result?.error) {
-        setError('Credenciales inválidas. Por favor, intente nuevamente.');
-        setIsLoading(false);
-        return;
-      }
-
-      // La redirección se manejará en el useEffect
-      console.log('Login exitoso, esperando redirección...');
+      // Ojo: si las credenciales son incorrectas,
+      // NextAuth redirige a /auth/error (o donde lo tengas definido).
+      // Si quieres manejar error aquí, debes seguir con redirect: false
     } catch (error) {
       console.error('Error en login:', error);
       setError('Ocurrió un error al iniciar sesión. Por favor, intente nuevamente.');
@@ -70,9 +66,6 @@ export default function LoginPage() {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4 rounded-md">
             <div>
-              <label htmlFor="email" className="sr-only">
-                Email
-              </label>
               <input
                 id="email"
                 name="email"
@@ -86,9 +79,6 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="sr-only">
-                Contraseña
-              </label>
               <input
                 id="password"
                 name="password"
