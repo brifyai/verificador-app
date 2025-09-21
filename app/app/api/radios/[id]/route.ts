@@ -72,30 +72,52 @@ export async function PUT(
       );
     }
 
+    // Preparar los metadatos actualizados
+    const currentMetadata = existingRadio.metadata || {};
+    const updatedMetadata = {
+      ...currentMetadata,
+      programadora: body.programadora,
+      frequency: body.frequency,
+      streamPlatform: body.streamPlatform,
+      lastMonitored: body.lastMonitored || currentMetadata.lastMonitored,
+      genre: body.genre,
+      website: body.website,
+      city: body.city, // Aseguramos que city esté en metadata también
+    };
+
     // Actualizar la radio
     const updatedRadio = await prisma.radio.update({
       where: { id },
       data: {
         name: body.name,
         streamUrl: body.streamUrl,
+        platform: body.streamPlatform ? mapPlatformToEnum(body.streamPlatform) : existingRadio.platform,
         region: body.region,
-        city: body.city,
-        status: body.isActive ? 'ACTIVE' : 'INACTIVE',
-        description: body.genre,
-        metadata: {
-          programadora: body.programadora,
-          frequency: body.frequency,
-          streamPlatform: body.streamPlatform,
-          lastMonitored: body.lastMonitored,
-          genre: body.genre,
-          website: body.website,
-        },
+        status: body.isActive !== undefined ? (body.isActive ? 'ACTIVE' : 'INACTIVE') : existingRadio.status,
+        description: body.genre || existingRadio.description,
+        metadata: updatedMetadata,
       },
     });
 
+    // Transformar la respuesta para el frontend
+    const transformedRadio = {
+      id: updatedRadio.id,
+      name: updatedRadio.name,
+      programadora: updatedRadio.metadata?.programadora || '',
+      frequency: updatedRadio.metadata?.frequency || '',
+      streamUrl: updatedRadio.streamUrl,
+      streamPlatform: updatedRadio.metadata?.streamPlatform || updatedRadio.platform.toLowerCase(),
+      region: updatedRadio.region,
+      city: updatedRadio.metadata?.city || '',
+      website: updatedRadio.metadata?.website || '',
+      isActive: updatedRadio.status === 'ACTIVE',
+      lastMonitored: updatedRadio.metadata?.lastMonitored || 'Nunca',
+      genre: updatedRadio.metadata?.genre || 'Música',
+    };
+
     return NextResponse.json({ 
       success: true, 
-      data: updatedRadio,
+      data: transformedRadio,
       message: 'Radio actualizada exitosamente' 
     });
   } catch (error) {
@@ -106,3 +128,21 @@ export async function PUT(
     );
   }
 }
+
+// Función auxiliar para mapear plataformas
+const mapPlatformToEnum = (platform: string) => {
+  const platformMap: Record<string, string> = {
+    youtube: 'YOUTUBE',
+    twitch: 'TWITCH',
+    facebook: 'FACEBOOK',
+    icecast: 'ICECAST',
+    shoutcast: 'ICECAST',
+    direct: 'HTTP_STREAM',
+    http: 'HTTP_STREAM',
+    rtmp: 'RTMP',
+    centova: 'ICECAST',
+    sonicpanel: 'ICECAST',
+    azuracast: 'ICECAST',
+  };
+  return platformMap[platform.toLowerCase()] || 'OTHER';
+};

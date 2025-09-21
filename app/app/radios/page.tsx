@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { mockRadios, Radio } from '@/lib/mock-data';
+import { mockRadios, Radio, StreamPlatform } from '@/lib/mock-data';
 import { detectPlatform, validatePlatformUrl, extractPlatformData, STREAMING_PLATFORMS, MONITORING_CAPABILITIES } from '@/lib/streaming-platforms';
 import MonitoringControl from '@/components/monitoring-control';
 import RadioPricing from '@/components/radio-pricing';
@@ -91,12 +91,93 @@ export default function RadiosPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [isLoading, setIsLoading] = useState<string | null>(null);
+  
+  // Extraer regiones, géneros y plataformas únicas para filtros
+  const regions = useMemo(() => {
+    const uniqueRegions = Array.from(new Set(radios.map(radio => radio.region)));
+    return uniqueRegions.sort();
+  }, [radios]);
+  
+  const genres = useMemo(() => {
+    const uniqueGenres = Array.from(new Set(radios.flatMap(radio => radio.genre ? [radio.genre] : [])));
+    return uniqueGenres.sort();
+  }, [radios]);
+  
+  const platforms = useMemo(() => {
+    const uniquePlatforms = Array.from(new Set(radios.map(radio => radio.streamPlatform)));
+    return uniquePlatforms.sort();
+  }, [radios]);
 
-  const regions = [...new Set(radios.map(r => r.region))];
-  const genres = [...new Set(radios.map(r => r.genre))];
-  const platforms = [...new Set(radios.map(r => r.streamPlatform))];
+  // Manejadores para drag and drop
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const validateJsonFile = (file: File): boolean => {
+    const validTypes = [
+      'application/json',
+      'text/json'
+    ];
+    
+    // Verificar también por extensión de archivo en caso de que el tipo MIME no sea correcto
+    const fileName = file.name.toLowerCase();
+    const isJsonExtension = fileName.endsWith('.json');
+    
+    if (!validTypes.includes(file.type) && !isJsonExtension) {
+      setImportError(`Tipo de archivo no válido. Por favor, sube un archivo JSON (.json)`);
+      return false;
+    }
+    
+    if (file.size > 10 * 1024 * 1024) { // 10MB max
+      setImportError(`El archivo es demasiado grande. El tamaño máximo es 10MB.`);
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    setImportError(null);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (validateJsonFile(file)) {
+        setImportFile(file);
+        toast.success(`Archivo "${file.name}" seleccionado correctamente`);
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportError(null);
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      if (validateJsonFile(file)) {
+        setImportFile(file);
+        toast.success(`Archivo "${file.name}" seleccionado correctamente`);
+      }
+    }
+  };
+
+  const handleFileButtonClick = () => {
+    fileInputRef.current?.click();
+  };
 
   const [loading, setLoading] = useState(true);
 
@@ -116,9 +197,16 @@ export default function RadiosPage() {
         const res = await fetch('/api/radios');
         if (!res.ok) throw new Error('Error al cargar radios');
         const json = await res.json();
-        setRadios(json.data); // 👈 aquí va el array
+        if (Array.isArray(json.data)) {
+          setRadios(json.data);
+        } else {
+          console.error('Formato de datos incorrecto:', json);
+          toast.error('Error en el formato de datos recibidos');
+          setRadios([]);
+        }
       } catch (err) {
-        console.error(err);
+        console.error('Error al cargar radios:', err);
+        toast.error('No se pudieron cargar las radios');
       } finally {
         setLoading(false);
       }
@@ -204,6 +292,11 @@ export default function RadiosPage() {
     console.log(`🔗 URL: ${radio.streamUrl}`);
 
     try {
+      // Validar URL antes de intentar reproducir
+      if (!radio.streamUrl || !radio.streamUrl.trim()) {
+        throw new Error('URL de streaming vacía');
+      }
+
       // Crear nuevo elemento de audio
       const audio = new Audio();
       
@@ -230,6 +323,10 @@ export default function RadiosPage() {
         audio.play()
           .then(() => {
             console.log(`✅ Reproduciendo: ${radio.name}`);
+            toast.success(`Reproduciendo: ${radio.name}`, {
+              position: "top-right",
+              autoClose: 2000,
+            });
           })
           .catch(error => {
             console.error('❌ Error reproduciendo:', error);
@@ -323,67 +420,153 @@ export default function RadiosPage() {
   };
 
   // Función para editar radio
-  const handleEdit = (radio: Radio) => {
+  const handleEdit = async (radio: Radio) => {
     setEditingRadio(radio);
+    setIsAddDialogOpen(true);
+  };
+
+  // Función para guardar cambios de radio (nueva o editada)
+  const handleSaveRadio = async (radioData: any) => {
+    try {
+      let response;
+      let method = 'POST';
+      let url = '/api/radios';
+      
+      // Si estamos editando, usamos PUT
+      if (editingRadio) {
+        method = 'PUT';
+        url = `/api/radios/${editingRadio.id}`;
+      }
+      
+      response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(radioData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Error al guardar la radio');
+      }
+
+      const result = await response.json();
+      
+      // Actualizar la lista de radios
+      if (editingRadio) {
+        setRadios(prev => prev.map(r => r.id === editingRadio.id ? result.data : r));
+        toast.success('Radio actualizada exitosamente', {
+          position: "top-right",
+          autoClose: 3000,
+        });
+      } else {
+        setRadios(prev => [...prev, result.data]);
+        toast.success('Radio creada exitosamente', {
+          position: "top-right",
+          autoClose: 3000,
+        });
+      }
+      
+      // Cerrar el diálogo y limpiar el estado de edición
+      setIsAddDialogOpen(false);
+      setEditingRadio(null);
+      
+    } catch (error) {
+      console.error('Error guardando radio:', error);
+      toast.error(`Error: ${error instanceof Error ? error.message : 'Error desconocido'}`, {
+        position: "top-right",
+        autoClose: 4000,
+      });
+    }
   };
 
   const handleImportFromFile = async () => {
+    if (!importFile) {
+      setImportError("Por favor, selecciona un archivo JSON para importar.");
+      return;
+    }
+
     setImportLoading(true);
+    setImportError(null);
+    
     try {
-      // Cargar las radios del archivo JSON generado
-      const response = await fetch('/radios_para_importar.json');
-      const radiosData = await response.json();
+      // Leer el archivo JSON
+      const fileContent = await importFile.text();
+      let jsonData;
+      
+      try {
+        // Intentar parsear el JSON
+        const parsedData = JSON.parse(fileContent);
+        
+        // Verificar si ya tiene la estructura correcta o necesita ser envuelto
+        if (Array.isArray(parsedData)) {
+          // Si es un array, envolverlo en un objeto con propiedad radios
+          jsonData = { radios: parsedData };
+        } else if (parsedData.radios && Array.isArray(parsedData.radios)) {
+          // Ya tiene la estructura correcta
+          jsonData = parsedData;
+        } else {
+          // No tiene la estructura esperada
+          setImportError("El archivo JSON debe contener un array de radios o un objeto con una propiedad 'radios' que sea un array.");
+          setImportLoading(false);
+          return;
+        }
+      } catch (error) {
+        setImportError("El archivo no contiene JSON válido.");
+        setImportLoading(false);
+        return;
+      }
       
       // Importar a través de la API
       const importResponse = await fetch('/api/radios/import-bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          radios: radiosData,
-          replaceAll: true // Reemplazar todas las radios actuales
-        })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(jsonData)
       });
 
       if (importResponse.ok) {
         const result = await importResponse.json();
         setImportResult(result);
         
-        // Actualizar la lista de radios en el frontend
-        const newRadios = radiosData.map((radio: any, index: number) => ({
-          id: `imported-${index}`,
-          name: radio.name,
-          region: radio.region,
-          city: radio.city,
-          streamUrl: radio.streamUrl,
-          streamPlatform: detectPlatform(radio.streamUrl) || 'direct',
-          genre: 'General', // Valor por defecto
-          frequency: radio.frequency || '',
-          isActive: radio.status === 'active',
-          isMonitoring: false,
-          listeners: Math.floor(Math.random() * 1000),
-          description: radio.description || `Radio ${radio.name} de ${radio.city}`,
-          website: radio.website || '',
-          phone: radio.phone || '',
-          email: radio.email || '',
-          address: radio.address || '',
-          logo: radio.logo || '/images/radio-placeholder.png'
-        }));
+        // Cerrar el modal de importación
+        setImportDialogOpen(false);
         
-        setRadios(newRadios);
-        console.log(`✅ ${result.stats.total} radios importadas exitosamente`);
+        // Recargar las radios desde la API
+        setLoading(true);
+        try {
+          const res = await fetch('/api/radios');
+          if (!res.ok) throw new Error('Error al cargar radios');
+          const json = await res.json();
+          if (Array.isArray(json.data)) {
+            setRadios(json.data);
+          } else {
+            console.error('Formato de datos incorrecto:', json);
+            toast.error('Error en el formato de datos recibidos');
+          }
+        } catch (err) {
+          console.error('Error al recargar radios:', err);
+          toast.error('No se pudieron cargar las radios importadas');
+        } finally {
+          setLoading(false);
+        }
+        
+        toast.success(`✅ ${result.stats?.total || 'Múltiples'} radios importadas exitosamente`);
       } else {
         const error = await importResponse.json();
         console.error('❌ Error en importación:', error);
         setImportResult({ 
           success: false, 
-          error: error.error || 'Error desconocido' 
+          error: error.error || 'Error desconocido en el servidor' 
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error:', error);
       setImportResult({ 
         success: false, 
-        error: 'Error de conectividad o archivo no encontrado' 
+        error: error.message || 'Error de conectividad o formato de archivo incorrecto' 
       });
     } finally {
       setImportLoading(false);
@@ -392,6 +575,8 @@ export default function RadiosPage() {
 
   const resetImport = () => {
     setImportResult(null);
+    setImportFile(null);
+    setImportError(null);
     setImportDialogOpen(false);
   };
 
@@ -422,27 +607,81 @@ export default function RadiosPage() {
               
               {!importResult ? (
                 <div className="space-y-4">
-                  <div className="bg-slate-800/50 p-4 rounded-lg">
-                    <h4 className="text-white font-medium mb-2">📊 Datos a Importar</h4>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-slate-400">Total de radios:</span>
-                        <span className="text-white ml-2 font-bold">358</span>
+                  {/* Área de arrastrar y soltar */}
+                  <div 
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      dragActive 
+                        ? "border-green-500 bg-green-500/10" 
+                        : importFile 
+                          ? "border-blue-500 bg-blue-500/10" 
+                          : "border-gray-600 hover:border-gray-500"
+                    }`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                    
+                    <FileSpreadsheet className={`h-12 w-12 mx-auto mb-4 ${
+                      importFile ? "text-blue-400" : "text-gray-400"
+                    }`} />
+                    
+                    {importFile ? (
+                      <div className="space-y-2">
+                        <p className="text-blue-300 font-medium">
+                          ✅ Archivo seleccionado: <span className="font-bold">{importFile.name}</span>
+                        </p>
+                        <p className="text-gray-400 text-sm">
+                          {(importFile.size / 1024).toFixed(2)} KB • {new Date().toLocaleDateString()}
+                        </p>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            setImportFile(null);
+                            setImportError(null);
+                          }}
+                        >
+                          Cambiar archivo
+                        </Button>
                       </div>
-                      <div>
-                        <span className="text-slate-400">Con streaming URL:</span>
-                        <span className="text-green-400 ml-2 font-bold">347 (97%)</span>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-gray-300 font-medium">
+                          Arrastra y suelta un archivo JSON aquí
+                        </p>
+                        <p className="text-gray-400 text-sm">
+                          o
+                        </p>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={handleFileButtonClick}
+                        >
+                          Seleccionar archivo
+                        </Button>
+                        <p className="text-gray-500 text-xs mt-2">
+                          Formato soportado: .json (máx. 10MB)
+                        </p>
                       </div>
-                      <div>
-                        <span className="text-slate-400">Sin streaming URL:</span>
-                        <span className="text-yellow-400 ml-2 font-bold">11 (3%)</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Regiones:</span>
-                        <span className="text-blue-400 ml-2 font-bold">16</span>
+                    )}
+                  </div>
+                  
+                  {importError && (
+                    <div className="bg-red-900/30 border border-red-800 p-4 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-red-400" />
+                        <p className="text-red-300 text-sm">{importError}</p>
                       </div>
                     </div>
-                  </div>
+                  )}
                   
                   <div className="bg-yellow-900/30 border border-yellow-800 p-4 rounded-lg">
                     <div className="flex items-start gap-2">
@@ -451,7 +690,7 @@ export default function RadiosPage() {
                         <p className="text-yellow-300 font-medium mb-1">⚠️ Acción Irreversible</p>
                         <p className="text-yellow-200">
                           Esta acción <strong>reemplazará completamente</strong> todas las radios actuales 
-                          con las 358 radios del archivo Excel. Los datos actuales se perderán.
+                          con las radios del archivo JSON. Los datos actuales se perderán.
                         </p>
                       </div>
                     </div>
@@ -467,8 +706,8 @@ export default function RadiosPage() {
                     </Button>
                     <Button 
                       onClick={handleImportFromFile}
-                      disabled={importLoading}
-                      className="bg-green-600 hover:bg-green-700"
+                      disabled={importLoading || !importFile}
+                      className={`${importFile ? "bg-green-600 hover:bg-green-700" : "bg-gray-600 cursor-not-allowed"}`}
                     >
                       {importLoading ? (
                         <>
@@ -1246,85 +1485,95 @@ function AddRadioForm({ onSubmit }: { onSubmit: (radio: Omit<Radio, 'id'>) => vo
 
 // Componente EditRadioForm
 const EditRadioForm = ({ radio, onClose, onUpdate }: { 
-  radio: any, 
+  radio: Radio, 
   onClose: () => void, 
-  onUpdate: (updatedRadio: any) => void 
+  onUpdate: (updatedRadio: Radio) => void 
 }) => {
-  const [formData, setFormData] = useState({
-    name: radio.name || '',
-    stream_url: radio.stream_url || '',
-    platform: radio.platform || 'icecast',
-    region: radio.region || '',
-    city: radio.city || '',
+  const [formData, setFormData] = useState<Omit<Radio, 'id'>>({
+    name: radio.name,
+    programadora: radio.programadora,
+    frequency: radio.frequency,
+    streamUrl: radio.streamUrl,
+    streamPlatform: radio.streamPlatform,
+    platformData: radio.platformData || {},
+    region: radio.region,
+    city: radio.city,
     website: radio.website || '',
-    genre: radio.genre || '',
-    monitoring_enabled: radio.monitoring_enabled || false
+    isActive: radio.isActive,
+    genre: radio.genre,
+    lastMonitored: radio.lastMonitored
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const regions = [
-    'Región de Arica y Parinacota',
-    'Región de Tarapacá',
-    'Región de Antofagasta',
-    'Región de Atacama',
-    'Región de Coquimbo',
-    'Región de Valparaíso',
-    'Región Metropolitana',
-    'Región del Libertador General Bernardo O\'Higgins',
-    'Región del Maule',
-    'Región de Ñuble',
-    'Región del Biobío',
-    'Región de La Araucanía',
-    'Región de Los Ríos',
-    'Región de Los Lagos',
-    'Región Aysén del General Carlos Ibáñez del Campo',
-    'Región de Magallanes y de la Antártica Chilena'
+    'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
+    'Valparaíso', 'Metropolitana', 'O\'Higgins', 'Maule', 'Ñuble',
+    'Biobío', 'La Araucanía', 'Los Ríos', 'Los Lagos', 'Aysén', 'Magallanes'
   ];
 
-  const genres = [
-    'Música', 'Noticias', 'Deportes', 'Talk Show', 'Religiosa',
-    'Educativa', 'Cultural', 'Juvenil', 'Clásica', 'Rock',
-    'Pop', 'Folclórica', 'Electrónica', 'Jazz', 'Reggaeton',
-    'Cumbia', 'Salsa', 'Bachata', 'Merengue', 'Baladas'
-  ];
+  const genres = ['Noticias', 'Música', 'Cultural', 'Deportes', 'Religioso', 'Popular'];
 
-  const platformMappings = {
-    icecast: { name: 'Icecast/Shoutcast', placeholder: 'http://streaming.example.com:8000/stream' },
-    youtube: { name: 'YouTube Live', placeholder: 'https://www.youtube.com/watch?v=VIDEO_ID' },
-    facebook: { name: 'Facebook Live', placeholder: 'https://www.facebook.com/username/videos/VIDEO_ID' },
-    twitch: { name: 'Twitch', placeholder: 'https://www.twitch.tv/username' },
-    other: { name: 'Otro', placeholder: 'URL del stream' }
+  const platforms = Object.entries(STREAMING_PLATFORMS).map(([key, config]) => ({
+    value: key,
+    label: config.name,
+    description: config.description
+  })).sort((a, b) => {
+    // Priorizar las plataformas más comunes
+    const priority = ['direct', 'icecast', 'centova', 'sonicpanel', 'youtube', 'twitch'];
+    const aIndex = priority.indexOf(a.value);
+    const bIndex = priority.indexOf(b.value);
+    
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    
+    return a.label.localeCompare(b.label);
+  });
+
+  const getUrlPlaceholder = (platform: string) => {
+    const examples: Record<string, string> = {
+      'youtube': 'https://www.youtube.com/watch?v=ID_DEL_VIDEO',
+      'twitch': 'https://www.twitch.tv/nombre_del_canal',
+      'facebook': 'https://www.facebook.com/pagina/live',
+      'icecast': 'http://servidor.com:8000/stream.mp3',
+      'direct': 'http://radio.com/stream.mp3',
+      'centova': 'https://centova.proveedor.com:2199/stream',
+      'sonicpanel': 'https://sonic.proveedor.com:8000/stream',
+    };
+    
+    return examples[platform] || 'URL del stream de la radio';
   };
 
-  const validateUrl = (url: string, platform: string) => {
-    if (!url) return false;
+  const handleUrlChange = (url: string) => {
+    setFormData(prev => ({ ...prev, streamUrl: url }));
     
-    try {
-      new URL(url);
-      
-      switch (platform) {
-        case 'youtube':
-          return url.includes('youtube.com') || url.includes('youtu.be');
-        case 'facebook':
-          return url.includes('facebook.com');
-        case 'twitch':
-          return url.includes('twitch.tv');
-        case 'icecast':
-          return url.startsWith('http://') || url.startsWith('https://');
-        default:
-          return true;
+    // Auto-detectar plataforma
+    if (url.trim()) {
+      const detectedPlatform = detectPlatform(url);
+      if (detectedPlatform && detectedPlatform !== formData.streamPlatform) {
+        const platformData = extractPlatformData(detectedPlatform, url);
+        setFormData(prev => ({
+          ...prev,
+          streamPlatform: detectedPlatform as StreamPlatform,
+          platformData: platformData || {}
+        }));
+        
+        // Mostrar notificación de plataforma detectada
+        toast.info(`Plataforma detectada: ${getPlatformName(detectedPlatform)}`, {
+          position: "top-right",
+          autoClose: 2000,
+        });
       }
-    } catch {
-      return false;
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateUrl(formData.stream_url, formData.platform)) {
-      toast.error('Por favor, ingresa una URL válida para la plataforma seleccionada.', {
+    // Validar URL antes de enviar
+    if (!validatePlatformUrl(formData.streamPlatform, formData.streamUrl)) {
+      toast.error('La URL no es válida para la plataforma seleccionada', {
         position: "top-right",
         autoClose: 4000,
       });
@@ -1334,21 +1583,21 @@ const EditRadioForm = ({ radio, onClose, onUpdate }: {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`/api/radios/${radio.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
+      // Extraer datos de plataforma
+      const platformData = extractPlatformData(formData.streamPlatform, formData.streamUrl);
+      
+      const updatedRadio = {
+        ...radio,
+        ...formData,
+        platformData: platformData || {}
+      };
+      
+      onUpdate(updatedRadio);
+      toast.success('Radio actualizada correctamente', {
+        position: "top-right",
+        autoClose: 2000,
       });
-
-      if (response.ok) {
-        const updatedRadio = await response.json();
-        onUpdate(updatedRadio);
-        onClose();
-      } else {
-        throw new Error('Error al actualizar la radio');
-      }
+      onClose();
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al actualizar la radio. Por favor, intenta de nuevo.', {
@@ -1362,67 +1611,145 @@ const EditRadioForm = ({ radio, onClose, onUpdate }: {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          Nombre de la Radio
-        </label>
-        <input
-          type="text"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="name" className="text-white">Nombre de la Radio</Label>
+          <Input
+            id="name"
+            value={formData.name}
+            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            className="bg-gray-800 border-gray-700 text-white"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="programadora" className="text-white">Programadora</Label>
+          <Input
+            id="programadora"
+            value={formData.programadora}
+            onChange={(e) => setFormData(prev => ({ ...prev, programadora: e.target.value }))}
+            className="bg-gray-800 border-gray-700 text-white"
+            required
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="frequency" className="text-white">Frecuencia</Label>
+          <Input
+            id="frequency"
+            placeholder="Ej: 94.5 FM"
+            value={formData.frequency}
+            onChange={(e) => setFormData(prev => ({ ...prev, frequency: e.target.value }))}
+            className="bg-gray-800 border-gray-700 text-white"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="genre" className="text-white">Género</Label>
+          <Select value={formData.genre} onValueChange={(value) => setFormData(prev => ({ ...prev, genre: value }))}>
+            <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-gray-800 border-gray-700">
+              {genres.map(genre => (
+                <SelectItem key={genre} value={genre} className="text-white hover:bg-gray-700">{genre}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="streamPlatform" className="text-white">Plataforma de Streaming</Label>
+        <Select value={formData.streamPlatform} onValueChange={(value) => setFormData(prev => ({
+          ...prev,
+          streamPlatform: value as StreamPlatform,
+          streamUrl: '' // Reset URL when platform changes
+        }))}>
+          <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+            <SelectValue>
+              <div className="flex items-center space-x-2">
+                {getPlatformIcon(formData.streamPlatform)}
+                <span>{getPlatformName(formData.streamPlatform)}</span>
+              </div>
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent className="bg-gray-800 border-gray-700">
+            {platforms.map(platform => (
+              <SelectItem key={platform.value} value={platform.value} className="text-white hover:bg-gray-700">
+                <div className="flex items-center space-x-2">
+                  {getPlatformIcon(platform.value)}
+                  <div>
+                    <div className="text-white">{platform.label}</div>
+                    <div className="text-xs text-gray-400">{platform.description}</div>
+                  </div>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="streamUrl" className="text-white">URL del Stream</Label>
+        <Input
+          id="streamUrl"
+          placeholder={getUrlPlaceholder(formData.streamPlatform)}
+          value={formData.streamUrl}
+          onChange={(e) => handleUrlChange(e.target.value)}
+          className={`bg-gray-800 border-gray-700 text-white ${
+            formData.streamUrl && !validatePlatformUrl(formData.streamPlatform, formData.streamUrl)
+              ? 'border-red-500' : ''
+          }`}
           required
         />
+        <div className="flex items-center space-x-2 text-xs text-gray-400">
+          {formData.streamUrl && detectPlatform(formData.streamUrl) && (
+            <>
+              {getPlatformIcon(formData.streamPlatform)}
+              <span>Plataforma detectada: {getPlatformName(formData.streamPlatform)}</span>
+            </>
+          )}
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          Plataforma de Stream
-        </label>
-        <select
-          value={formData.platform}
-          onChange={(e) => setFormData({ ...formData, platform: e.target.value })}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {Object.entries(platformMappings).map(([key, value]) => (
-            <option key={key} value={key}>
-              {value.name}
-            </option>
-          ))}
-        </select>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="region" className="text-white">Región</Label>
+          <Select value={formData.region} onValueChange={(value) => setFormData(prev => ({ ...prev, region: value }))}>
+            <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+              <SelectValue placeholder="Seleccionar región" />
+            </SelectTrigger>
+            <SelectContent className="bg-gray-800 border-gray-700">
+              {regions.map(region => (
+                <SelectItem key={region} value={region} className="text-white hover:bg-gray-700">{region}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="city" className="text-white">Ciudad</Label>
+          <Input
+            id="city"
+            value={formData.city}
+            onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
+            className="bg-gray-800 border-gray-700 text-white"
+            required
+          />
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          URL del Stream
-        </label>
-        <input
-          type="url"
-          value={formData.stream_url}
-          onChange={(e) => setFormData({ ...formData, stream_url: e.target.value })}
-          placeholder={platformMappings[formData.platform as keyof typeof platformMappings]?.placeholder}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
+      <div className="space-y-2">
+        <Label htmlFor="website" className="text-white">Sitio Web (opcional)</Label>
+        <Input
+          id="website"
+          placeholder="https://www.radio.cl"
+          value={formData.website}
+          onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))}
+          className="bg-gray-800 border-gray-700 text-white"
         />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          Región
-        </label>
-        <select
-          value={formData.region}
-          onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
-        >
-          <option value="">Selecciona una región</option>
-          {regions.map((region) => (
-            <option key={region} value={region}>
-              {region}
-            </option>
-          ))}
-        </select>
       </div>
 
       <div>

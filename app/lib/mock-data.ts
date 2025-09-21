@@ -79,6 +79,7 @@ export interface Radio {
   pricePerDetection?: number; // Precio actual por detección en CLP
   pricingRuleId?: string; // ID de la regla de precio asignada
   priceHistory?: PriceHistory[]; // Historial de cambios de precio
+  monitoring_enabled?: boolean; // Estado de monitoreo
 }
 
 export interface PriceHistory {

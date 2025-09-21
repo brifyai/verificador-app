@@ -34,10 +34,14 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const { searchParams } = new URL(request.url);
+    const searchParams = request.nextUrl.searchParams;
     const region = searchParams.get('region');
     const platformFilter = searchParams.get('platform');
     const active = searchParams.get('active');
+    const search = searchParams.get('search');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const skip = (page - 1) * limit;
 
     const where: any = {};
 
@@ -49,10 +53,25 @@ export async function GET(request: NextRequest) {
       where.status =
         active === 'true' ? RadioStatus.ACTIVE : RadioStatus.INACTIVE;
     }
+    
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { region: { contains: search, mode: 'insensitive' } },
+        { city: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    
+    // Obtener el total de registros para la paginación
+    const totalRadios = await prisma.radio.count({
+      where
+    });
 
     const radios = await prisma.radio.findMany({
       where,
       orderBy: [{ region: 'asc' }, { name: 'asc' }],
+      skip,
+      take: limit
     });
 
     const transformedRadios = radios.map((radio) => ({
@@ -72,12 +91,19 @@ export async function GET(request: NextRequest) {
       pricePerDetection: radio.metadata?.pricePerDetection || 0,
       pricingRuleId: radio.metadata?.pricingRuleId || null,
       priceHistory: radio.metadata?.priceHistory || [],
+      createdAt: radio.createdAt
     }));
 
     return NextResponse.json({
       success: true,
       data: transformedRadios,
       count: transformedRadios.length,
+      pagination: {
+        total: totalRadios,
+        page,
+        limit,
+        pages: Math.ceil(totalRadios / limit)
+      }
     });
   } catch (error) {
     console.error('Error obteniendo radios:', error);
