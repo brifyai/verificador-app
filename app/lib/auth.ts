@@ -2,10 +2,11 @@
 import bcrypt from 'bcryptjs';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { PrismaClient } from '@prisma/client';
+import { NextAuthOptions } from 'next-auth';
 
 const prisma = new PrismaClient();
 
-export const authOptions = {
+export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       id: 'credentials',
@@ -65,12 +66,10 @@ export const authOptions = {
   },
   session: {
     strategy: 'jwt' as const,
-    maxAge: 30 * 24 * 60 * 60, // 30 días
   },
   callbacks: {
     async jwt({ token, user }: { token: any; user: any }) {
       if (user) {
-        token.id = user.id;
         token.email = user.email;
         token.name = user.name;
         token.role = user.role;
@@ -79,7 +78,7 @@ export const authOptions = {
     },
     async session({ session, token }: { session: any; token: any }) {
       if (token) {
-        session.user.id = token.id;
+        session.user.id = token.sub;
         session.user.email = token.email;
         session.user.name = token.name;
         session.user.role = token.role;

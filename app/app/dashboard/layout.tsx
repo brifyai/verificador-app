@@ -3,14 +3,15 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { jwtVerify } from 'jose';
 
-import Sidebar from '@/components/sidebar';
-import Header from '@/components/header';
-
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // TEMPORALMENTE: Deshabilitar toda la autenticación en el layout del dashboard
+  // Comentar estas líneas cuando el login esté funcionando
+  
+  /* CÓDIGO ORIGINAL - DESCOMENTAR CUANDO EL LOGIN FUNCIONE
   // Verificar autenticación
   const session = await getServerSession();
   
@@ -34,16 +35,8 @@ export default async function DashboardLayout({
   if (!isAuthenticated) {
     redirect('/login');
   }
+  */
 
-  return (
-    <div className="flex h-screen bg-slate-950">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+  // Ahora el sidebar y header están en el layout principal, solo devolvemos el contenido
+  return <>{children}</>;
 }

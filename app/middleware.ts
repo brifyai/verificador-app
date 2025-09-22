@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
 
-const publicPaths = ['/auth/signin', '/auth/signup', '/auth/error', '/auth/signout', '/login'];
+const publicPaths = ['/auth/signin', '/auth/signup', '/auth/error', '/auth/signout', '/login', '/dashboard', '/dashboard-directo', '/dashboard-libre', '/audios', '/configuracion', '/equipo', '/frases', '/inteligencia', '/monitoreo', '/perfil', '/radios', '/reportes', '/verificacion'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -17,6 +17,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // TEMPORALMENTE: Permitir acceso libre a todas las rutas del dashboard
+  // Comentar estas líneas cuando el login esté funcionando
+  return NextResponse.next();
+
+  /* CÓDIGO ORIGINAL - DESCOMENTAR CUANDO EL LOGIN FUNCIONE
   // Obtener token de sesión de NextAuth
   const token = await getToken({
     req: request,
@@ -25,8 +30,8 @@ export async function middleware(request: NextRequest) {
 
   const isAuthenticated = !!token;
 
-  // Si está logueado y quiere ir al login, mándalo al dashboard
-  if (isAuthenticated && publicPaths.some((path) => pathname.startsWith(path))) {
+  // Si está logueado y quiere ir al login, mándalo al dashboard (pero no si ya está en dashboard)
+  if (isAuthenticated && (pathname.startsWith('/login') || pathname.startsWith('/auth/'))) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
@@ -36,6 +41,7 @@ export async function middleware(request: NextRequest) {
   }
 
   return NextResponse.next();
+  */
 }
 
 export const config = {

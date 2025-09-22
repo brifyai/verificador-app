@@ -41,6 +41,9 @@ export default function LoginPage() {
       // Ojo: si las credenciales son incorrectas,
       // NextAuth redirige a /auth/error (o donde lo tengas definido).
       // Si quieres manejar error aquí, debes seguir con redirect: false
+      // Ojo: si las credenciales son incorrectas,
+      console.error('Error en login:', error);
+      setError('Ocurrió un error al iniciar sesión. Por favor, intente nuevamente.');
     } catch (error) {
       console.error('Error en login:', error);
       setError('Ocurrió un error al iniciar sesión. Por favor, intente nuevamente.');
