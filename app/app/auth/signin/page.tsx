@@ -132,11 +132,11 @@ export default function SignInPage() {
         
         // Si llegamos aquí, el login falló
          console.log('❌ LOGIN MANUAL FALLÓ');
-         setError('Error en la autenticación. Verifica tus credenciales.');
+         setGeneralError('Error en la autenticación. Verifica tus credenciales.');
          
        } catch (error) {
          console.error('💥 ERROR EN LOGIN MANUAL:', error);
-         setError('Error de conexión. Inténtalo de nuevo.');
+         setGeneralError('Error de conexión. Inténtalo de nuevo.');
        }
       
       if (false) {
@@ -148,15 +148,15 @@ export default function SignInPage() {
         // Redirigir manualmente
         window.location.href = decodedCallbackUrl;
       } else {
-        console.log('⚠️ RESULTADO INESPERADO:', result);
-        setError('Error inesperado en el proceso de autenticación.');
+        console.log('⚠️ RESULTADO INESPERADO:');
+        setGeneralError('Error inesperado en el proceso de autenticación.');
       }
     } catch (error) {
       console.error('💥 ERROR GENERAL EN HANDLESUBMIT:', error);
       if (error instanceof z.ZodError) {
-         setError('Por favor, completa todos los campos correctamente.');
+         setGeneralError('Por favor, completa todos los campos correctamente.');
        } else {
-         setError('Error interno del servidor. Inténtalo más tarde.');
+         setGeneralError('Error interno del servidor. Inténtalo más tarde.');
        }
     } finally {
       setIsLoading(false);

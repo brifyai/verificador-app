@@ -17,21 +17,22 @@ import {
   FileAudio,
   User
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { getFilteredNavigation, getRoleDescription, NavigationItem, UserRole } from '@/lib/permissions';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: BarChart3 },
-  { name: 'Reportes', href: '/reportes', icon: BarChart3 },
-  { name: 'Mis Frases', href: '/frases', icon: MessageSquare },
-  { name: 'Radios', href: '/radios', icon: Radio },
-  { name: 'Audios', href: '/audios', icon: FileAudio },
-  { name: 'Configuración', href: '/configuracion', icon: Settings },
-  { name: 'Monitoreo', href: '/monitoreo', icon: Activity },
-  { name: 'Verificación', href: '/verificacion', icon: CheckCircle },
-  { name: 'Inteligencia', href: '/inteligencia', icon: Brain },
-  { name: 'Equipo', href: '/equipo', icon: Users },
-  { name: 'Mi Perfil', href: '/perfil', icon: User },
+const navigation: NavigationItem[] = [
+  { name: 'Dashboard', href: '/dashboard', icon: BarChart3, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Reportes', href: '/reportes', icon: BarChart3, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Mis Frases', href: '/frases', icon: MessageSquare, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Radios', href: '/radios', icon: Radio, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Audios', href: '/audios', icon: FileAudio, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Monitoreo', href: '/monitoreo', icon: Activity, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Verificación', href: '/verificacion', icon: CheckCircle, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Inteligencia', href: '/inteligencia', icon: Brain, roles: ['MODERATOR', 'ADMIN'] },
+  { name: 'Equipo', href: '/equipo', icon: Users, roles: ['MODERATOR', 'ADMIN'] },
+  { name: 'Configuración', href: '/configuracion', icon: Settings, roles: ['ADMIN'] },
+  { name: 'Mi Perfil', href: '/perfil', icon: User, roles: ['USER', 'MODERATOR', 'ADMIN'] },
 ];
 
 interface SidebarProps {
@@ -46,6 +47,13 @@ interface SidebarProps {
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+
+  // Filtrar navegación según el rol del usuario
+  const filteredNavigation = useMemo(() => {
+    return getFilteredNavigation(user?.role, navigation);
+  }, [user?.role]);
+
+  const userRoleDescription = getRoleDescription(user?.role);
 
   return (
     <>
@@ -85,7 +93,7 @@ export function Sidebar({ user }: SidebarProps) {
 
           {/* Navigation */}
           <nav className="flex-1 px-4 space-y-1">
-            {navigation.map((item) => {
+            {filteredNavigation.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link
@@ -108,14 +116,21 @@ export function Sidebar({ user }: SidebarProps) {
 
           {/* Bottom section */}
           <div className="p-4 border-t border-slate-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center text-sm text-slate-400">
-                <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                Sistema activo
+            <div className="flex flex-col space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center text-sm text-slate-400">
+                  <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                  Sistema activo
+                </div>
               </div>
               {user && (
-                <div className="text-xs text-slate-500 truncate max-w-[120px]">
-                  {user.name || user.email}
+                <div className="text-xs text-slate-500">
+                  <div className="truncate max-w-[200px] font-medium">
+                    {user.name || user.email}
+                  </div>
+                  <div className="text-slate-600 mt-1">
+                    {userRoleDescription}
+                  </div>
                 </div>
               )}
             </div>

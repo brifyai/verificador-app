@@ -166,7 +166,7 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Verificar si es una ruta protegida válida
-      const protectedRoutes = ['/dashboard', '/dashboard-libre', '/profile', '/settings'];
+      const protectedRoutes = ['/dashboard', '/profile', '/settings'];
       if (protectedRoutes.some(route => urlObj.pathname.startsWith(route))) {
         return url;
       }

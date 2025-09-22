@@ -3,7 +3,9 @@ import { PrismaClient, Platform, RadioStatus } from '@prisma/client';
 import { mockRadios } from '@/lib/mock-data';
 
 const prisma = new PrismaClient();
-const USE_MOCK = process.env.USE_MOCK === 'true';
+
+// Variable para controlar el uso de datos mock
+const USE_MOCK = process.env.USE_MOCK_DATA === 'true';
 
 // Mapear plataformas del frontend al enum de Prisma
 const mapPlatformToEnum = (platform: string): Platform => {

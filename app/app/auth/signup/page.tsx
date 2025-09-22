@@ -338,7 +338,11 @@ export default function SignUpPage() {
                       ? 'text-yellow-400'
                       : 'text-green-400'
                   }`}>
-                    {passwordStrength.feedback}
+                    {passwordStrength.score <= 2 
+                      ? 'Contraseña débil' 
+                      : passwordStrength.score <= 3 
+                      ? 'Contraseña moderada' 
+                      : 'Contraseña fuerte'}
                   </p>
                 </div>
               )}
