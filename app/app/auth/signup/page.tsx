@@ -194,20 +194,20 @@ export default function SignUpPage() {
 
   if (isSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100 p-4">
-        <Card className="w-full max-w-md shadow-lg">
-          <CardContent className="pt-6">
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+        <Card className="w-full max-w-md shadow-2xl bg-slate-900 border-slate-700">
+          <CardContent className="pt-6 bg-slate-900">
             <div className="text-center space-y-4">
-              <CheckCircle className="mx-auto h-16 w-16 text-green-500" />
-              <h2 className="text-2xl font-bold text-green-700">
+              <CheckCircle className="mx-auto h-16 w-16 text-green-400" />
+              <h2 className="text-2xl font-bold text-green-400">
                 ¡Registro Exitoso!
               </h2>
-              <p className="text-gray-600">
+              <p className="text-slate-300">
                 Tu cuenta ha sido creada correctamente. 
                 Iniciando sesión automáticamente...
               </p>
               <div className="flex justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-green-500" />
+                <Loader2 className="h-6 w-6 animate-spin text-green-400" />
               </div>
             </div>
           </CardContent>
@@ -217,22 +217,32 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+      {/* Logo/Brand section */}
+      <div className="absolute top-8 left-8">
+        <div className="flex items-center">
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
+            <Eye className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-xl font-bold text-white">OndaVerificada</span>
+        </div>
+      </div>
+
+      <Card className="w-full max-w-md shadow-2xl bg-slate-900 border-slate-700">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">
+          <CardTitle className="text-2xl font-bold text-center text-white">
             Crear Cuenta
           </CardTitle>
-          <CardDescription className="text-center">
+          <CardDescription className="text-center text-slate-400">
             Completa los datos para registrarte en el sistema
           </CardDescription>
         </CardHeader>
         
-        <CardContent>
+        <CardContent className="bg-slate-900">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Name */}
             <div className="space-y-2">
-              <Label htmlFor="name">Nombre completo</Label>
+              <Label htmlFor="name" className="text-slate-300">Nombre completo</Label>
               <Input
                 id="name"
                 name="name"
@@ -241,19 +251,19 @@ export default function SignUpPage() {
                 value={formData.name}
                 onChange={handleInputChange}
                 onBlur={(e) => validateField('name', e.target.value)}
-                className={errors.name ? 'border-red-500' : ''}
+                className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 ${errors.name ? 'border-red-500' : ''}`}
                 disabled={isLoading}
                 autoComplete="name"
                 required
               />
               {errors.name && (
-                <p className="text-sm text-red-600">{errors.name}</p>
+                <p className="text-sm text-red-400">{errors.name}</p>
               )}
             </div>
 
             {/* Email */}
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-slate-300">Email</Label>
               <Input
                 id="email"
                 name="email"
@@ -262,29 +272,29 @@ export default function SignUpPage() {
                 value={formData.email}
                 onChange={handleInputChange}
                 onBlur={(e) => validateField('email', e.target.value)}
-                className={errors.email ? 'border-red-500' : ''}
+                className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 ${errors.email ? 'border-red-500' : ''}`}
                 disabled={isLoading}
                 autoComplete="email"
                 required
               />
               {errors.email && (
-                <p className="text-sm text-red-600">{errors.email}</p>
+                <p className="text-sm text-red-400">{errors.email}</p>
               )}
             </div>
 
             {/* Password */}
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password" className="text-slate-300">Contraseña</Label>
               <div className="relative">
                 <Input
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Crea una contraseña segura"
+                  placeholder="Tu contraseña"
                   value={formData.password}
                   onChange={handleInputChange}
                   onBlur={(e) => validateField('password', e.target.value)}
-                  className={errors.password ? 'border-red-500 pr-10' : 'pr-10'}
+                  className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 pr-10 ${errors.password ? 'border-red-500' : ''}`}
                   disabled={isLoading}
                   autoComplete="new-password"
                   required
@@ -292,60 +302,51 @@ export default function SignUpPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-200"
                   disabled={isLoading}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+              {errors.password && (
+                <p className="text-sm text-red-400">{errors.password}</p>
+              )}
               
               {/* Password strength indicator */}
               {formData.password && (
                 <div className="space-y-2">
                   <div className="flex space-x-1">
-                    {[1, 2, 3, 4, 5].map((level) => (
+                    {[...Array(5)].map((_, i) => (
                       <div
-                        key={level}
+                        key={i}
                         className={`h-1 flex-1 rounded ${
-                          level <= passwordStrength.score
+                          i < passwordStrength.score
                             ? passwordStrength.score <= 2
                               ? 'bg-red-500'
-                              : passwordStrength.score <= 4
+                              : passwordStrength.score <= 3
                               ? 'bg-yellow-500'
                               : 'bg-green-500'
-                            : 'bg-gray-200'
+                            : 'bg-slate-700'
                         }`}
                       />
                     ))}
                   </div>
-                  <div className="text-xs space-y-1">
-                    <div className={passwordStrength.checks.length ? 'text-green-600' : 'text-gray-500'}>
-                      ✓ Al menos 8 caracteres
-                    </div>
-                    <div className={passwordStrength.checks.lowercase ? 'text-green-600' : 'text-gray-500'}>
-                      ✓ Una letra minúscula
-                    </div>
-                    <div className={passwordStrength.checks.uppercase ? 'text-green-600' : 'text-gray-500'}>
-                      ✓ Una letra mayúscula
-                    </div>
-                    <div className={passwordStrength.checks.number ? 'text-green-600' : 'text-gray-500'}>
-                      ✓ Un número
-                    </div>
-                    <div className={passwordStrength.checks.special ? 'text-green-600' : 'text-gray-500'}>
-                      ✓ Un carácter especial (@$!%*?&)
-                    </div>
-                  </div>
+                  <p className={`text-xs ${
+                    passwordStrength.score <= 2
+                      ? 'text-red-400'
+                      : passwordStrength.score <= 3
+                      ? 'text-yellow-400'
+                      : 'text-green-400'
+                  }`}>
+                    {passwordStrength.feedback}
+                  </p>
                 </div>
-              )}
-              
-              {errors.password && (
-                <p className="text-sm text-red-600">{errors.password}</p>
               )}
             </div>
 
             {/* Confirm Password */}
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
+              <Label htmlFor="confirmPassword" className="text-slate-300">Confirmar contraseña</Label>
               <div className="relative">
                 <Input
                   id="confirmPassword"
@@ -355,7 +356,7 @@ export default function SignUpPage() {
                   value={formData.confirmPassword}
                   onChange={handleInputChange}
                   onBlur={(e) => validateField('confirmPassword', e.target.value)}
-                  className={errors.confirmPassword ? 'border-red-500 pr-10' : 'pr-10'}
+                  className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 pr-10 ${errors.confirmPassword ? 'border-red-500' : ''}`}
                   disabled={isLoading}
                   autoComplete="new-password"
                   required
@@ -363,20 +364,20 @@ export default function SignUpPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-200"
                   disabled={isLoading}
                 >
                   {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="text-sm text-red-600">{errors.confirmPassword}</p>
+                <p className="text-sm text-red-400">{errors.confirmPassword}</p>
               )}
             </div>
 
             {/* Error general */}
             {generalError && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="bg-red-900/20 border-red-800 text-red-400">
                 <AlertDescription>{generalError}</AlertDescription>
               </Alert>
             )}
@@ -384,7 +385,7 @@ export default function SignUpPage() {
             {/* Submit Button */}
             <Button 
               type="submit" 
-              className="w-full" 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 transition-colors" 
               disabled={isLoading || passwordStrength.score < 5}
             >
               {isLoading ? (
@@ -400,11 +401,11 @@ export default function SignUpPage() {
 
           {/* Link to login */}
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-slate-400">
               ¿Ya tienes una cuenta?{' '}
               <Link 
                 href="/auth/signin" 
-                className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
+                className="font-medium text-blue-400 hover:text-blue-300 transition-colors"
               >
                 Inicia sesión aquí
               </Link>

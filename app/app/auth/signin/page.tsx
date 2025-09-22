@@ -169,22 +169,32 @@ export default function SignInPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+      {/* Logo/Brand section */}
+      <div className="absolute top-8 left-8">
+        <div className="flex items-center">
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
+            <Eye className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-xl font-bold text-white">OndaVerificada</span>
+        </div>
+      </div>
+
+      <Card className="w-full max-w-md shadow-2xl bg-slate-900 border-slate-700">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">
+          <CardTitle className="text-2xl font-bold text-center text-white">
             Iniciar Sesión
           </CardTitle>
-          <CardDescription className="text-center">
+          <CardDescription className="text-center text-slate-400">
             Ingresa tus credenciales para acceder al sistema
           </CardDescription>
         </CardHeader>
         
-        <CardContent>
+        <CardContent className="bg-slate-900">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-slate-300">Email</Label>
               <Input
                 id="email"
                 name="email"
@@ -193,19 +203,19 @@ export default function SignInPage() {
                 value={formData.email}
                 onChange={handleInputChange}
                 onBlur={(e) => validateField('email', e.target.value)}
-                className={errors.email ? 'border-red-500' : ''}
+                className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 ${errors.email ? 'border-red-500' : ''}`}
                 disabled={isLoading}
                 autoComplete="email"
                 required
               />
               {errors.email && (
-                <p className="text-sm text-red-600">{errors.email}</p>
+                <p className="text-sm text-red-400">{errors.email}</p>
               )}
             </div>
 
             {/* Password */}
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password" className="text-slate-300">Contraseña</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -215,7 +225,7 @@ export default function SignInPage() {
                   value={formData.password}
                   onChange={handleInputChange}
                   onBlur={(e) => validateField('password', e.target.value)}
-                  className={errors.password ? 'border-red-500 pr-10' : 'pr-10'}
+                  className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 pr-10 ${errors.password ? 'border-red-500' : ''}`}
                   disabled={isLoading}
                   autoComplete="current-password"
                   required
@@ -223,20 +233,20 @@ export default function SignInPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-200"
                   disabled={isLoading}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
               {errors.password && (
-                <p className="text-sm text-red-600">{errors.password}</p>
+                <p className="text-sm text-red-400">{errors.password}</p>
               )}
             </div>
 
             {/* Error general */}
             {generalError && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="bg-red-900/20 border-red-800 text-red-400">
                 <AlertDescription>{generalError}</AlertDescription>
               </Alert>
             )}
@@ -244,7 +254,7 @@ export default function SignInPage() {
             {/* Submit Button */}
             <Button 
               type="submit" 
-              className="w-full" 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 transition-colors" 
               disabled={isLoading}
             >
               {isLoading ? (
@@ -260,11 +270,11 @@ export default function SignInPage() {
 
           {/* Link to register */}
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-slate-400">
               ¿No tienes una cuenta?{' '}
               <Link 
                 href="/auth/signup" 
-                className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
+                className="font-medium text-blue-400 hover:text-blue-300 transition-colors"
               >
                 Regístrate aquí
               </Link>
