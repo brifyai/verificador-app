@@ -1,98 +1,250 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { signIn, getSession, getCsrfToken } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
+import { z } from 'zod';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 
-export default function SignIn() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+// Schema de validación
+const loginSchema = z.object({
+  email: z.string()
+    .email('Formato de email inválido')
+    .toLowerCase(),
+  password: z.string()
+    .min(1, 'La contraseña es requerida')
+});
+
+type FormData = z.infer<typeof loginSchema>;
+type FormErrors = Partial<Record<keyof FormData, string>>;
+
+export default function SignInPage() {
+  const [formData, setFormData] = useState<FormData>({
+    email: '',
+    password: ''
+  });
+  const [errors, setErrors] = useState<FormErrors>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [generalError, setGeneralError] = useState('');
+  
+  const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError('');
-    setIsLoading(true);
-
+  const validateField = (name: keyof FormData, value: string) => {
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
+      const pickSchema = name === 'email' 
+        ? loginSchema.pick({ email: true })
+        : loginSchema.pick({ password: true });
+      pickSchema.parse({ [name]: value });
+      setErrors(prev => ({ ...prev, [name]: undefined }));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        setErrors(prev => ({ 
+          ...prev, 
+          [name]: error.errors[0]?.message 
+        }));
+      }
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Limpiar errores al escribir
+    if (errors[name as keyof FormData]) {
+      validateField(name as keyof FormData, value);
+    }
+    
+    // Limpiar error general
+    if (generalError) {
+      setGeneralError('');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setGeneralError('');
+    
+    console.log('🚀 INICIO DEL PROCESO DE LOGIN');
+    
+    try {
+      // Validar datos del formulario
+      const validatedData = loginSchema.pick({ email: true, password: true }).parse(formData);
+
+      console.log('✅ VALIDACIÓN EXITOSA');
+
+      // Obtener callbackUrl de los parámetros de la URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const callbackUrl = urlParams.get('callbackUrl') || '/dashboard';
+      
+      // Decodificar la URL si está codificada
+      const decodedCallbackUrl = decodeURIComponent(callbackUrl);
+      
+      console.log('🔗 URL PARAMS:', {
+        originalCallbackUrl: callbackUrl,
+        decodedCallbackUrl: decodedCallbackUrl,
+        currentUrl: window.location.href
       });
 
-      const data = await response.json();
+      console.log('🔐 INTENTANDO LOGIN CON NEXTAUTH...');
+      console.log('📧 EMAIL:', validatedData.email);
+      console.log('🔑 PASSWORD LENGTH:', validatedData.password.length);
+      console.log('🎯 PROVIDER ID: credentials');
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Error al iniciar sesión');
+      // Intentar login manual directo al endpoint de autenticación
+      console.log('🔄 INTENTANDO LOGIN MANUAL...');
+      
+      try {
+        const response = await fetch('/api/auth/callback/credentials', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            email: validatedData.email,
+            password: validatedData.password,
+            callbackUrl: decodedCallbackUrl,
+            csrfToken: await getCsrfToken() || '',
+            json: 'true'
+          })
+        });
+
+        console.log('📡 RESPUESTA DEL SERVIDOR:', response.status, response.statusText);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('📋 DATOS DE RESPUESTA:', data);
+          
+          if (data.url) {
+            console.log('✅ LOGIN EXITOSO - REDIRIGIENDO A:', data.url);
+            window.location.href = data.url;
+            return;
+          }
+        }
+        
+        // Si llegamos aquí, el login falló
+         console.log('❌ LOGIN MANUAL FALLÓ');
+         setError('Error en la autenticación. Verifica tus credenciales.');
+         
+       } catch (error) {
+         console.error('💥 ERROR EN LOGIN MANUAL:', error);
+         setError('Error de conexión. Inténtalo de nuevo.');
+       }
+      
+      if (false) {
+        console.log('✅ LOGIN EXITOSO, REDIRIGIENDO A:', decodedCallbackUrl);
+        
+        // Esperar un momento para que la sesión se establezca
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Redirigir manualmente
+        window.location.href = decodedCallbackUrl;
+      } else {
+        console.log('⚠️ RESULTADO INESPERADO:', result);
+        setError('Error inesperado en el proceso de autenticación.');
       }
-
-      // Redirección manual usando window.location para evitar problemas con Next.js Router
-      window.location.href = '/';
-    } catch (error: any) {
-      console.error('Error de autenticación:', error);
-      setError(error.message || 'Error al iniciar sesión. Inténtalo de nuevo.');
+    } catch (error) {
+      console.error('💥 ERROR GENERAL EN HANDLESUBMIT:', error);
+      if (error instanceof z.ZodError) {
+         setError('Por favor, completa todos los campos correctamente.');
+       } else {
+         setError('Error interno del servidor. Inténtalo más tarde.');
+       }
+    } finally {
       setIsLoading(false);
+      
+      // Timeout de seguridad
+      setTimeout(() => {
+        console.log('⏰ TIMEOUT - Si no se redirigió, hay un problema');
+      }, 3000);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <Card className="w-full max-w-md border" style={{
-        backgroundColor: 'rgba(15, 23, 42, 0.6)',
-        borderColor: 'rgba(51, 65, 85, 0.3)'
-      }}>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center text-white">Iniciar Sesión</CardTitle>
-          <CardDescription className="text-center text-slate-400">
-            Ingrese sus credenciales para acceder al sistema
+          <CardTitle className="text-2xl font-bold text-center">
+            Iniciar Sesión
+          </CardTitle>
+          <CardDescription className="text-center">
+            Ingresa tus credenciales para acceder al sistema
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+        
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-slate-300">Correo electrónico</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
-                placeholder="correo@ejemplo.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="tu@email.com"
+                value={formData.email}
+                onChange={handleInputChange}
+                onBlur={(e) => validateField('email', e.target.value)}
+                className={errors.email ? 'border-red-500' : ''}
+                disabled={isLoading}
+                autoComplete="email"
                 required
-                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500"
               />
+              {errors.email && (
+                <p className="text-sm text-red-600">{errors.email}</p>
+              )}
             </div>
+
+            {/* Password */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-slate-300">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500"
-              />
+              <Label htmlFor="password">Contraseña</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Tu contraseña"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  onBlur={(e) => validateField('password', e.target.value)}
+                  className={errors.password ? 'border-red-500 pr-10' : 'pr-10'}
+                  disabled={isLoading}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  disabled={isLoading}
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              {errors.password && (
+                <p className="text-sm text-red-600">{errors.password}</p>
+              )}
             </div>
-          </CardContent>
-          <CardFooter>
+
+            {/* Error general */}
+            {generalError && (
+              <Alert variant="destructive">
+                <AlertDescription>{generalError}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Submit Button */}
             <Button 
               type="submit" 
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white" 
+              className="w-full" 
               disabled={isLoading}
             >
               {isLoading ? (
@@ -104,8 +256,21 @@ export default function SignIn() {
                 'Iniciar Sesión'
               )}
             </Button>
-          </CardFooter>
-        </form>
+          </form>
+
+          {/* Link to register */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600">
+              ¿No tienes una cuenta?{' '}
+              <Link 
+                href="/auth/signup" 
+                className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
+              >
+                Regístrate aquí
+              </Link>
+            </p>
+          </div>
+        </CardContent>
       </Card>
     </div>
   );

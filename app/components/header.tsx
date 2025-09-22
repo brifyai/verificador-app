@@ -1,10 +1,35 @@
 
 'use client';
 
-import { Bell, User, Search } from 'lucide-react';
+import { Bell, User, Search, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { signOut } from 'next-auth/react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
-export default function Header() {
+interface HeaderProps {
+  user?: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    role?: string | null;
+  };
+}
+
+export function Header({ user }: HeaderProps) {
+  const handleSignOut = () => {
+    signOut({
+      callbackUrl: '/auth/signin',
+      redirect: true
+    });
+  };
+
   return (
     <header className="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700 sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -30,15 +55,34 @@ export default function Header() {
             </Button>
 
             {/* User menu */}
-            <div className="flex items-center space-x-3">
-              <div className="text-right">
-                <div className="text-sm font-medium text-white">Admin User</div>
-                <div className="text-xs text-slate-400">Administrador</div>
-              </div>
-              <Button variant="ghost" size="icon" className="text-slate-300 hover:text-white">
-                <User className="w-5 h-5" />
-              </Button>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="flex items-center space-x-3 text-slate-300 hover:text-white">
+                  <div className="text-right">
+                    <div className="text-sm font-medium text-white">
+                      {user?.name || 'Usuario'}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {user?.role || 'Usuario'}
+                    </div>
+                  </div>
+                  <User className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Perfil</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Cerrar Sesión</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

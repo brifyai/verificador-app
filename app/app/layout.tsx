@@ -5,8 +5,6 @@ import './globals.css';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { SessionProvider } from '@/components/session-provider';
-import Sidebar from '@/components/sidebar';
-import Header from '@/components/header';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -24,15 +22,7 @@ export default function RootLayout({
     <html lang="es">
       <body className={inter.className}>
         <SessionProvider>
-          <div className="flex h-screen bg-slate-950">
-            <Sidebar />
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <Header />
-              <main className="flex-1 overflow-y-auto p-6">
-                {children}
-              </main>
-            </div>
-          </div>
+          {children}
         </SessionProvider>
         <ToastContainer
           position="top-center"

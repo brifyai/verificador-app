@@ -1,49 +1,55 @@
+import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
-import { getToken } from 'next-auth/jwt';
-import type { NextRequest } from 'next/server';
 
-const publicPaths = ['/auth/signin', '/auth/signup', '/auth/error', '/auth/signout', '/login', '/dashboard', '/dashboard-directo', '/dashboard-libre', '/audios', '/configuracion', '/equipo', '/frases', '/inteligencia', '/monitoreo', '/perfil', '/radios', '/reportes', '/verificacion'];
+export default withAuth(
+  function middleware(req) {
+    const { pathname } = req.nextUrl;
+    const token = req.nextauth.token;
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+    // Rutas públicas que no requieren autenticación
+    const publicRoutes = ['/auth/signin', '/auth/signup', '/auth/error'];
+    
+    // Si el usuario está autenticado y trata de acceder a rutas de auth, redirigir al dashboard
+    if (token && publicRoutes.includes(pathname)) {
+      return NextResponse.redirect(new URL('/dashboard', req.url));
+    }
 
-  // Ignorar recursos estáticos
-  if (
-    pathname.startsWith('/api/auth') ||
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon.ico') ||
-    pathname.includes('.')
-  ) {
+    // Permitir acceso normal a todas las demás rutas
     return NextResponse.next();
+  },
+  {
+    callbacks: {
+      authorized: ({ token, req }) => {
+        const { pathname } = req.nextUrl;
+        
+        // Rutas públicas que no requieren autenticación
+        const publicRoutes = ['/auth/signin', '/auth/signup', '/auth/error'];
+
+        // Permitir acceso a rutas públicas sin token
+        if (publicRoutes.includes(pathname)) {
+          return true;
+        }
+
+        // Para todas las demás rutas, requerir token
+        return !!token;
+      },
+    },
+    pages: {
+      signIn: '/auth/signin',
+    },
   }
-
-  // TEMPORALMENTE: Permitir acceso libre a todas las rutas del dashboard
-  // Comentar estas líneas cuando el login esté funcionando
-  return NextResponse.next();
-
-  /* CÓDIGO ORIGINAL - DESCOMENTAR CUANDO EL LOGIN FUNCIONE
-  // Obtener token de sesión de NextAuth
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
-
-  const isAuthenticated = !!token;
-
-  // Si está logueado y quiere ir al login, mándalo al dashboard (pero no si ya está en dashboard)
-  if (isAuthenticated && (pathname.startsWith('/login') || pathname.startsWith('/auth/'))) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
-  }
-
-  // Si no está logueado y quiere ir a rutas privadas
-  if (!isAuthenticated && !publicPaths.some((path) => pathname.startsWith(path))) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-
-  return NextResponse.next();
-  */
-}
+);
 
 export const config = {
-  matcher: ['/((?!api/auth|_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/auth (NextAuth API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (images, etc.)
+     */
+    '/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };

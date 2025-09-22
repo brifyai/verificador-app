@@ -1,64 +1,94 @@
-import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
 
 const prisma = new PrismaClient();
 
-export async function POST(request: Request) {
+// Schema de validación con Zod
+const registerSchema = z.object({
+  name: z.string()
+    .min(2, 'El nombre debe tener al menos 2 caracteres')
+    .max(50, 'El nombre no puede exceder 50 caracteres')
+    .regex(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/, 'El nombre solo puede contener letras y espacios'),
+  email: z.string()
+    .email('Formato de email inválido')
+    .toLowerCase()
+    .max(100, 'El email no puede exceder 100 caracteres'),
+  password: z.string()
+    .min(8, 'La contraseña debe tener al menos 8 caracteres')
+    .max(100, 'La contraseña no puede exceder 100 caracteres')
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, 
+      'La contraseña debe contener al menos: 1 minúscula, 1 mayúscula, 1 número y 1 carácter especial')
+});
+
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, password } = body;
-
-    // Validaciones básicas
-    if (!name || !email || !password) {
-      return NextResponse.json(
-        { message: 'Faltan campos requeridos' },
-        { status: 400 }
-      );
+    
+    // Validar datos de entrada
+    const validationResult = registerSchema.safeParse(body);
+    
+    if (!validationResult.success) {
+      return NextResponse.json({
+        success: false,
+        message: 'Datos de entrada inválidos',
+        errors: validationResult.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message
+        }))
+      }, { status: 400 });
     }
 
-    // Verificar si el correo ya está registrado
+    const { name, email, password } = validationResult.data;
+
+    // Verificar si el usuario ya existe
     const existingUser = await prisma.user.findUnique({
-      where: { email },
+      where: { email }
     });
 
     if (existingUser) {
-      return NextResponse.json(
-        { message: 'El correo electrónico ya está registrado' },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        message: 'Ya existe una cuenta con este email'
+      }, { status: 409 });
     }
 
-    // Encriptar la contraseña
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Encriptar contraseña
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Crear el usuario
+    // Crear usuario
     const user = await prisma.user.create({
       data: {
-        name,
+        name: name.trim(),
         email,
         password: hashedPassword,
-        role: 'USER', // Rol por defecto
-        active: true, // Activo por defecto
+        role: 'user', // Rol por defecto
+        active: true
       },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true
+      }
     });
 
-    // Eliminar la contraseña de la respuesta
-    const { password: _, ...userWithoutPassword } = user;
+    return NextResponse.json({
+      success: true,
+      message: 'Usuario registrado exitosamente',
+      user
+    }, { status: 201 });
 
-    return NextResponse.json(
-      { 
-        message: 'Usuario registrado correctamente',
-        user: userWithoutPassword
-      },
-      { status: 201 }
-    );
   } catch (error) {
-    console.error('Error al registrar usuario:', error);
-    return NextResponse.json(
-      { message: 'Error al registrar usuario' },
-      { status: 500 }
-    );
+    console.error('Error en registro de usuario');
+    
+    return NextResponse.json({
+      success: false,
+      message: 'Error interno del servidor'
+    }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }

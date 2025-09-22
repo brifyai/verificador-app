@@ -34,7 +34,16 @@ const navigation = [
   { name: 'Mi Perfil', href: '/perfil', icon: User },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  user?: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    role?: string | null;
+  };
+}
+
+export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -99,9 +108,16 @@ export default function Sidebar() {
 
           {/* Bottom section */}
           <div className="p-4 border-t border-slate-700">
-            <div className="flex items-center text-sm text-slate-400">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-              Sistema activo
+            <div className="flex items-center justify-between">
+              <div className="flex items-center text-sm text-slate-400">
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                Sistema activo
+              </div>
+              {user && (
+                <div className="text-xs text-slate-500 truncate max-w-[120px]">
+                  {user.name || user.email}
+                </div>
+              )}
             </div>
           </div>
         </div>
