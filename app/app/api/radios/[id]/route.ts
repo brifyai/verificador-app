@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Platform } from '@prisma/client';
 
 // DELETE - Eliminar radio por ID
 export async function DELETE(
@@ -73,7 +74,7 @@ export async function PUT(
     }
 
     // Preparar los metadatos actualizados
-    const currentMetadata = existingRadio.metadata || {};
+    const currentMetadata = existingRadio.metadata as Record<string, any> || {};
     const updatedMetadata = {
       ...currentMetadata,
       programadora: body.programadora,
@@ -100,19 +101,20 @@ export async function PUT(
     });
 
     // Transformar la respuesta para el frontend
+    const metadata = updatedRadio.metadata as Record<string, any> || {};
     const transformedRadio = {
       id: updatedRadio.id,
       name: updatedRadio.name,
-      programadora: updatedRadio.metadata?.programadora || '',
-      frequency: updatedRadio.metadata?.frequency || '',
+      programadora: metadata.programadora || '',
+      frequency: metadata.frequency || '',
       streamUrl: updatedRadio.streamUrl,
-      streamPlatform: updatedRadio.metadata?.streamPlatform || updatedRadio.platform.toLowerCase(),
+      streamPlatform: metadata.streamPlatform || updatedRadio.platform.toLowerCase(),
       region: updatedRadio.region,
-      city: updatedRadio.metadata?.city || '',
-      website: updatedRadio.metadata?.website || '',
+      city: metadata.city || '',
+      website: metadata.website || '',
       isActive: updatedRadio.status === 'ACTIVE',
-      lastMonitored: updatedRadio.metadata?.lastMonitored || 'Nunca',
-      genre: updatedRadio.metadata?.genre || 'Música',
+      lastMonitored: metadata.lastMonitored || 'Nunca',
+      genre: metadata.genre || 'Música',
     };
 
     return NextResponse.json({ 
@@ -130,19 +132,19 @@ export async function PUT(
 }
 
 // Función auxiliar para mapear plataformas
-const mapPlatformToEnum = (platform: string) => {
-  const platformMap: Record<string, string> = {
-    youtube: 'YOUTUBE',
-    twitch: 'TWITCH',
-    facebook: 'FACEBOOK',
-    icecast: 'ICECAST',
-    shoutcast: 'ICECAST',
-    direct: 'HTTP_STREAM',
-    http: 'HTTP_STREAM',
-    rtmp: 'RTMP',
-    centova: 'ICECAST',
-    sonicpanel: 'ICECAST',
-    azuracast: 'ICECAST',
+const mapPlatformToEnum = (platform: string): Platform => {
+  const platformMap: Record<string, Platform> = {
+    youtube: Platform.YOUTUBE,
+    twitch: Platform.TWITCH,
+    facebook: Platform.FACEBOOK,
+    icecast: Platform.ICECAST,
+    shoutcast: Platform.ICECAST,
+    direct: Platform.HTTP_STREAM,
+    http: Platform.HTTP_STREAM,
+    rtmp: Platform.RTMP,
+    centova: Platform.ICECAST,
+    sonicpanel: Platform.ICECAST,
+    azuracast: Platform.ICECAST,
   };
-  return platformMap[platform.toLowerCase()] || 'OTHER';
+  return platformMap[platform.toLowerCase()] || Platform.OTHER;
 };

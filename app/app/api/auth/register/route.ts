@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         email,
         password: hashedPassword,
-        role: 'user', // Rol por defecto
+        role: 'USER', // Rol por defecto
         active: true
       },
       select: {

@@ -76,25 +76,28 @@ export async function GET(request: NextRequest) {
       take: limit
     });
 
-    const transformedRadios = radios.map((radio) => ({
-      id: radio.id,
-      name: radio.name,
-      programadora: radio.metadata?.programadora || '',
-      frequency: radio.metadata?.frequency || '',
-      streamUrl: radio.streamUrl,
-      streamPlatform:
-        radio.metadata?.streamPlatform || radio.platform.toLowerCase(),
-      region: radio.region,
-      city: radio.metadata?.city || '',
-      website: radio.metadata?.website || '',
-      isActive: radio.status === RadioStatus.ACTIVE,
-      lastMonitored: radio.metadata?.lastMonitored || 'Nunca',
-      genre: radio.metadata?.genre || 'Música',
-      pricePerDetection: radio.metadata?.pricePerDetection || 0,
-      pricingRuleId: radio.metadata?.pricingRuleId || null,
-      priceHistory: radio.metadata?.priceHistory || [],
-      createdAt: radio.createdAt
-    }));
+    const transformedRadios = radios.map((radio) => {
+      const metadata = radio.metadata as Record<string, any> || {};
+      return {
+        id: radio.id,
+        name: radio.name,
+        programadora: metadata.programadora || '',
+        frequency: metadata.frequency || '',
+        streamUrl: radio.streamUrl,
+        streamPlatform: metadata.streamPlatform || radio.platform.toLowerCase(),
+        region: radio.region,
+        city: metadata.city || '',
+        website: metadata.website || '',
+        isActive: radio.status === RadioStatus.ACTIVE,
+        lastMonitored: metadata.lastMonitored || 'Nunca',
+        genre: metadata.genre || 'Música',
+        pricePerDetection: metadata.pricePerDetection || 0,
+        pricingRuleId: metadata.pricingRuleId || null,
+        priceHistory: metadata.priceHistory || [],
+         monitoring_enabled: metadata.monitoring_enabled || false,
+         createdAt: radio.createdAt,
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -137,12 +140,12 @@ export async function POST(request: NextRequest) {
           ? mapPlatformToEnum(body.streamPlatform)
           : Platform.OTHER,
         region: body.region,
-        city: body.city,
         status: body.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
         description: body.genre || '',
         metadata: {
           programadora: body.programadora,
           frequency: body.frequency,
+          city: body.city,
           platformData: body.platformData,
           lastMonitored: body.lastMonitored,
         },
@@ -180,7 +183,6 @@ export async function PUT(request: NextRequest) {
           ? mapPlatformToEnum(body.streamPlatform)
           : undefined,
         region: body.region,
-        city: body.city,
         status:
           body.isActive !== undefined
             ? body.isActive
@@ -191,6 +193,7 @@ export async function PUT(request: NextRequest) {
         metadata: {
           programadora: body.programadora,
           frequency: body.frequency,
+          city: body.city,
           platformData: body.platformData,
           lastMonitored: body.lastMonitored,
         },

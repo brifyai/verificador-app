@@ -1122,7 +1122,7 @@ export default function RadiosPage() {
               onClose={() => setEditingRadio(null)}
               onSubmit={(updatedRadio) => {
                 setRadios(prev => prev.map(radio => 
-                  radio.id === updatedRadio.id ? { ...radio, ...updatedRadio } : radio
+                  radio.id === (updatedRadio as Radio).id ? { ...radio, ...updatedRadio } : radio
                 ))
                 setEditingRadio(null);
               }}
@@ -1346,7 +1346,7 @@ function RadioForm({
   onClose 
 }: { 
   radio?: Radio;
-  onSubmit: (radio: Omit<Radio, 'id'>) => void;
+  onSubmit: (radio: Radio | Omit<Radio, 'id'>) => void;
   onClose?: () => void;
 }) {
   const isEditing = !!radio;
@@ -1486,6 +1486,7 @@ function RadioForm({
       
       const radioData = {
         ...formData,
+        ...(isEditing && radio ? { id: radio.id } : {}),
         platformData: platformData || {},
         lastMonitored: isEditing ? formData.lastMonitored : 'Nunca'
       };

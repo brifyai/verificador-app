@@ -1,7 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { Platform, RadioStatus } from '@prisma/client';
 
 interface RadioData {
   id: number;
@@ -70,28 +69,8 @@ export async function POST(request: NextRequest) {
       regions: [...new Set(processedRadios.map(r => r.region))].length
     };
 
-    // Guardar en archivo JSON para respaldo/desarrollo
-    const dataDir = path.join(process.cwd(), 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    const filePath = path.join(dataDir, 'radios_imported.json');
-    
-    let existingRadios = [];
-    if (!replaceAll && fs.existsSync(filePath)) {
-      try {
-        const existingData = fs.readFileSync(filePath, 'utf8');
-        existingRadios = JSON.parse(existingData);
-      } catch (error) {
-        console.log('No se pudo leer archivo existente, creando nuevo');
-      }
-    }
-
-    const finalRadios = replaceAll ? processedRadios : [...existingRadios, ...processedRadios];
-    
     // Eliminar duplicados por nombre y región
-    const uniqueRadios = finalRadios.reduce((acc: any[], current: any) => {
+    const uniqueRadios = processedRadios.reduce((acc: any[], current: any) => {
       const existing = acc.find(radio => 
         radio.name.toLowerCase() === current.name.toLowerCase() && 
         radio.region.toLowerCase() === current.region.toLowerCase()
@@ -102,12 +81,9 @@ export async function POST(request: NextRequest) {
       return acc;
     }, []);
 
-    // Guardar en archivo como respaldo
-    fs.writeFileSync(filePath, JSON.stringify(uniqueRadios, null, 2));
-
     // Importar a la base de datos usando Prisma
     try {
-      const { PrismaClient, Platform, RadioStatus } = require('@prisma/client');
+      const { PrismaClient } = require('@prisma/client');
       const prisma = new PrismaClient();
       
       // Función para mapear plataforma
@@ -142,15 +118,15 @@ export async function POST(request: NextRequest) {
                 platform: mapPlatform(radio.streamUrl),
                 status: radio.status === 'active' ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
                 metadata: {
-                  ...(existingRadio.metadata || {}),
-                  frequency: radio.frequency || existingRadio.metadata?.frequency,
-                  city: radio.city || existingRadio.metadata?.city,
-                  website: radio.website || existingRadio.metadata?.website,
-                  phone: radio.phone || existingRadio.metadata?.phone,
-                  email: radio.email || existingRadio.metadata?.email,
-                  address: radio.address || existingRadio.metadata?.address,
-                  logo: radio.logo || existingRadio.metadata?.logo,
-                  description: radio.description || existingRadio.metadata?.description
+                  ...(existingRadio.metadata as Record<string, any> || {}),
+                  frequency: radio.frequency || (existingRadio.metadata as Record<string, any>)?.frequency,
+                  city: radio.city || (existingRadio.metadata as Record<string, any>)?.city,
+                  website: radio.website || (existingRadio.metadata as Record<string, any>)?.website,
+                  phone: radio.phone || (existingRadio.metadata as Record<string, any>)?.phone,
+                  email: radio.email || (existingRadio.metadata as Record<string, any>)?.email,
+                  address: radio.address || (existingRadio.metadata as Record<string, any>)?.address,
+                  logo: radio.logo || (existingRadio.metadata as Record<string, any>)?.logo,
+                  description: radio.description || (existingRadio.metadata as Record<string, any>)?.description
                 }
               }
             });
@@ -188,23 +164,17 @@ export async function POST(request: NextRequest) {
         message: `Importación exitosa: ${stats.total} radios`,
         stats,
         preview: processedRadios.slice(0, 5), // Mostrar primeras 5 como vista previa
-        savedTo: 'Base de datos y archivo de respaldo'
+        savedTo: 'Base de datos'
       });
     } catch (dbError) {
       console.error('Error al guardar en la base de datos:', dbError);
       
-      console.log(`✅ Importación exitosa (solo archivo): ${stats.total} radios procesadas`);
-      console.log(`📊 Estadísticas: ${stats.active} activas, ${stats.inactive} inactivas, ${stats.regions} regiones`);
-      
-      // Si falla la BD, al menos devolvemos los datos del archivo
-      return NextResponse.json({
-        success: true,
-        message: `Importación exitosa: ${stats.total} radios (solo archivo)`,
-        error: dbError.message,
-        stats,
-        preview: processedRadios.slice(0, 5),
-        savedTo: replaceAll ? 'Reemplazados todos los registros en archivo' : 'Agregados a registros existentes en archivo'
-      });
+      // Si falla la BD, devolvemos error
+        return NextResponse.json({
+          success: false,
+          message: 'Error al guardar en la base de datos',
+          error: (dbError as Error).message
+        }, { status: 500 });
     }
 
   } catch (error) {
@@ -216,34 +186,63 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Endpoint para obtener estadísticas de importación
+// Endpoint para obtener estadísticas de importación desde la base de datos
 export async function GET() {
   try {
-    const filePath = path.join(process.cwd(), 'data', 'radios_imported.json');
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
     
-    if (!fs.existsSync(filePath)) {
-      return NextResponse.json({
-        exists: false,
-        message: 'No hay radios importadas'
-      });
-    }
+    // Obtener estadísticas desde la base de datos
+    const totalRadios = await prisma.radio.count();
+    const activeRadios = await prisma.radio.count({
+      where: { status: 'ACTIVE' }
+    });
+    const inactiveRadios = await prisma.radio.count({
+      where: { status: 'INACTIVE' }
+    });
+    const radiosWithUrl = await prisma.radio.count({
+      where: { 
+        streamUrl: {
+          not: ''
+        }
+      }
+    });
+    const radiosWithoutUrl = totalRadios - radiosWithUrl;
+    
+    // Obtener regiones únicas
+    const regions = await prisma.radio.findMany({
+      select: { region: true },
+      distinct: ['region']
+    });
+    
+    // Obtener las últimas radios como preview
+    const preview = await prisma.radio.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        region: true,
+        streamUrl: true,
+        status: true,
+        createdAt: true
+      }
+    });
 
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    
     const stats = {
-      total: data.length,
-      active: data.filter((r: any) => r.status === 'active').length,
-      inactive: data.filter((r: any) => r.status === 'inactive').length,
-      withUrl: data.filter((r: any) => r.streamUrl).length,
-      withoutUrl: data.filter((r: any) => !r.streamUrl).length,
-      regions: [...new Set(data.map((r: any) => r.region))],
-      lastImported: data.length > 0 ? data[0].created_at : null
+      total: totalRadios,
+      active: activeRadios,
+      inactive: inactiveRadios,
+      withUrl: radiosWithUrl,
+      withoutUrl: radiosWithoutUrl,
+      regions: regions.map((r: any) => r.region),
+      lastImported: preview.length > 0 ? preview[0].createdAt : null
     };
 
     return NextResponse.json({
-      exists: true,
+      exists: totalRadios > 0,
       stats,
-      preview: data.slice(0, 10)
+      preview
     });
 
   } catch (error) {
