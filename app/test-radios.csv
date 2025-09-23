@@ -1,0 +1,4 @@
+nombre,region,ciudad,url,frecuencia,descripcion,telefono,email,programadora
+Radio Test 1,Metropolitana,Santiago,http://stream.test1.com,100.1 FM,Radio de prueba 1,+56912345678,test1@radio.com,Test Programadora 1
+Radio Test 2,Valparaíso,Viña del Mar,http://stream.test2.com,102.5 FM,Radio de prueba 2,+56987654321,test2@radio.com,Test Programadora 2
+Radio Test 3,Biobío,Concepción,,95.7 FM,Radio sin URL de prueba,+56911111111,test3@radio.com,Test Programadora 3

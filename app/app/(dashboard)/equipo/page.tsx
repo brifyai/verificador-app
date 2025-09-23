@@ -1,13 +1,52 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UserPlus, Mail, Shield, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AddUserModal } from '@/components/ui/add-user-modal';
 import { mockTeamMembers, TeamMember } from '@/lib/mock-data';
+import { getDisplayRole, DatabaseRole } from '@/lib/types';
 
 export default function Equipo() {
   const [members, setMembers] = useState<TeamMember[]>(mockTeamMembers);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Función para cargar usuarios desde la API
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/users');
+      if (response.ok) {
+        const users = await response.json();
+        // Convertir usuarios de la API al formato TeamMember
+        const teamMembers: TeamMember[] = users.map((user: any) => ({
+          id: user.id,
+          name: user.name || 'Sin nombre',
+          email: user.email,
+          role: getDisplayRole(user.role as DatabaseRole),
+          lastLogin: user.updatedAt ? new Date(user.updatedAt).toLocaleDateString('es-CL') + ' ' + new Date(user.updatedAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : 'Nunca',
+          status: user.active ? 'Activo' : 'Inactivo'
+        }));
+        setMembers(teamMembers);
+      }
+    } catch (error) {
+      console.error('Error loading users:', error);
+      // Mantener datos mock en caso de error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Cargar usuarios al montar el componente
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const handleUserAdded = () => {
+    loadUsers(); // Recargar la lista después de agregar un usuario
+  };
 
   const getRoleColor = (role: string) => {
     switch (role.toLowerCase()) {
@@ -28,7 +67,7 @@ export default function Equipo() {
             Gestión de usuarios y permisos del sistema
           </p>
         </div>
-        <Button className="bg-blue-600 hover:bg-blue-700">
+        <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setIsModalOpen(true)}>
           <UserPlus className="w-4 h-4 mr-2" />
           Invitar miembro
         </Button>
@@ -189,6 +228,13 @@ export default function Equipo() {
           </ul>
         </div>
       </div>
+
+      {/* Modal para agregar usuario */}
+      <AddUserModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onUserAdded={handleUserAdded}
+      />
     </div>
   );
 }

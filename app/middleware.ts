@@ -56,13 +56,21 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api/auth (NextAuth API routes)
-     * - api/radios (Radios API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (images, etc.)
+     * 
+     * API Routes (públicas):
+     * - api/auth         (NextAuth API routes)
+     * - api/radios       (Radios API routes)  
+     * - api/users        (Users API routes)
+     * - api/monitoring   (Monitoring API routes)
+     * 
+     * Static Assets:
+     * - _next/static  (Static files)
+     * - _next/image   (Image optimization files)
+     * - favicon.ico   (Favicon file)
+     * 
+     * Image Files:
+     * - svg, png, jpg, jpeg, gif, webp
      */
-    '/((?!api/auth|api/radios|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/auth|api/radios|api/users|api/monitoring|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

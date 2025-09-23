@@ -82,7 +82,7 @@ export default function RadiosPage() {
   // const [radios, setRadios] = useState<Radio[]>(mockRadios); // Datos Prueba
   const [radios, setRadios] = useState<Radio[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRegion, setSelectedRegion] = useState<string>('all');
+  const [selectedRegion, setSelectedRegion] = useState<string>('');
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -126,18 +126,22 @@ export default function RadiosPage() {
     }
   };
 
-  const validateJsonFile = (file: File): boolean => {
+  const validateFile = (file: File): boolean => {
     const validTypes = [
       'application/json',
-      'text/json'
+      'text/json',
+      'text/csv',
+      'application/csv',
+      'text/comma-separated-values'
     ];
     
     // Verificar también por extensión de archivo en caso de que el tipo MIME no sea correcto
     const fileName = file.name.toLowerCase();
     const isJsonExtension = fileName.endsWith('.json');
+    const isCsvExtension = fileName.endsWith('.csv');
     
-    if (!validTypes.includes(file.type) && !isJsonExtension) {
-      setImportError(`Tipo de archivo no válido. Por favor, sube un archivo JSON (.json)`);
+    if (!validTypes.includes(file.type) && !isJsonExtension && !isCsvExtension) {
+      setImportError(`Tipo de archivo no válido. Por favor, sube un archivo JSON (.json) o CSV (.csv)`);
       return false;
     }
     
@@ -149,6 +153,122 @@ export default function RadiosPage() {
     return true;
   };
 
+  // Función para parsear CSV
+  const parseCSV = (csvText: string): any[] => {
+    const lines = csvText.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      throw new Error('El archivo CSV debe tener al menos una fila de encabezados y una fila de datos');
+    }
+
+    // Función para parsear una línea CSV respetando comillas
+    const parseCSVLine = (line: string): string[] => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            // Comilla escapada
+            current += '"';
+            i++; // Saltar la siguiente comilla
+          } else {
+            // Cambiar estado de comillas
+            inQuotes = !inQuotes;
+          }
+        } else if (char === ',' && !inQuotes) {
+          // Separador encontrado fuera de comillas
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      
+      // Agregar el último campo
+      result.push(current.trim());
+      return result;
+    };
+
+    // Parsear encabezados
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+    
+    // Mapeo de posibles nombres de columnas a campos estándar
+    const fieldMapping: Record<string, string> = {
+      'nombre': 'name',
+      'name': 'name',
+      'radio': 'name',
+      'region': 'region',
+      'región': 'region',
+      'ciudad': 'city',
+      'city': 'city',
+      'url': 'streamUrl',
+      'streamurl': 'streamUrl',
+      'stream_url': 'streamUrl',
+      'enlace': 'streamUrl',
+      'link': 'streamUrl',
+      'frecuencia': 'frequency',
+      'frequency': 'frequency',
+      'freq': 'frequency',
+      'descripcion': 'description',
+      'description': 'description',
+      'desc': 'description',
+      'sitio': 'website',
+      'website': 'website',
+      'web': 'website',
+      'telefono': 'phone',
+      'phone': 'phone',
+      'tel': 'phone',
+      'email': 'email',
+      'correo': 'email',
+      'direccion': 'address',
+      'address': 'address',
+      'logo': 'logo',
+      'programadora': 'programadora',
+      'genero': 'genre',
+      'genre': 'genre',
+      'tipo': 'genre'
+    };
+
+    // Parsear datos
+    const radios = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i]);
+      if (values.length === 0 || values.every(v => !v.trim())) continue; // Saltar líneas vacías
+      
+      const radio: any = {};
+      
+      headers.forEach((header, index) => {
+        const standardField = fieldMapping[header] || header;
+        const value = values[index] ? values[index].trim() : '';
+        
+        if (value) {
+          radio[standardField] = value;
+        }
+      });
+      
+      // Validar campos requeridos
+      if (!radio.name || !radio.region) {
+        console.warn(`Fila ${i + 1}: Faltan campos requeridos (name, region)`, radio);
+        continue;
+      }
+      
+      // Asegurar campos por defecto
+      radio.city = radio.city || radio.region;
+      radio.programadora = radio.programadora || radio.name;
+      
+      radios.push(radio);
+    }
+    
+    if (radios.length === 0) {
+      throw new Error('No se encontraron radios válidas en el archivo CSV');
+    }
+    
+    return radios;
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -157,7 +277,7 @@ export default function RadiosPage() {
     
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (validateJsonFile(file)) {
+      if (validateFile(file)) {
         setImportFile(file);
         toast.success(`Archivo "${file.name}" seleccionado correctamente`);
       }
@@ -168,7 +288,7 @@ export default function RadiosPage() {
     setImportError(null);
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
-      if (validateJsonFile(file)) {
+      if (validateFile(file)) {
         setImportFile(file);
         toast.success(`Archivo "${file.name}" seleccionado correctamente`);
       }
@@ -194,7 +314,7 @@ export default function RadiosPage() {
   useEffect(() => {
     const fetchRadios = async () => {
       try {
-        const res = await fetch('/api/radios');
+        const res = await fetch('/api/radios?limit=500');
         if (!res.ok) throw new Error('Error al cargar radios');
         const json = await res.json();
         if (Array.isArray(json.data)) {
@@ -225,7 +345,7 @@ export default function RadiosPage() {
       const matchesSearch = radio.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           radio.programadora.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           radio.city.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesRegion = selectedRegion === 'all' || radio.region === selectedRegion;
+      const matchesRegion = selectedRegion === '' || selectedRegion === 'all' || radio.region === selectedRegion;
       const matchesGenre = selectedGenre === 'all' || radio.genre === selectedGenre;
       const matchesPlatform = selectedPlatform === 'all' || radio.streamPlatform === selectedPlatform;
       
@@ -483,7 +603,7 @@ export default function RadiosPage() {
 
   const handleImportFromFile = async () => {
     if (!importFile) {
-      setImportError("Por favor, selecciona un archivo JSON para importar.");
+      setImportError("Por favor, selecciona un archivo JSON o CSV para importar.");
       return;
     }
 
@@ -491,31 +611,47 @@ export default function RadiosPage() {
     setImportError(null);
     
     try {
-      // Leer el archivo JSON
+      // Leer el archivo
       const fileContent = await importFile.text();
       let jsonData;
       
-      try {
-        // Intentar parsear el JSON
-        const parsedData = JSON.parse(fileContent);
-        
-        // Verificar si ya tiene la estructura correcta o necesita ser envuelto
-        if (Array.isArray(parsedData)) {
-          // Si es un array, envolverlo en un objeto con propiedad radios
-          jsonData = { radios: parsedData };
-        } else if (parsedData.radios && Array.isArray(parsedData.radios)) {
-          // Ya tiene la estructura correcta
-          jsonData = parsedData;
-        } else {
-          // No tiene la estructura esperada
-          setImportError("El archivo JSON debe contener un array de radios o un objeto con una propiedad 'radios' que sea un array.");
+      // Determinar el tipo de archivo
+      const isCSV = importFile.name.toLowerCase().endsWith('.csv') || 
+                   importFile.type.includes('csv');
+      
+      if (isCSV) {
+        try {
+          // Parsear CSV
+          const radiosArray = parseCSV(fileContent);
+          jsonData = { radios: radiosArray };
+        } catch (error: any) {
+          setImportError(`Error al procesar el archivo CSV: ${error.message}`);
           setImportLoading(false);
           return;
         }
-      } catch (error) {
-        setImportError("El archivo no contiene JSON válido.");
-        setImportLoading(false);
-        return;
+      } else {
+        try {
+          // Intentar parsear el JSON
+          const parsedData = JSON.parse(fileContent);
+          
+          // Verificar si ya tiene la estructura correcta o necesita ser envuelto
+          if (Array.isArray(parsedData)) {
+            // Si es un array, envolverlo en un objeto con propiedad radios
+            jsonData = { radios: parsedData };
+          } else if (parsedData.radios && Array.isArray(parsedData.radios)) {
+            // Ya tiene la estructura correcta
+            jsonData = parsedData;
+          } else {
+            // No tiene la estructura esperada
+            setImportError("El archivo JSON debe contener un array de radios o un objeto con una propiedad 'radios' que sea un array.");
+            setImportLoading(false);
+            return;
+          }
+        } catch (error) {
+          setImportError("El archivo no contiene JSON válido.");
+          setImportLoading(false);
+          return;
+        }
       }
       
       // Importar a través de la API
@@ -537,7 +673,7 @@ export default function RadiosPage() {
         // Recargar las radios desde la API
         setLoading(true);
         try {
-          const res = await fetch('/api/radios');
+          const res = await fetch('/api/radios?limit=500');
           if (!res.ok) throw new Error('Error al cargar radios');
           const json = await res.json();
           if (Array.isArray(json.data)) {
@@ -594,7 +730,7 @@ export default function RadiosPage() {
             <DialogTrigger asChild>
               <Button className="bg-green-600 hover:bg-green-700">
                 <Upload className="h-4 w-4 mr-2" />
-                Importar 358 Radios
+                Importar Radios
               </Button>
             </DialogTrigger>
             <DialogContent className="bg-gray-900 border-gray-800 max-w-2xl">
@@ -624,7 +760,7 @@ export default function RadiosPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".json"
+                      accept=".json,.csv"
                       className="hidden"
                       onChange={handleFileChange}
                     />
@@ -655,7 +791,7 @@ export default function RadiosPage() {
                     ) : (
                       <div className="space-y-2">
                         <p className="text-gray-300 font-medium">
-                          Arrastra y suelta un archivo JSON aquí
+                          Arrastra y suelta un archivo JSON o CSV aquí
                         </p>
                         <p className="text-gray-400 text-sm">
                           o
@@ -668,7 +804,7 @@ export default function RadiosPage() {
                           Seleccionar archivo
                         </Button>
                         <p className="text-gray-500 text-xs mt-2">
-                          Formato soportado: .json (máx. 10MB)
+                          Formatos soportados: .json, .csv (máx. 10MB)
                         </p>
                       </div>
                     )}
@@ -690,7 +826,7 @@ export default function RadiosPage() {
                         <p className="text-yellow-300 font-medium mb-1">⚠️ Acción Irreversible</p>
                         <p className="text-yellow-200">
                           Esta acción <strong>reemplazará completamente</strong> todas las radios actuales 
-                          con las radios del archivo JSON. Los datos actuales se perderán.
+                          con las radios del archivo JSON o CSV. Los datos actuales se perderán.
                         </p>
                       </div>
                     </div>
@@ -788,7 +924,7 @@ export default function RadiosPage() {
             <DialogHeader>
               <DialogTitle className="text-white">Agregar Nueva Radio</DialogTitle>
             </DialogHeader>
-            <AddRadioForm 
+            <RadioForm 
               onSubmit={(newRadio) => {
                 setRadios(prev => {
                   const newId = `radio_${prev.length + 1}_${Date.now()}`;
@@ -878,10 +1014,9 @@ export default function RadiosPage() {
         </div>
         <Select value={selectedRegion} onValueChange={setSelectedRegion}>
           <SelectTrigger className="w-[200px] bg-gray-800 border-gray-700 text-white">
-            <SelectValue placeholder="Todas las regiones" />
+            <SelectValue placeholder="Selecciona una región" />
           </SelectTrigger>
           <SelectContent className="bg-gray-800 border-gray-700">
-            <SelectItem value="all" className="text-white hover:bg-gray-700">Todas las regiones</SelectItem>
             {regions.map(region => (
               <SelectItem key={region} value={region} className="text-white hover:bg-gray-700">{region}</SelectItem>
             ))}
@@ -918,41 +1053,54 @@ export default function RadiosPage() {
 
       {/* Lista de Radios por Región */}
       <div className="space-y-6">
-        {Object.entries(groupedRadios).map(([region, regionRadios]) => (
-          <div key={region} className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <h3 className="text-xl font-semibold text-white">{region}</h3>
-              <Badge 
-                style={{
-                  backgroundColor: '#6b7280',
-                  color: 'white',
-                  border: '1px solid #9ca3af'
-                }}
-                className="font-medium"
-              >
-                {regionRadios.length} radios
-              </Badge>
-            </div>
-            
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {regionRadios.map((radio) => (
-                <RadioCard
-                  key={radio.id}
-                  radio={radio}
-                  isPlaying={playingRadio === radio.id}
-                  isLoading={isLoading === radio.id}
-                  onToggleStatus={() => toggleRadioStatus(radio.id)}
-                  onPlay={() => handlePlay(radio.id)}
-                  onEdit={() => setEditingRadio(radio)}
-                  onDelete={() => handleDelete(radio.id)}
-                />
-              ))}
-            </div>
+        {selectedRegion === '' ? (
+          <div className="text-center py-12">
+            <RadioIcon className="mx-auto h-16 w-16 mb-4" style={{ color: '#6b7280' }} />
+            <h3 className="text-xl font-semibold text-white mb-2">Selecciona una región</h3>
+            <p style={{ color: '#9ca3af' }}>
+              Para ver las radios disponibles, por favor selecciona una región del filtro de arriba.
+            </p>
+            <p style={{ color: '#9ca3af' }} className="text-sm mt-2">
+              Esto permite cargar hasta 500 radios de manera más eficiente.
+            </p>
           </div>
-        ))}
+        ) : (
+          Object.entries(groupedRadios).map(([region, regionRadios]) => (
+            <div key={region} className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <h3 className="text-xl font-semibold text-white">{region}</h3>
+                <Badge 
+                  style={{
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    border: '1px solid #9ca3af'
+                  }}
+                  className="font-medium"
+                >
+                  {regionRadios.length} radios
+                </Badge>
+              </div>
+              
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {regionRadios.map((radio) => (
+                  <RadioCard
+                    key={radio.id}
+                    radio={radio}
+                    isPlaying={playingRadio === radio.id}
+                    isLoading={isLoading === radio.id}
+                    onToggleStatus={() => toggleRadioStatus(radio.id)}
+                    onPlay={() => handlePlay(radio.id)}
+                    onEdit={() => setEditingRadio(radio)}
+                    onDelete={() => handleDelete(radio.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
-      {filteredRadios.length === 0 && (
+      {selectedRegion !== '' && filteredRadios.length === 0 && (
         <div className="text-center py-8">
           <RadioIcon className="mx-auto h-12 w-12 mb-4" style={{ color: '#6b7280' }} />
           <p style={{ color: '#9ca3af' }}>No se encontraron radios con los filtros aplicados.</p>
@@ -969,10 +1117,10 @@ export default function RadiosPage() {
             </DialogTitle>
           </DialogHeader>
           {editingRadio && (
-            <EditRadioForm 
+            <RadioForm 
               radio={editingRadio}
               onClose={() => setEditingRadio(null)}
-              onUpdate={(updatedRadio) => {
+              onSubmit={(updatedRadio) => {
                 setRadios(prev => prev.map(radio => 
                   radio.id === updatedRadio.id ? { ...radio, ...updatedRadio } : radio
                 ))
@@ -1192,20 +1340,33 @@ function RadioCard(props: {
   );
 }
 
-function AddRadioForm({ onSubmit }: { onSubmit: (radio: Omit<Radio, 'id'>) => void }) {
+function RadioForm({ 
+  radio, 
+  onSubmit, 
+  onClose 
+}: { 
+  radio?: Radio;
+  onSubmit: (radio: Omit<Radio, 'id'>) => void;
+  onClose?: () => void;
+}) {
+  const isEditing = !!radio;
+  
   const [formData, setFormData] = useState<Omit<Radio, 'id'>>({
-    name: '',
-    programadora: '',
-    frequency: '',
-    streamUrl: '',
-    streamPlatform: 'direct',
-    platformData: {},
-    region: '',
-    city: '',
-    website: '',
-    isActive: true,
-    genre: 'Música'
+    name: radio?.name || '',
+    programadora: radio?.programadora || '',
+    frequency: radio?.frequency || '',
+    streamUrl: radio?.streamUrl || '',
+    streamPlatform: radio?.streamPlatform || 'direct',
+    platformData: radio?.platformData || {},
+    region: radio?.region || '',
+    city: radio?.city || '',
+    website: radio?.website || '',
+    isActive: radio?.isActive ?? true,
+    genre: radio?.genre || 'Música',
+    lastMonitored: radio?.lastMonitored || 'Nunca'
   });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const regions = [
     'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
@@ -1305,7 +1466,7 @@ function AddRadioForm({ onSubmit }: { onSubmit: (radio: Omit<Radio, 'id'>) => vo
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validar URL antes de enviar
@@ -1316,15 +1477,36 @@ function AddRadioForm({ onSubmit }: { onSubmit: (radio: Omit<Radio, 'id'>) => vo
       });
       return;
     }
-    
-    // Extraer datos de plataforma
-    const platformData = extractPlatformData(formData.streamPlatform, formData.streamUrl);
-    
-    onSubmit({
-      ...formData,
-      platformData: platformData || {},
-      lastMonitored: 'Nunca'
-    });
+
+    setIsSubmitting(true);
+
+    try {
+      // Extraer datos de plataforma
+      const platformData = extractPlatformData(formData.streamPlatform, formData.streamUrl);
+      
+      const radioData = {
+        ...formData,
+        platformData: platformData || {},
+        lastMonitored: isEditing ? formData.lastMonitored : 'Nunca'
+      };
+      
+      onSubmit(radioData);
+      
+      toast.success(isEditing ? 'Radio actualizada correctamente' : 'Radio agregada correctamente', {
+        position: "top-right",
+        autoClose: 2000,
+      });
+      
+      if (onClose) onClose();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error(`Error al ${isEditing ? 'actualizar' : 'agregar'} la radio. Por favor, intenta de nuevo.`, {
+        position: "top-right",
+        autoClose: 4000,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1474,358 +1656,27 @@ function AddRadioForm({ onSubmit }: { onSubmit: (radio: Omit<Radio, 'id'>) => vo
       </div>
 
       <div className="flex justify-end space-x-2">
-        <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-          Agregar Radio
+        {onClose && (
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={onClose}
+            className="bg-gray-600 hover:bg-gray-700 border-gray-600"
+          >
+            Cancelar
+          </Button>
+        )}
+        <Button 
+          type="submit" 
+          className="bg-blue-600 hover:bg-blue-700"
+          disabled={isSubmitting}
+        >
+          {isSubmitting 
+            ? (isEditing ? 'Actualizando...' : 'Agregando...') 
+            : (isEditing ? 'Actualizar Radio' : 'Agregar Radio')
+          }
         </Button>
       </div>
     </form>
   );
 }
-
-
-// Componente EditRadioForm
-const EditRadioForm = ({ radio, onClose, onUpdate }: { 
-  radio: Radio, 
-  onClose: () => void, 
-  onUpdate: (updatedRadio: Radio) => void 
-}) => {
-  const [formData, setFormData] = useState<Omit<Radio, 'id'>>({
-    name: radio.name,
-    programadora: radio.programadora,
-    frequency: radio.frequency,
-    streamUrl: radio.streamUrl,
-    streamPlatform: radio.streamPlatform,
-    platformData: radio.platformData || {},
-    region: radio.region,
-    city: radio.city,
-    website: radio.website || '',
-    isActive: radio.isActive,
-    genre: radio.genre,
-    lastMonitored: radio.lastMonitored
-  });
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const regions = [
-    'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
-    'Valparaíso', 'Metropolitana', 'O\'Higgins', 'Maule', 'Ñuble',
-    'Biobío', 'La Araucanía', 'Los Ríos', 'Los Lagos', 'Aysén', 'Magallanes'
-  ];
-
-  const genres = ['Noticias', 'Música', 'Cultural', 'Deportes', 'Religioso', 'Popular'];
-
-  const platforms = Object.entries(STREAMING_PLATFORMS).map(([key, config]) => ({
-    value: key,
-    label: config.name,
-    description: config.description
-  })).sort((a, b) => {
-    // Priorizar las plataformas más comunes
-    const priority = ['direct', 'icecast', 'centova', 'sonicpanel', 'youtube', 'twitch'];
-    const aIndex = priority.indexOf(a.value);
-    const bIndex = priority.indexOf(b.value);
-    
-    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-    if (aIndex !== -1) return -1;
-    if (bIndex !== -1) return 1;
-    
-    return a.label.localeCompare(b.label);
-  });
-
-  const getUrlPlaceholder = (platform: string) => {
-    const examples: Record<string, string> = {
-      'youtube': 'https://www.youtube.com/watch?v=ID_DEL_VIDEO',
-      'twitch': 'https://www.twitch.tv/nombre_del_canal',
-      'facebook': 'https://www.facebook.com/pagina/live',
-      'icecast': 'http://servidor.com:8000/stream.mp3',
-      'direct': 'http://radio.com/stream.mp3',
-      'centova': 'https://centova.proveedor.com:2199/stream',
-      'sonicpanel': 'https://sonic.proveedor.com:8000/stream',
-    };
-    
-    return examples[platform] || 'URL del stream de la radio';
-  };
-
-  const handleUrlChange = (url: string) => {
-    setFormData(prev => ({ ...prev, streamUrl: url }));
-    
-    // Auto-detectar plataforma
-    if (url.trim()) {
-      const detectedPlatform = detectPlatform(url);
-      if (detectedPlatform && detectedPlatform !== formData.streamPlatform) {
-        const platformData = extractPlatformData(detectedPlatform, url);
-        setFormData(prev => ({
-          ...prev,
-          streamPlatform: detectedPlatform as StreamPlatform,
-          platformData: platformData || {}
-        }));
-        
-        // Mostrar notificación de plataforma detectada
-        toast.info(`Plataforma detectada: ${getPlatformName(detectedPlatform)}`, {
-          position: "top-right",
-          autoClose: 2000,
-        });
-      }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validar URL antes de enviar
-    if (!validatePlatformUrl(formData.streamPlatform, formData.streamUrl)) {
-      toast.error('La URL no es válida para la plataforma seleccionada', {
-        position: "top-right",
-        autoClose: 4000,
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      // Extraer datos de plataforma
-      const platformData = extractPlatformData(formData.streamPlatform, formData.streamUrl);
-      
-      const updatedRadio = {
-        ...radio,
-        ...formData,
-        platformData: platformData || {}
-      };
-      
-      onUpdate(updatedRadio);
-      toast.success('Radio actualizada correctamente', {
-        position: "top-right",
-        autoClose: 2000,
-      });
-      onClose();
-    } catch (error) {
-      console.error('Error:', error);
-      toast.error('Error al actualizar la radio. Por favor, intenta de nuevo.', {
-        position: "top-right",
-        autoClose: 4000,
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="name" className="text-white">Nombre de la Radio</Label>
-          <Input
-            id="name"
-            value={formData.name}
-            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            className="bg-gray-800 border-gray-700 text-white"
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="programadora" className="text-white">Programadora</Label>
-          <Input
-            id="programadora"
-            value={formData.programadora}
-            onChange={(e) => setFormData(prev => ({ ...prev, programadora: e.target.value }))}
-            className="bg-gray-800 border-gray-700 text-white"
-            required
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="frequency" className="text-white">Frecuencia</Label>
-          <Input
-            id="frequency"
-            placeholder="Ej: 94.5 FM"
-            value={formData.frequency}
-            onChange={(e) => setFormData(prev => ({ ...prev, frequency: e.target.value }))}
-            className="bg-gray-800 border-gray-700 text-white"
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="genre" className="text-white">Género</Label>
-          <Select value={formData.genre} onValueChange={(value) => setFormData(prev => ({ ...prev, genre: value }))}>
-            <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="bg-gray-800 border-gray-700">
-              {genres.map(genre => (
-                <SelectItem key={genre} value={genre} className="text-white hover:bg-gray-700">{genre}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="streamPlatform" className="text-white">Plataforma de Streaming</Label>
-        <Select value={formData.streamPlatform} onValueChange={(value) => setFormData(prev => ({
-          ...prev,
-          streamPlatform: value as StreamPlatform,
-          streamUrl: '' // Reset URL when platform changes
-        }))}>
-          <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-            <SelectValue>
-              <div className="flex items-center space-x-2">
-                {getPlatformIcon(formData.streamPlatform)}
-                <span>{getPlatformName(formData.streamPlatform)}</span>
-              </div>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className="bg-gray-800 border-gray-700">
-            {platforms.map(platform => (
-              <SelectItem key={platform.value} value={platform.value} className="text-white hover:bg-gray-700">
-                <div className="flex items-center space-x-2">
-                  {getPlatformIcon(platform.value)}
-                  <div>
-                    <div className="text-white">{platform.label}</div>
-                    <div className="text-xs text-gray-400">{platform.description}</div>
-                  </div>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="streamUrl" className="text-white">URL del Stream</Label>
-        <Input
-          id="streamUrl"
-          placeholder={getUrlPlaceholder(formData.streamPlatform)}
-          value={formData.streamUrl}
-          onChange={(e) => handleUrlChange(e.target.value)}
-          className={`bg-gray-800 border-gray-700 text-white ${
-            formData.streamUrl && !validatePlatformUrl(formData.streamPlatform, formData.streamUrl)
-              ? 'border-red-500' : ''
-          }`}
-          required
-        />
-        <div className="flex items-center space-x-2 text-xs text-gray-400">
-          {formData.streamUrl && detectPlatform(formData.streamUrl) && (
-            <>
-              {getPlatformIcon(formData.streamPlatform)}
-              <span>Plataforma detectada: {getPlatformName(formData.streamPlatform)}</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="region" className="text-white">Región</Label>
-          <Select value={formData.region} onValueChange={(value) => setFormData(prev => ({ ...prev, region: value }))}>
-            <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-              <SelectValue placeholder="Seleccionar región" />
-            </SelectTrigger>
-            <SelectContent className="bg-gray-800 border-gray-700">
-              {regions.map(region => (
-                <SelectItem key={region} value={region} className="text-white hover:bg-gray-700">{region}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="city" className="text-white">Ciudad</Label>
-          <Input
-            id="city"
-            value={formData.city}
-            onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
-            className="bg-gray-800 border-gray-700 text-white"
-            required
-          />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="website" className="text-white">Sitio Web (opcional)</Label>
-        <Input
-          id="website"
-          placeholder="https://www.radio.cl"
-          value={formData.website}
-          onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))}
-          className="bg-gray-800 border-gray-700 text-white"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          Ciudad
-        </label>
-        <input
-          type="text"
-          value={formData.city}
-          onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          Género
-        </label>
-        <select
-          value={formData.genre}
-          onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
-        >
-          <option value="">Selecciona un género</option>
-          {genres.map((genre) => (
-            <option key={genre} value={genre}>
-              {genre}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
-          Sitio Web (opcional)
-        </label>
-        <input
-          type="url"
-          value={formData.website}
-          onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-          placeholder="https://www.ejemplo.com"
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      <div className="flex items-center space-x-2">
-        <input
-          type="checkbox"
-          id="monitoring_enabled_edit"
-          checked={formData.monitoring_enabled}
-          onChange={(e) => setFormData({ ...formData, monitoring_enabled: e.target.checked })}
-          className="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
-        />
-        <label htmlFor="monitoring_enabled_edit" className="text-sm text-gray-300">
-          Activar monitoreo inmediatamente
-        </label>
-      </div>
-
-      <div className="flex space-x-3 pt-4">
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white px-4 py-2 rounded-md font-medium transition-colors"
-        >
-          {isSubmitting ? 'Actualizando...' : 'Actualizar Radio'}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md font-medium transition-colors"
-        >
-          Cancelar
-        </button>
-      </div>
-    </form>
-  );
-};

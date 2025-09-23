@@ -7,9 +7,6 @@
     "start": "next start",
     "lint": "next lint"
   },
-  "prisma": {
-    "seed": "tsx --require dotenv/config scripts/seed.ts"
-  },
   "devDependencies": {
     "@next/swc-wasm-nodejs": "13.5.1",
     "@types/fluent-ffmpeg": "^2",
