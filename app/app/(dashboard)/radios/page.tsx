@@ -15,7 +15,8 @@ import { detectPlatform, validatePlatformUrl, extractPlatformData, STREAMING_PLA
 import MonitoringControl from '@/components/monitoring-control';
 import RadioPricing from '@/components/radio-pricing';
 import { Plus, Radio as RadioIcon, Volume2, VolumeX, Search, MapPin, Globe, Zap, Settings, Play, Pause, Youtube, Twitch, Facebook, Instagram, Music, Headphones, Mic, Cast, Server, Database, Cpu, Cloud, Shield, DollarSign, BarChart3, Users, Wrench, Loader, Upload, FileSpreadsheet, Download, CheckCircle, AlertTriangle, Edit, Trash2, Clock } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { useConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 
 const getPlatformIcon = (platform: string) => {
   switch (platform) {
@@ -79,6 +80,8 @@ const getPlatformName = (platform: string) => {
 };
 
 export default function RadiosPage() {
+  const { showConfirmation, ConfirmationDialog } = useConfirmationDialog();
+  const toast = useEnhancedToast();
   // const [radios, setRadios] = useState<Radio[]>(mockRadios); // Datos Prueba
   const [radios, setRadios] = useState<Radio[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -279,7 +282,7 @@ export default function RadiosPage() {
       const file = e.dataTransfer.files[0];
       if (validateFile(file)) {
         setImportFile(file);
-        toast.success(`Archivo "${file.name}" seleccionado correctamente`);
+        toast.createSuccess(`Archivo "${file.name}" seleccionado correctamente`);
       }
     }
   };
@@ -290,7 +293,7 @@ export default function RadiosPage() {
       const file = e.target.files[0];
       if (validateFile(file)) {
         setImportFile(file);
-        toast.success(`Archivo "${file.name}" seleccionado correctamente`);
+        toast.createSuccess(`Archivo "${file.name}" seleccionado correctamente`);
       }
     }
   };
@@ -305,8 +308,7 @@ export default function RadiosPage() {
   useEffect(() => {
     return () => {
       if (audioElement) {
-        audioElement.pause();
-        audioElement.src = '';
+        cleanupAudio(audioElement);
       }
     };
   }, [audioElement]);
@@ -377,6 +379,23 @@ export default function RadiosPage() {
     ));
   };
 
+  // Función para limpiar el audio correctamente
+  const cleanupAudio = (audio: HTMLAudioElement) => {
+    try {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load(); // Esto limpia completamente el elemento
+      
+      // Remover todos los event listeners posibles
+      const events = ['canplay', 'error', 'ended', 'loadstart', 'loadeddata', 'loadedmetadata'];
+      events.forEach(event => {
+        audio.removeEventListener(event, () => {});
+      });
+    } catch (error) {
+      console.warn('Error limpiando audio:', error);
+    }
+  };
+
   const handlePlay = async (radioId: string) => {
     const radio = radios.find(r => r.id === radioId);
     if (!radio) return;
@@ -384,26 +403,24 @@ export default function RadiosPage() {
     // Si ya está reproduciendo esta radio, detener
     if (playingRadio === radioId) {
       if (audioElement) {
-        audioElement.pause();
-        audioElement.src = '';
+        cleanupAudio(audioElement);
+        setAudioElement(null);
       }
       setPlayingRadio(null);
       setIsLoading(null);
+      console.log(`⏹️ Detenido: ${radio.name}`);
       return;
     }
 
     // Si hay otro audio reproduciéndose, detenerlo
     if (audioElement) {
-      audioElement.pause();
-      audioElement.src = '';
+      cleanupAudio(audioElement);
+      setAudioElement(null);
     }
 
     // Verificar si la radio está activa
     if (!radio.isActive) {
-      toast.warn('Esta radio no está activa. Actívala primero para poder escucharla.', {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      toast.warning('Esta radio no está activa. Actívala primero para poder escucharla.');
       return;
     }
 
@@ -427,10 +444,7 @@ export default function RadiosPage() {
       
       // Timeout simple
       const timeout = setTimeout(() => {
-        toast.error(`⏰ Tiempo agotado cargando ${radio.name}`, {
-          position: "top-right",
-          autoClose: 5000,
-        });
+        toast.error(`⏰ Tiempo agotado cargando ${radio.name}`);
         setIsLoading(null);
         audio.src = '';
       }, 15000);
@@ -443,17 +457,11 @@ export default function RadiosPage() {
         audio.play()
           .then(() => {
             console.log(`✅ Reproduciendo: ${radio.name}`);
-            toast.success(`Reproduciendo: ${radio.name}`, {
-              position: "top-right",
-              autoClose: 2000,
-            });
+            toast.audioSuccess(`Reproduciendo: ${radio.name}`);
           })
           .catch(error => {
             console.error('❌ Error reproduciendo:', error);
-            toast.error(`No se pudo reproducir ${radio.name}`, {
-              position: "top-right",
-              autoClose: 4000,
-            });
+            toast.audioError(`No se pudo reproducir ${radio.name}`);
             setPlayingRadio(null);
           });
       };
@@ -464,22 +472,23 @@ export default function RadiosPage() {
         console.error(`❌ Error cargando ${radio.name}:`, event);
         setIsLoading(null);
         setPlayingRadio(null);
-        toast.error(`Error: No se pudo cargar ${radio.name}`, {
-          position: "top-right",
-          autoClose: 4000,
-        });
+        cleanupAudio(audio);
+        setAudioElement(null);
+        toast.audioError(`Error: No se pudo cargar ${radio.name}`);
       };
 
       // Evento de finalización
       const onEnded = () => {
         setPlayingRadio(null);
+        cleanupAudio(audio);
+        setAudioElement(null);
         console.log(`🔚 Stream finalizado: ${radio.name}`);
       };
 
       // Agregar event listeners
       audio.addEventListener('canplay', onCanPlay, { once: true });
       audio.addEventListener('error', onError, { once: true });
-      audio.addEventListener('ended', onEnded);
+      audio.addEventListener('ended', onEnded, { once: true });
 
       // Establecer URL y cargar
       audio.src = radio.streamUrl;
@@ -489,10 +498,7 @@ export default function RadiosPage() {
       
     } catch (error) {
       console.error('❌ Error configurando audio:', error);
-      toast.error(`Error configurando reproductor para ${radio.name}`, {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      toast.audioError(`Error configurando reproductor para ${radio.name}`);
       setIsLoading(null);
       setPlayingRadio(null);
     }
@@ -507,9 +513,15 @@ export default function RadiosPage() {
 
   // Función para eliminar radio
   const handleDelete = async (radioId: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar esta radio?')) {
-      return;
-    }
+    const confirmed = await showConfirmation({
+      title: '¿Eliminar radio?',
+      message: '¿Estás seguro de que quieres eliminar esta radio? Esta acción no se puede deshacer.',
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      variant: 'destructive'
+    });
+
+    if (!confirmed) return;
 
     try {
       const response = await fetch(`/api/radios/${radioId}`, {
@@ -519,23 +531,14 @@ export default function RadiosPage() {
       if (response.ok) {
         // Actualizar la lista de radios eliminando la radio
         setRadios(prevRadios => prevRadios.filter(radio => radio.id !== radioId));
-        toast.success('Radio eliminada exitosamente', {
-          position: "top-right",
-          autoClose: 3000,
-        });
+        toast.deleteSuccess('Radio eliminada exitosamente');
       } else {
         const error = await response.json();
-        toast.error(`Error eliminando radio: ${error.message}`, {
-          position: "top-right",
-          autoClose: 4000,
-        });
+        toast.deleteError(`Error eliminando radio: ${error.message}`);
       }
     } catch (error) {
       console.error('Error eliminando radio:', error);
-      toast.error('Error eliminando radio', {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      toast.deleteError('Error eliminando radio');
     }
   };
 
@@ -576,16 +579,10 @@ export default function RadiosPage() {
       // Actualizar la lista de radios
       if (editingRadio) {
         setRadios(prev => prev.map(r => r.id === editingRadio.id ? result.data : r));
-        toast.success('Radio actualizada exitosamente', {
-          position: "top-right",
-          autoClose: 3000,
-        });
+        toast.updateSuccess('Radio actualizada exitosamente');
       } else {
         setRadios(prev => [...prev, result.data]);
-        toast.success('Radio creada exitosamente', {
-          position: "top-right",
-          autoClose: 3000,
-        });
+        toast.createSuccess('Radio creada exitosamente');
       }
       
       // Cerrar el diálogo y limpiar el estado de edición
@@ -594,10 +591,7 @@ export default function RadiosPage() {
       
     } catch (error) {
       console.error('Error guardando radio:', error);
-      toast.error(`Error: ${error instanceof Error ? error.message : 'Error desconocido'}`, {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      toast.error(`Error: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   };
 
@@ -689,7 +683,7 @@ export default function RadiosPage() {
           setLoading(false);
         }
         
-        toast.success(`✅ ${result.stats?.total || 'Múltiples'} radios importadas exitosamente`);
+        toast.createSuccess(`✅ ${result.stats?.total || 'Múltiples'} radios importadas exitosamente`);
       } else {
         const error = await importResponse.json();
         console.error('❌ Error en importación:', error);
@@ -925,13 +919,7 @@ export default function RadiosPage() {
               <DialogTitle className="text-white">Agregar Nueva Radio</DialogTitle>
             </DialogHeader>
             <RadioForm 
-              onSubmit={(newRadio) => {
-                setRadios(prev => {
-                  const newId = `radio_${prev.length + 1}_${Date.now()}`;
-                  return [...prev, { ...newRadio, id: newId }];
-                });
-                setIsAddDialogOpen(false);
-              }}
+              onSubmit={handleSaveRadio}
             />
           </DialogContent>
         </Dialog>
@@ -1120,16 +1108,14 @@ export default function RadiosPage() {
             <RadioForm 
               radio={editingRadio}
               onClose={() => setEditingRadio(null)}
-              onSubmit={(updatedRadio) => {
-                setRadios(prev => prev.map(radio => 
-                  radio.id === (updatedRadio as Radio).id ? { ...radio, ...updatedRadio } : radio
-                ))
-                setEditingRadio(null);
-              }}
+              onSubmit={handleSaveRadio}
             />
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Componente de confirmación */}
+      <ConfirmationDialog />
     </div>
   );
 }
@@ -1350,6 +1336,7 @@ function RadioForm({
   onClose?: () => void;
 }) {
   const isEditing = !!radio;
+  const toast = useEnhancedToast();
   
   const [formData, setFormData] = useState<Omit<Radio, 'id'>>({
     name: radio?.name || '',
@@ -1471,10 +1458,7 @@ function RadioForm({
     
     // Validar URL antes de enviar
     if (!validatePlatformUrl(formData.streamPlatform, formData.streamUrl)) {
-      toast.error('La URL no es válida para la plataforma seleccionada', {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      toast.warning('La URL no es válida para la plataforma seleccionada');
       return;
     }
 
@@ -1486,25 +1470,17 @@ function RadioForm({
       
       const radioData = {
         ...formData,
-        ...(isEditing && radio ? { id: radio.id } : {}),
+        ...(isEditing && radio ? { id: radio.id } : { id: `radio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` }),
         platformData: platformData || {},
         lastMonitored: isEditing ? formData.lastMonitored : 'Nunca'
       };
       
       onSubmit(radioData);
       
-      toast.success(isEditing ? 'Radio actualizada correctamente' : 'Radio agregada correctamente', {
-        position: "top-right",
-        autoClose: 2000,
-      });
-      
       if (onClose) onClose();
     } catch (error) {
       console.error('Error:', error);
-      toast.error(`Error al ${isEditing ? 'actualizar' : 'agregar'} la radio. Por favor, intenta de nuevo.`, {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      toast.error(`Error al ${isEditing ? 'actualizar' : 'agregar'} la radio. Por favor, intenta de nuevo.`);
     } finally {
       setIsSubmitting(false);
     }

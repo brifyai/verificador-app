@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient, Platform, RadioStatus } from '@prisma/client';
 import { mockRadios } from '@/lib/mock-data';
-
 const prisma = new PrismaClient();
 
 // Variable para controlar el uso de datos mock
@@ -114,7 +113,7 @@ export async function GET(request: NextRequest) {
     console.error('Error obteniendo radios:', error);
     return NextResponse.json(
       { success: false, error: 'Error interno del servidor' },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

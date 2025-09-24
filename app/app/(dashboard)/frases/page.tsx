@@ -9,9 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 import { mockPhrases, Phrase } from '@/lib/mock-data';
 
 export default function MisFrases() {
+  const toast = useEnhancedToast();
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,17 +73,17 @@ export default function MisFrases() {
           p.id === id ? { ...p, active: !p.active } : p
         ));
       } else {
-        alert('❌ Error al actualizar la frase');
+        toast.updateError('Error al actualizar la frase');
       }
     } catch (error) {
       console.error('Error toggling phrase:', error);
-      alert('❌ Error al actualizar la frase');
+      toast.updateError('Error al actualizar la frase');
     }
   };
 
   const handleAddPhrase = async () => {
     if (!newPhrase.phrase.trim() || !newPhrase.marca.trim()) {
-      alert('Por favor completa al menos la frase y la marca');
+      toast.warning('Por favor completa al menos la frase y la marca');
       return;
     }
 
@@ -104,14 +106,14 @@ export default function MisFrases() {
         resetForm();
         setIsDialogOpen(false);
         
-        alert('✅ Frase agregada exitosamente');
+        toast.createSuccess('Frase agregada exitosamente');
       } else {
         const error = await response.json();
-        alert(`❌ Error: ${error.error}`);
+        toast.createError(`Error: ${error.error}`);
       }
     } catch (error) {
       console.error('Error adding phrase:', error);
-      alert('❌ Error al agregar la frase');
+      toast.createError('Error al agregar la frase');
     } finally {
       setLoading(false);
     }

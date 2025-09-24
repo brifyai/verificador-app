@@ -34,19 +34,18 @@ interface UserProfile {
   id: string;
   fullName: string;
   email: string;
-  phone: string;
-  company: string;
-  position: string;
   avatar?: string;
 }
 
 interface BillingInfo {
-  businessName: string;
+  id?: string;
+  companyName: string;
+  legalName: string;
   taxId: string; // RUT
   address: string;
   city: string;
   region: string;
-  zipCode: string;
+  postalCode: string;
   billingEmail: string;
 }
 
@@ -60,102 +59,78 @@ interface PaymentMethod {
   status: 'active' | 'expired' | 'pending';
 }
 
-interface PaymentHistory {
+interface Invoice {
   id: string;
-  date: string;
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string;
+  status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+  subtotal: number;
+  tax: number;
+  total: number;
+  lineItems: InvoiceLineItem[];
+}
+
+interface InvoiceLineItem {
+  id: string;
   description: string;
-  amount: number;
-  status: 'paid' | 'pending' | 'failed';
-  paymentMethod: string;
-  invoiceUrl?: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+interface Subscription {
+  id: string;
+  planId: string;
+  status: 'active' | 'cancelled' | 'past_due';
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  canceledAt?: string;
 }
 
 export default function PerfilPage() {
   const [profile, setProfile] = useState<UserProfile>({
-    id: '1',
-    fullName: 'Carlos Mendoza Herrera',
-    email: 'carlos@ondaverificada.cl',
-    phone: '+56 9 1234 5678',
-    company: 'Medios Digitales Chile SpA',
-    position: 'Director de Operaciones'
+    id: '',
+    fullName: '',
+    email: ''
   });
 
   const [billingInfo, setBillingInfo] = useState<BillingInfo>({
-    businessName: 'Medios Digitales Chile SpA',
-    taxId: '76.123.456-7',
-    address: 'Av. Providencia 1234, Oficina 567',
-    city: 'Santiago',
-    region: 'Metropolitana',
-    zipCode: '7500000',
-    billingEmail: 'facturacion@ondaverificada.cl'
+    companyName: '',
+    legalName: '',
+    taxId: '',
+    address: '',
+    city: '',
+    region: '',
+    postalCode: '',
+    billingEmail: ''
   });
 
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
-    {
-      id: '1',
-      type: 'credit_card',
-      name: 'Visa ****4532',
-      lastDigits: '4532',
-      expiryDate: '12/25',
-      isDefault: true,
-      status: 'active'
-    },
-    {
-      id: '2',
-      type: 'mercado_pago',
-      name: 'Mercado Pago',
-      isDefault: false,
-      status: 'active'
-    },
-    {
-      id: '3',
-      type: 'bank_transfer',
-      name: 'Transferencia Bancaria',
-      isDefault: false,
-      status: 'active'
-    }
-  ]);
-
-  const [paymentHistory] = useState<PaymentHistory[]>([
-    {
-      id: '1',
-      date: '2025-09-01',
-      description: 'Suscripción Mensual OndaVerificada Pro',
-      amount: 850000,
-      status: 'paid',
-      paymentMethod: 'Visa ****4532',
-      invoiceUrl: '#'
-    },
-    {
-      id: '2',
-      date: '2025-08-01',
-      description: 'Suscripción Mensual OndaVerificada Pro',
-      amount: 850000,
-      status: 'paid',
-      paymentMethod: 'Mercado Pago',
-      invoiceUrl: '#'
-    },
-    {
-      id: '3',
-      date: '2025-07-01',
-      description: 'Suscripción Mensual OndaVerificada Pro',
-      amount: 850000,
-      status: 'paid',
-      paymentMethod: 'Transferencia Bancaria',
-      invoiceUrl: '#'
-    },
-    {
-      id: '4',
-      date: '2025-06-01',
-      description: 'Suscripción Mensual OndaVerificada Pro',
-      amount: 850000,
-      status: 'failed',
-      paymentMethod: 'Visa ****4532'
-    }
-  ]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+
+  // Cargar datos del perfil al montar el componente
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const response = await fetch('/api/profile');
+        if (response.ok) {
+          const profileData = await response.json();
+          setProfile(profileData);
+        } else {
+          console.error('Error cargando perfil:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error cargando perfil:', error);
+      }
+    };
+
+    loadProfile();
+  }, []);
 
   const handleProfileUpdate = async () => {
     setLoading(true);
@@ -167,6 +142,8 @@ export default function PerfilPage() {
       });
       
       if (response.ok) {
+        const result = await response.json();
+        setProfile(result.profile);
         setMessage({ type: 'success', text: 'Perfil actualizado exitosamente' });
       } else {
         const error = await response.json();
@@ -182,13 +159,16 @@ export default function PerfilPage() {
   const handleBillingUpdate = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/billing', {
-        method: 'PUT',
+      const method = billingInfo.id ? 'PUT' : 'POST';
+      const response = await fetch('/api/billing/profiles', {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(billingInfo)
       });
       
       if (response.ok) {
+        const updatedProfile = await response.json();
+        setBillingInfo(updatedProfile);
         setMessage({ type: 'success', text: 'Datos de facturación actualizados exitosamente' });
       } else {
         const error = await response.json();
@@ -198,6 +178,46 @@ export default function PerfilPage() {
       setMessage({ type: 'error', text: 'Error al actualizar los datos de facturación' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBillingProfile = async () => {
+    try {
+      const response = await fetch('/api/billing/profiles');
+      if (response.ok) {
+        const profiles = await response.json();
+        if (profiles.length > 0) {
+          setBillingInfo(profiles[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando perfil de facturación:', error);
+    }
+  };
+
+  const loadInvoices = async () => {
+    try {
+      const response = await fetch('/api/billing/invoices');
+      if (response.ok) {
+        const invoicesData = await response.json();
+        setInvoices(invoicesData.invoices || []);
+      }
+    } catch (error) {
+      console.error('Error cargando facturas:', error);
+    }
+  };
+
+  const loadSubscription = async () => {
+    try {
+      const response = await fetch('/api/billing/subscriptions');
+      if (response.ok) {
+        const subscriptions = await response.json();
+        if (subscriptions.length > 0) {
+          setSubscription(subscriptions[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando suscripción:', error);
     }
   };
 
@@ -272,6 +292,9 @@ export default function PerfilPage() {
     document.head.appendChild(script);
 
     // Cargar datos iniciales
+    loadBillingProfile();
+    loadInvoices();
+    loadSubscription();
     loadPaymentMethods();
   }, []);
 
@@ -353,30 +376,6 @@ export default function PerfilPage() {
                     className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Teléfono</Label>
-                  <Input
-                    value={profile.phone}
-                    onChange={(e) => setProfile({...profile, phone: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Empresa</Label>
-                  <Input
-                    value={profile.company}
-                    onChange={(e) => setProfile({...profile, company: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label className="text-white">Cargo</Label>
-                  <Input
-                    value={profile.position}
-                    onChange={(e) => setProfile({...profile, position: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
               </div>
               <div className="flex justify-end">
                 <Button onClick={handleProfileUpdate} disabled={loading} className="bg-blue-600 hover:bg-blue-700">
@@ -399,10 +398,18 @@ export default function PerfilPage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
+                  <Label className="text-white">Nombre de la Empresa</Label>
+                  <Input
+                    value={billingInfo.companyName}
+                    onChange={(e) => setBillingInfo({...billingInfo, companyName: e.target.value})}
+                    className="bg-slate-700 border-slate-600 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label className="text-white">Razón Social</Label>
                   <Input
-                    value={billingInfo.businessName}
-                    onChange={(e) => setBillingInfo({...billingInfo, businessName: e.target.value})}
+                    value={billingInfo.legalName}
+                    onChange={(e) => setBillingInfo({...billingInfo, legalName: e.target.value})}
                     className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
@@ -411,6 +418,15 @@ export default function PerfilPage() {
                   <Input
                     value={billingInfo.taxId}
                     onChange={(e) => setBillingInfo({...billingInfo, taxId: e.target.value})}
+                    className="bg-slate-700 border-slate-600 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-white">Email de Facturación</Label>
+                  <Input
+                    type="email"
+                    value={billingInfo.billingEmail}
+                    onChange={(e) => setBillingInfo({...billingInfo, billingEmail: e.target.value})}
                     className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
@@ -441,17 +457,8 @@ export default function PerfilPage() {
                 <div className="space-y-2">
                   <Label className="text-white">Código Postal</Label>
                   <Input
-                    value={billingInfo.zipCode}
-                    onChange={(e) => setBillingInfo({...billingInfo, zipCode: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Email de Facturación</Label>
-                  <Input
-                    type="email"
-                    value={billingInfo.billingEmail}
-                    onChange={(e) => setBillingInfo({...billingInfo, billingEmail: e.target.value})}
+                    value={billingInfo.postalCode}
+                    onChange={(e) => setBillingInfo({...billingInfo, postalCode: e.target.value})}
                     className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
@@ -571,65 +578,101 @@ export default function PerfilPage() {
           </div>
         </TabsContent>
 
-        {/* Historial de Pagos */}
+        {/* Historial */}
         <TabsContent value="history" className="space-y-6">
           <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold text-white">Historial de Pagos</h2>
-            <Button variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Exportar
-            </Button>
+            <h2 className="text-xl font-semibold text-white">Historial de Facturas</h2>
           </div>
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="border-b border-slate-700">
-                    <tr className="text-left">
-                      <th className="px-6 py-4 text-slate-300 font-medium">Fecha</th>
-                      <th className="px-6 py-4 text-slate-300 font-medium">Descripción</th>
-                      <th className="px-6 py-4 text-slate-300 font-medium">Monto</th>
-                      <th className="px-6 py-4 text-slate-300 font-medium">Método</th>
-                      <th className="px-6 py-4 text-slate-300 font-medium">Estado</th>
-                      <th className="px-6 py-4 text-slate-300 font-medium">Acciones</th>
+                  <thead className="bg-slate-700/50">
+                    <tr>
+                      <th className="text-left p-4 text-white font-medium">Número</th>
+                      <th className="text-left p-4 text-white font-medium">Fecha</th>
+                      <th className="text-left p-4 text-white font-medium">Vencimiento</th>
+                      <th className="text-left p-4 text-white font-medium">Total</th>
+                      <th className="text-left p-4 text-white font-medium">Estado</th>
+                      <th className="text-left p-4 text-white font-medium">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paymentHistory.map((payment) => (
-                      <tr key={payment.id} className="border-b border-slate-700/50 hover:bg-slate-700/25">
-                        <td className="px-6 py-4 text-slate-300">
-                          {new Date(payment.date).toLocaleDateString('es-CL')}
+                    {invoices.map((invoice) => (
+                      <tr key={invoice.id} className="border-b border-slate-700">
+                        <td className="p-4 text-white font-mono">{invoice.invoiceNumber}</td>
+                        <td className="p-4 text-slate-300">
+                          {new Date(invoice.issueDate).toLocaleDateString('es-CL')}
                         </td>
-                        <td className="px-6 py-4 text-white">{payment.description}</td>
-                        <td className="px-6 py-4 text-white font-mono">
-                          {formatCurrency(payment.amount)}
+                        <td className="p-4 text-slate-300">
+                          {new Date(invoice.dueDate).toLocaleDateString('es-CL')}
                         </td>
-                        <td className="px-6 py-4 text-slate-300">{payment.paymentMethod}</td>
-                        <td className="px-6 py-4">{getStatusBadge(payment.status)}</td>
-                        <td className="px-6 py-4">
+                        <td className="p-4 text-white font-medium">
+                          {formatCurrency(invoice.total)}
+                        </td>
+                        <td className="p-4">
+                          {getStatusBadge(invoice.status)}
+                        </td>
+                        <td className="p-4">
                           <div className="flex space-x-2">
-                            {payment.invoiceUrl && (
-                              <Button variant="outline" size="sm">
-                                <Eye className="h-3 w-3 mr-1" />
-                                Ver
-                              </Button>
-                            )}
-                            {payment.status === 'paid' && (
-                              <Button variant="outline" size="sm">
-                                <Download className="h-3 w-3 mr-1" />
-                                PDF
-                              </Button>
-                            )}
+                            <Button variant="outline" size="sm" className="text-blue-400 hover:text-blue-300">
+                              <Eye className="h-3 w-3 mr-1" />
+                              Ver
+                            </Button>
+                            <Button variant="outline" size="sm" className="text-green-400 hover:text-green-300">
+                              <Download className="h-3 w-3 mr-1" />
+                              PDF
+                            </Button>
                           </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {invoices.length === 0 && (
+                  <div className="p-8 text-center text-slate-400">
+                    No hay facturas disponibles
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
+
+          {/* Información de Suscripción */}
+          {subscription && (
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center">
+                  <Calendar className="h-5 w-5 text-purple-400 mr-2" />
+                  Suscripción Actual
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label className="text-slate-400">Plan</Label>
+                    <p className="text-white font-medium">{subscription.planId}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-400">Estado</Label>
+                    <div className="mt-1">
+                      <Badge variant={subscription.status === 'active' ? 'secondary' : 'destructive'}>
+                        {subscription.status === 'active' ? 'Activa' : 
+                         subscription.status === 'cancelled' ? 'Cancelada' : 'Vencida'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-slate-400">Próximo Cobro</Label>
+                    <p className="text-white">
+                      {new Date(subscription.currentPeriodEnd).toLocaleDateString('es-CL')}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

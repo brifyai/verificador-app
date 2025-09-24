@@ -52,25 +52,19 @@ export default withAuth(
   }
 );
 
+// Configuración del matcher para el middleware
+// Excluye rutas específicas del middleware de autenticación
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Aplica el middleware a todas las rutas EXCEPTO:
+     * - Rutas de API (todas las rutas /api/*)
+     * - Archivos estáticos de Next.js (_next/static, _next/image)
+     * - Favicon
+     * - Archivos de imagen (png, jpg, jpeg, gif, svg, ico, webp)
      * 
-     * API Routes (públicas):
-     * - api/auth         (NextAuth API routes)
-     * - api/radios       (Radios API routes)  
-     * - api/users        (Users API routes)
-     * - api/monitoring   (Monitoring API routes)
-     * 
-     * Static Assets:
-     * - _next/static  (Static files)
-     * - _next/image   (Image optimization files)
-     * - favicon.ico   (Favicon file)
-     * 
-     * Image Files:
-     * - svg, png, jpg, jpeg, gif, webp
+     * Patrón recomendado por Next.js usando negative lookahead
      */
-    '/((?!api/auth|api/radios|api/users|api/monitoring|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.jpg$|.*\\.jpeg$|.*\\.gif$|.*\\.svg$|.*\\.ico$|.*\\.webp$).*)',
   ],
 };

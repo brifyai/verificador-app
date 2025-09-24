@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { mockRadios } from '@/lib/mock-data';
 import { 
   Activity, 
   Radio as RadioIcon, 
@@ -30,6 +29,20 @@ import {
   MapPin,
   Building
 } from 'lucide-react';
+
+interface Radio {
+  id: string;
+  name: string;
+  region: string;
+  streamUrl: string;
+  platform: string;
+  isActive: boolean;
+  metadata?: {
+    city?: string;
+    frequency?: string;
+    website?: string;
+  };
+}
 
 interface MonitoringSession {
   id: string;
@@ -86,13 +99,34 @@ export default function MonitoreoPage() {
   const [filterType, setFilterType] = useState<'all' | 'region' | 'custom'>('all');
   const [selectedRegion, setSelectedRegion] = useState<string>('');
   const [selectedCity, setSelectedCity] = useState<string>('');
+  
+  // Estados para datos reales de la BD
+  const [radios, setRadios] = useState<Radio[]>([]);
+  const [regions, setRegions] = useState<string[]>([]);
+  const [cities, setCities] = useState<string[]>([]);
+  const [loadingRadios, setLoadingRadios] = useState(false);
 
   // Cargar datos iniciales
   useEffect(() => {
     loadMonitoringData();
+    loadRadiosFromDatabase();
     const interval = setInterval(loadMonitoringData, 10000); // Cada 10 segundos
     return () => clearInterval(interval);
   }, []);
+
+  // Cargar ciudades cuando cambia la región
+  useEffect(() => {
+    if (selectedRegion) {
+      const regionCities = radios
+        .filter(radio => radio.region === selectedRegion)
+        .map(radio => radio.metadata?.city || '')
+        .filter(city => city !== '')
+        .filter((city, index, arr) => arr.indexOf(city) === index);
+      setCities(regionCities);
+    } else {
+      setCities([]);
+    }
+  }, [selectedRegion, radios]);
 
   const loadMonitoringData = async () => {
     try {
@@ -106,6 +140,30 @@ export default function MonitoreoPage() {
       }
     } catch (error) {
       console.error('Error cargando datos de monitoreo:', error);
+    }
+  };
+
+  const loadRadiosFromDatabase = async () => {
+    setLoadingRadios(true);
+    try {
+      const response = await fetch('/api/radios?active=true');
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Datos de radios recibidos:', data);
+        if (data.success) {
+          setRadios(data.data);
+          console.log('Radios cargadas:', data.data.length);
+          
+          // Extraer regiones únicas
+          const uniqueRegions = [...new Set(data.data.map((radio: Radio) => radio.region))];
+          setRegions(uniqueRegions);
+          console.log('Regiones encontradas:', uniqueRegions);
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando radios desde la BD:', error);
+    } finally {
+      setLoadingRadios(false);
     }
   };
 
@@ -135,22 +193,26 @@ export default function MonitoreoPage() {
 
   const isSystemReady = systemStatus?.systemReady ?? false;
 
-  // Funciones auxiliares para filtros
+  // Funciones auxiliares para filtros usando datos reales
   const getUniqueRegions = () => {
-    return [...new Set(mockRadios.map(radio => radio.region))];
+    return regions;
   };
 
   const getCitiesByRegion = (region: string) => {
-    return [...new Set(mockRadios.filter(radio => radio.region === region).map(radio => radio.city))];
+    return radios
+      .filter(radio => radio.region === region)
+      .map(radio => radio.metadata?.city || '')
+      .filter(city => city !== '')
+      .filter((city, index, arr) => arr.indexOf(city) === index);
   };
 
   const getFilteredRadios = () => {
-    let filtered = mockRadios.filter(radio => radio.isActive);
+    let filtered = radios.filter(radio => radio.isActive);
     
     if (filterType === 'region' && selectedRegion) {
       filtered = filtered.filter(radio => radio.region === selectedRegion);
       if (selectedCity) {
-        filtered = filtered.filter(radio => radio.city === selectedCity);
+        filtered = filtered.filter(radio => radio.metadata?.city === selectedCity);
       }
     }
     
@@ -175,25 +237,41 @@ export default function MonitoreoPage() {
   };
 
   const startMonitoring = async () => {
+    console.log('🚀 Iniciando monitoreo...');
+    console.log('📻 Radios seleccionadas:', selectedRadios);
+    console.log('🔧 Configuración:', { filterType, selectedRegion, selectedCity });
+    
     if (selectedRadios.length === 0) {
+      console.log('❌ No hay radios seleccionadas');
       alert('Por favor selecciona al menos una radio para monitorear');
       return;
     }
 
     setLoading(true);
+    console.log('⏳ Enviando solicitud al servidor...');
+    
     try {
+      const requestBody = { 
+        radioIds: selectedRadios,
+        filterType,
+        selectedRegion,
+        selectedCity 
+      };
+      
+      console.log('📤 Datos enviados:', requestBody);
+      
       const response = await fetch('/api/monitoring/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          radioIds: selectedRadios,
-          filterType,
-          selectedRegion,
-          selectedCity 
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log('📥 Respuesta del servidor:', response.status, response.statusText);
+      
       if (response.ok) {
+        const responseData = await response.json();
+        console.log('✅ Monitoreo iniciado exitosamente:', responseData);
+        
         setShowStartDialog(false);
         setSelectedRadios([]);
         setFilterType('all');
@@ -201,14 +279,16 @@ export default function MonitoreoPage() {
         setSelectedCity('');
         loadMonitoringData(); // Recargar datos
       } else {
-        const error = await response.text();
-        alert(`Error iniciando monitoreo: ${error}`);
+        const errorData = await response.text();
+        console.error('❌ Error en la respuesta:', errorData);
+        alert(`Error al iniciar monitoreo: ${response.status} ${response.statusText}`);
       }
     } catch (error) {
-      console.error('Error iniciando monitoreo:', error);
-      alert('Error de conexión al iniciar el monitoreo');
+      console.error('💥 Error iniciando monitoreo:', error);
+      alert('Error de conexión al iniciar monitoreo');
     } finally {
       setLoading(false);
+      console.log('🏁 Proceso de inicio completado');
     }
   };
 
@@ -218,17 +298,17 @@ export default function MonitoreoPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Monitoreo en Tiempo Real</h1>
-          <p className="text-white mt-1">Captura y análisis automático de publicidad</p>
+          <p className="text-white mt-1">Captura y an谩lisis autom谩tico de publicidad</p>
         </div>
         <div className="flex items-center space-x-3">
           <Button 
             onClick={() => setShowStartDialog(true)} 
             variant="default" 
             className="bg-green-600 hover:bg-green-700"
-            disabled={!isSystemReady}
+            disabled={false}
           >
             <PlayCircle className="h-4 w-4 mr-2" />
-            Iniciar Análisis
+            Iniciar An谩lisis
           </Button>
           <Button onClick={loadMonitoringData} variant="outline" disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -237,23 +317,23 @@ export default function MonitoreoPage() {
         </div>
       </div>
 
-      {/* Panel de Inicio de Análisis */}
+      {/* Panel de Inicio de An谩lisis */}
       {showStartDialog && (
         <Card className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border-green-700/50">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Settings className="h-5 w-5 text-green-400" />
-              🚀 Configurar Nuevo Análisis
+              馃殌 Configurar Nuevo An谩lisis
             </CardTitle>
             <p className="text-slate-300 text-sm">
-              Selecciona las radios y regiones que deseas monitorear para detectar publicidad automáticamente
+              Selecciona las radios y regiones que deseas monitorear para detectar publicidad autom谩ticamente
             </p>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Filtros de Selección */}
+            {/* Filtros de Selecci贸n */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-white mb-2 block">Tipo de Selección:</label>
+                <label className="text-sm font-medium text-white mb-2 block">Tipo de Selecci贸n:</label>
                 <Select value={filterType} onValueChange={(value: 'all' | 'region' | 'custom') => {
                   setFilterType(value);
                   setSelectedRegion('');
@@ -273,13 +353,13 @@ export default function MonitoreoPage() {
                     <SelectItem value="region" className="text-white hover:bg-slate-600 focus:bg-slate-600">
                       <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4" />
-                        Filtrar por Región/Ciudad
+                        Filtrar por Regi贸n/Ciudad
                       </div>
                     </SelectItem>
                     <SelectItem value="custom" className="text-white hover:bg-slate-600 focus:bg-slate-600">
                       <div className="flex items-center gap-2">
                         <Filter className="h-4 w-4" />
-                        Selección Personalizada
+                        Selecci贸n Personalizada
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -289,14 +369,14 @@ export default function MonitoreoPage() {
               {filterType === 'region' && (
                 <>
                   <div>
-                    <label className="text-sm font-medium text-white mb-2 block">Región:</label>
+                    <label className="text-sm font-medium text-white mb-2 block">Regi贸n:</label>
                     <Select value={selectedRegion} onValueChange={(value) => {
                       setSelectedRegion(value);
                       setSelectedCity('');
                       setSelectedRadios([]);
                     }}>
                       <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                        <SelectValue placeholder="Seleccionar región..." />
+                        <SelectValue placeholder="Seleccionar regi贸n..." />
                       </SelectTrigger>
                       <SelectContent className="bg-slate-700 border-slate-600">
                         {getUniqueRegions().map((region) => (
@@ -319,7 +399,7 @@ export default function MonitoreoPage() {
                           <SelectValue placeholder="Todas las ciudades..." />
                         </SelectTrigger>
                         <SelectContent className="bg-slate-700 border-slate-600">
-                          <SelectItem value="" className="text-white hover:bg-slate-600 focus:bg-slate-600">
+                          <SelectItem value="all" className="text-white hover:bg-slate-600 focus:bg-slate-600">
                             Todas las ciudades
                           </SelectItem>
                           {getCitiesByRegion(selectedRegion).map((city) => (
@@ -375,7 +455,7 @@ export default function MonitoreoPage() {
                         className="flex-1 cursor-pointer text-sm text-white"
                       >
                         <div className="font-medium">{radio.name}</div>
-                        <div className="text-xs text-slate-400">{radio.region} • {radio.city}</div>
+                        <div className="text-xs text-slate-400">{radio.region} — {radio.metadata?.city || 'N/A'}</div>
                       </label>
                     </div>
                   ))}
@@ -388,10 +468,10 @@ export default function MonitoreoPage() {
               <div className="text-sm text-slate-300">
                 <strong className="text-white">{selectedRadios.length}</strong> radios seleccionadas
                 {filterType === 'region' && selectedRegion && (
-                  <span> • Región: <strong className="text-white">{selectedRegion}</strong></span>
+                  <span> 鈥� Regi贸n: <strong className="text-white">{selectedRegion}</strong></span>
                 )}
                 {selectedCity && (
-                  <span> • Ciudad: <strong className="text-white">{selectedCity}</strong></span>
+                  <span> 鈥� Ciudad: <strong className="text-white">{selectedCity}</strong></span>
                 )}
               </div>
               <div className="flex gap-3">
@@ -508,7 +588,7 @@ export default function MonitoreoPage() {
                 <div className="text-center py-8 text-slate-400">
                   <RadioIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p className="text-white">No hay sesiones de monitoreo activas</p>
-                  <p className="text-sm mt-2 text-white">Ve a la sección de Radios para iniciar el monitoreo</p>
+                  <p className="text-sm mt-2 text-white">Ve a la secci贸n de Radios para iniciar el monitoreo</p>
                 </div>
               ) : (
                 filteredSessions.map((session) => (
@@ -566,7 +646,7 @@ export default function MonitoreoPage() {
                       {session.lastAdvertisement && (
                         <div className="text-xs text-green-400">
                           <Target className="h-3 w-3 inline mr-1" />
-                          Última detección: {new Date(session.lastAdvertisement).toLocaleString('es-CL')}
+                          脷ltima detecci贸n: {new Date(session.lastAdvertisement).toLocaleString('es-CL')}
                         </div>
                       )}
                     </CardContent>

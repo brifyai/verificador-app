@@ -1,6 +1,5 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -23,9 +22,12 @@ const errorMessages: Record<string, string> = {
   'Default': 'Ha ocurrido un error inesperado durante la autenticación.'
 };
 
-export default function AuthErrorPage() {
-  const searchParams = useSearchParams();
-  const error = searchParams?.get('error') || 'Default';
+interface AuthErrorPageProps {
+  searchParams?: { [key: string]: string | string[] | undefined };
+}
+
+export default function AuthErrorPage({ searchParams }: AuthErrorPageProps) {
+  const error = (searchParams?.error as string) || 'Default';
   
   const errorMessage = errorMessages[error] || errorMessages['Default'];
   
