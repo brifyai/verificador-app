@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Play, MessageCircle, Filter, Download, DollarSign, BarChart3, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,91 +9,214 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { mockRadioDetections, getStatusColor, RadioDetection, mockRadios } from '@/lib/mock-data';
+
+interface Detection {
+  id: string;
+  date: string;
+  time: string;
+  programadora: string;
+  radio: string;
+  region: string;
+  comuna: string;
+  marca: string;
+  campaña: string;
+  status: string;
+  detectedText: string;
+  originalText: string;
+  confidence: number;
+  similarity: number;
+  cost: number;
+  timestamp: string;
+  audioPath?: string;
+  sessionId: string;
+  userId: string;
+}
+
+interface DetectionStats {
+  totalDetections: number;
+  totalValue: number;
+  averageConfidence: number;
+  completedDetections: number;
+  pendingDetections: number;
+}
+
+interface DetectionResponse {
+  detections: Detection[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+  stats: DetectionStats;
+  filters: {
+    regions: string[];
+  };
+}
 
 export default function Reportes() {
-  const [detections, setDetections] = useState<RadioDetection[]>(mockRadioDetections);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [regionFilter, setRegionFilter] = useState('all');
-
-  const filteredDetections = detections.filter(detection => {
-    const matchesStatus = statusFilter === 'all' || detection.status === statusFilter;
-    const matchesSearch = searchTerm === '' || 
-      Object.values(detection).some(value => 
-        value.toString().toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    const matchesRegion = regionFilter === 'all' || detection.region === regionFilter;
-    return matchesStatus && matchesSearch && matchesRegion;
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [stats, setStats] = useState<DetectionStats>({
+    totalDetections: 0,
+    totalValue: 0,
+    averageConfidence: 0,
+    completedDetections: 0,
+    pendingDetections: 0
   });
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
+  
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalDetections, setTotalDetections] = useState(0);
 
-  const uniqueStatuses = [...new Set(detections.map(d => d.status))];
-  const uniqueRegions = [...new Set(detections.map(d => d.region))];
-
-  // Calcular KPIs
-  const calculateDetectionValue = (detection: RadioDetection) => {
-    const radio = mockRadios.find(r => r.name === detection.radio);
-    return radio?.pricePerDetection || 0;
+  // Función para cargar datos
+  const loadDetections = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: '50',
+        search: searchTerm,
+        status: statusFilter,
+        region: regionFilter,
+        ...(dateRange.start && { startDate: dateRange.start }),
+        ...(dateRange.end && { endDate: dateRange.end })
+      });
+      
+      const response = await fetch(`/api/monitoring/detections?${params}`);
+      
+      if (!response.ok) {
+        throw new Error('Error al cargar las detecciones');
+      }
+      
+      const data: DetectionResponse = await response.json();
+      
+      setDetections(data.detections);
+      setStats(data.stats);
+      setAvailableRegions(data.filters.regions);
+      setTotalPages(data.pagination.pages);
+      setTotalDetections(data.pagination.total);
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido');
+      console.error('Error loading detections:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const totalValue = filteredDetections.reduce((sum, detection) => {
-    return sum + calculateDetectionValue(detection);
-  }, 0);
+  // Cargar datos al montar el componente y cuando cambien los filtros
+  useEffect(() => {
+    loadDetections();
+  }, [currentPage, searchTerm, statusFilter, regionFilter, dateRange]);
 
-  const completedDetections = filteredDetections.filter(d => 
-    d.status === 'Finalizada' || d.status === 'Solucionado'
-  ).length;
+  const filteredDetections = detections;
+  const uniqueStatuses = ['Verificado', 'Pendiente', 'Falso Positivo'];
+  const uniqueRegions = availableRegions;
 
-  const pendingDetections = filteredDetections.filter(d => 
-    d.status === 'Pendiente'
-  ).length;
+  // Calcular KPIs
+  const calculateDetectionValue = (detection: Detection) => {
+    return detection.cost || 0;
+  };
+
+  const totalValue = stats.totalValue;
+  const completedDetections = stats.completedDetections;
+  const pendingDetections = stats.pendingDetections;
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Verificado':
+        return 'bg-green-600';
+      case 'Pendiente':
+        return 'bg-yellow-600';
+      case 'Falso Positivo':
+        return 'bg-red-600';
+      default:
+        return 'bg-gray-600';
+    }
+  };
+
+  if (loading && detections.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-white text-lg">Cargando reportes...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-red-400 text-lg">Error: {error}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Función para exportar datos
-  const handleExport = () => {
-    try {
-      // Verificar que estemos en el cliente
-      if (typeof window === 'undefined') return;
-      
-      const csvContent = [
-        ['Fecha', 'Hora', 'Programadora', 'Radio', 'Región', 'Comuna', 'Marca', 'Campaña', 'Estado', 'Valor (CLP)'],
-        ...filteredDetections.map(detection => [
-          detection.date,
-          detection.time,
-          detection.programadora,
-          detection.radio,
-          detection.region,
-          detection.comuna,
-          detection.marca,
-          detection.campaña,
-          detection.status,
-          `$${calculateDetectionValue(detection).toLocaleString()}`
-        ])
-      ].map(row => row.join(',')).join('\n');
-
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      
-      link.setAttribute('href', url);
-      const today = new Date();
-      const dateString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      link.setAttribute('download', `reportes_detecciones_${dateString}.csv`);
-      link.style.visibility = 'hidden';
-      
-      document.body.appendChild(link);
-      link.click();
-      
-      // Cleanup
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-      console.log('Exportación completada exitosamente');
-    } catch (error) {
-      console.error('Error al exportar:', error);
-      alert('Error al exportar el archivo. Intenta nuevamente.');
-    }
+  const exportToCSV = () => {
+    const headers = [
+      'Fecha',
+      'Hora', 
+      'Programadora',
+      'Radio',
+      'Región',
+      'Comuna',
+      'Marca',
+      'Campaña',
+      'Estado',
+      'Texto Detectado',
+      'Confianza',
+      'Valor (CLP)'
+    ];
+    
+    const csvData = detections.map(detection => [
+      detection.date,
+      detection.time,
+      detection.programadora,
+      detection.radio,
+      detection.region,
+      detection.comuna,
+      detection.marca,
+      detection.campaña,
+      detection.status,
+      `"${detection.detectedText}"`,
+      (detection.confidence * 100).toFixed(1) + '%',
+      detection.cost.toLocaleString()
+    ]);
+    
+    const csvContent = [headers, ...csvData]
+      .map(row => row.join(','))
+      .join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `reportes_detecciones_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -106,7 +229,7 @@ export default function Reportes() {
             Gestión y seguimiento de detecciones publicitarias
           </p>
         </div>
-        <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleExport}>
+        <Button className="bg-blue-600 hover:bg-blue-700" onClick={exportToCSV} disabled={loading}>
           <Download className="w-4 h-4 mr-2" />
           Exportar
         </Button>
@@ -120,7 +243,7 @@ export default function Reportes() {
             <BarChart3 className="h-4 w-4 text-blue-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-white">{filteredDetections.length}</div>
+            <div className="text-2xl font-bold text-white">{stats.totalDetections}</div>
             <p className="text-xs text-slate-400">detecciones filtradas</p>
           </CardContent>
         </Card>
@@ -131,7 +254,7 @@ export default function Reportes() {
             <DollarSign className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-400">${totalValue.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-green-400">${stats.totalValue.toLocaleString()}</div>
             <p className="text-xs text-slate-400">CLP en detecciones</p>
           </CardContent>
         </Card>
@@ -142,7 +265,7 @@ export default function Reportes() {
             <CheckCircle className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-white">{completedDetections}</div>
+            <div className="text-2xl font-bold text-white">{stats.completedDetections}</div>
             <p className="text-xs text-slate-400">finalizadas/solucionadas</p>
           </CardContent>
         </Card>
@@ -153,7 +276,7 @@ export default function Reportes() {
             <Clock className="h-4 w-4 text-yellow-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-400">{pendingDetections}</div>
+            <div className="text-2xl font-bold text-yellow-400">{stats.pendingDetections}</div>
             <p className="text-xs text-slate-400">por procesar</p>
           </CardContent>
         </Card>
@@ -320,7 +443,7 @@ export default function Reportes() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-green-400 font-medium">
-                    ${calculateDetectionValue(detection).toLocaleString()} CLP
+                    ${detection.cost.toLocaleString()} CLP
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center space-x-2">
@@ -345,9 +468,40 @@ export default function Reportes() {
         )}
       </div>
 
-      {/* Summary */}
-      <div className="text-sm text-slate-400">
-        Mostrando {filteredDetections.length} de {detections.length} detecciones
+      {/* Summary and Pagination */}
+      <div className="flex justify-between items-center text-sm text-slate-400">
+        <div>
+          Mostrando {detections.length} de {totalDetections} detecciones
+        </div>
+        
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1 || loading}
+              className="bg-slate-800 border-slate-600 text-white hover:bg-slate-700"
+            >
+              Anterior
+            </Button>
+            
+            <span className="text-white">
+              Página {currentPage} de {totalPages}
+            </span>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || loading}
+              className="bg-slate-800 border-slate-600 text-white hover:bg-slate-700"
+            >
+              Siguiente
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

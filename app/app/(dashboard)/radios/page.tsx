@@ -80,7 +80,7 @@ const getPlatformName = (platform: string) => {
 };
 
 export default function RadiosPage() {
-  const { showConfirmation, ConfirmationDialog } = useConfirmationDialog();
+  const { confirm, ConfirmationDialog } = useConfirmationDialog();
   const toast = useEnhancedToast();
   // const [radios, setRadios] = useState<Radio[]>(mockRadios); // Datos Prueba
   const [radios, setRadios] = useState<Radio[]>([]);
@@ -513,12 +513,14 @@ export default function RadiosPage() {
 
   // Función para eliminar radio
   const handleDelete = async (radioId: string) => {
-    const confirmed = await showConfirmation({
+    const confirmed = await confirm({
       title: '¿Eliminar radio?',
-      message: '¿Estás seguro de que quieres eliminar esta radio? Esta acción no se puede deshacer.',
+      description: '¿Estás seguro de que quieres eliminar esta radio? Esta acción no se puede deshacer.',
       confirmText: 'Eliminar',
       cancelText: 'Cancelar',
-      variant: 'destructive'
+      variant: 'destructive',
+      onConfirm: () => {},
+      onCancel: () => {}
     });
 
     if (!confirmed) return;

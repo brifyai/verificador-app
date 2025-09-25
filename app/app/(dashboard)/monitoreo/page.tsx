@@ -298,7 +298,7 @@ export default function MonitoreoPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Monitoreo en Tiempo Real</h1>
-          <p className="text-white mt-1">Captura y an谩lisis autom谩tico de publicidad</p>
+          <p className="text-white mt-1">Captura y análisis automático de publicidad</p>
         </div>
         <div className="flex items-center space-x-3">
           <Button 
@@ -308,7 +308,7 @@ export default function MonitoreoPage() {
             disabled={false}
           >
             <PlayCircle className="h-4 w-4 mr-2" />
-            Iniciar An谩lisis
+            Iniciar Análisis
           </Button>
           <Button onClick={loadMonitoringData} variant="outline" disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -317,23 +317,23 @@ export default function MonitoreoPage() {
         </div>
       </div>
 
-      {/* Panel de Inicio de An谩lisis */}
+      {/* Panel de Inicio de Análisis */}
       {showStartDialog && (
-        <Card className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border-green-700/50">
+        <Card className="bg-slate-800/50 border-slate-700">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
-              <Settings className="h-5 w-5 text-green-400" />
-              馃殌 Configurar Nuevo An谩lisis
+              <Settings className="h-5 w-5 text-blue-400" />
+              Configurar Nuevo Análisis
             </CardTitle>
             <p className="text-slate-300 text-sm">
-              Selecciona las radios y regiones que deseas monitorear para detectar publicidad autom谩ticamente
+              Selecciona las radios y regiones que deseas monitorear para detectar publicidad automáticamente
             </p>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Filtros de Selecci贸n */}
+            {/* Filtros de Selección */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-white mb-2 block">Tipo de Selecci贸n:</label>
+                <label className="text-sm font-medium text-white mb-2 block">Tipo de Selección:</label>
                 <Select value={filterType} onValueChange={(value: 'all' | 'region' | 'custom') => {
                   setFilterType(value);
                   setSelectedRegion('');
@@ -353,13 +353,13 @@ export default function MonitoreoPage() {
                     <SelectItem value="region" className="text-white hover:bg-slate-600 focus:bg-slate-600">
                       <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4" />
-                        Filtrar por Regi贸n/Ciudad
+                        Filtrar por Región/Ciudad
                       </div>
                     </SelectItem>
                     <SelectItem value="custom" className="text-white hover:bg-slate-600 focus:bg-slate-600">
                       <div className="flex items-center gap-2">
                         <Filter className="h-4 w-4" />
-                        Selecci贸n Personalizada
+                        Selección Personalizada
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -369,14 +369,14 @@ export default function MonitoreoPage() {
               {filterType === 'region' && (
                 <>
                   <div>
-                    <label className="text-sm font-medium text-white mb-2 block">Regi贸n:</label>
+                    <label className="text-sm font-medium text-white mb-2 block">Región:</label>
                     <Select value={selectedRegion} onValueChange={(value) => {
                       setSelectedRegion(value);
                       setSelectedCity('');
                       setSelectedRadios([]);
                     }}>
                       <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                        <SelectValue placeholder="Seleccionar regi贸n..." />
+                        <SelectValue placeholder="Seleccionar región..." />
                       </SelectTrigger>
                       <SelectContent className="bg-slate-700 border-slate-600">
                         {getUniqueRegions().map((region) => (
@@ -426,7 +426,7 @@ export default function MonitoreoPage() {
                     onClick={handleSelectAllRadios}
                     variant="outline"
                     size="sm"
-                    className="text-green-400 border-green-400 hover:bg-green-400/10"
+                    className="bg-green-500 border-green-500 text-white hover:bg-green-600 hover:border-green-600 hover:text-white"
                   >
                     Seleccionar Todas
                   </Button>
@@ -434,7 +434,7 @@ export default function MonitoreoPage() {
                     onClick={handleDeselectAllRadios}
                     variant="outline"
                     size="sm"
-                    className="text-red-400 border-red-400 hover:bg-red-400/10"
+                    className="bg-red-500 text-white border-red-500 hover:bg-red-700 hover:text-white hover:border-red-700  "
                   >
                     Deseleccionar Todas
                   </Button>
@@ -448,6 +448,7 @@ export default function MonitoreoPage() {
                       <Checkbox
                         id={`radio-${radio.id}`}
                         checked={selectedRadios.includes(radio.id)}
+                        className="data-[state=checked]:bg-white data-[state=checked]:text-black border-white"
                         onCheckedChange={(checked) => handleRadioSelection(radio.id, checked as boolean)}
                       />
                       <label 
@@ -468,10 +469,10 @@ export default function MonitoreoPage() {
               <div className="text-sm text-slate-300">
                 <strong className="text-white">{selectedRadios.length}</strong> radios seleccionadas
                 {filterType === 'region' && selectedRegion && (
-                  <span> 鈥� Regi贸n: <strong className="text-white">{selectedRegion}</strong></span>
+                  <span> • Región: <strong className="text-white">{selectedRegion}</strong></span>
                 )}
                 {selectedCity && (
-                  <span> 鈥� Ciudad: <strong className="text-white">{selectedCity}</strong></span>
+                  <span> • Ciudad: <strong className="text-white">{selectedCity}</strong></span>
                 )}
               </div>
               <div className="flex gap-3">
@@ -588,7 +589,7 @@ export default function MonitoreoPage() {
                 <div className="text-center py-8 text-slate-400">
                   <RadioIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p className="text-white">No hay sesiones de monitoreo activas</p>
-                  <p className="text-sm mt-2 text-white">Ve a la secci贸n de Radios para iniciar el monitoreo</p>
+                  <p className="text-sm mt-2 text-white">Ve a la sección de Radios para iniciar el monitoreo</p>
                 </div>
               ) : (
                 filteredSessions.map((session) => (
@@ -646,7 +647,7 @@ export default function MonitoreoPage() {
                       {session.lastAdvertisement && (
                         <div className="text-xs text-green-400">
                           <Target className="h-3 w-3 inline mr-1" />
-                          脷ltima detecci贸n: {new Date(session.lastAdvertisement).toLocaleString('es-CL')}
+                          Última detección: {new Date(session.lastAdvertisement).toLocaleString('es-CL')}
                         </div>
                       )}
                     </CardContent>
