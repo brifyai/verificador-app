@@ -29,6 +29,8 @@ import {
   Edit
 } from 'lucide-react';
 import AddPaymentMethodModal from '@/components/add-payment-method-modal';
+import { useSession } from 'next-auth/react';
+import { isAdmin } from '@/lib/permissions';
 
 interface UserProfile {
   id: string;
@@ -89,6 +91,7 @@ interface Subscription {
 }
 
 export default function PerfilPage() {
+  const { data: session } = useSession();
   const [profile, setProfile] = useState<UserProfile>({
     id: '',
     fullName: '',
@@ -112,6 +115,9 @@ export default function PerfilPage() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  
+  // Verificar si el usuario es administrador
+  const userIsAdmin = isAdmin(session?.user?.role);
 
   // Cargar datos del perfil al montar el componente
   useEffect(() => {
@@ -212,7 +218,7 @@ export default function PerfilPage() {
       const response = await fetch('/api/billing/subscriptions');
       if (response.ok) {
         const subscriptions = await response.json();
-        if (subscriptions.length > 0) {
+        if (subscriptions && Array.isArray(subscriptions) && subscriptions.length > 0) {
           setSubscription(subscriptions[0]);
         }
       }
@@ -329,23 +335,27 @@ export default function PerfilPage() {
       )}
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 bg-slate-700/50">
-          <TabsTrigger value="profile" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
+        <TabsList className={`bg-slate-800/50 border border-slate-700 ${!userIsAdmin ? "w-full" : ""}`}>
+          <TabsTrigger value="profile" className={`text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white ${!userIsAdmin ? "w-full" : ""}`}>
             <User className="h-4 w-4 mr-2" />
             Perfil
           </TabsTrigger>
-          <TabsTrigger value="billing" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
-            <FileText className="h-4 w-4 mr-2" />
-            Facturación
-          </TabsTrigger>
-          <TabsTrigger value="payments" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Métodos de Pago
-          </TabsTrigger>
-          <TabsTrigger value="history" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
-            <Calendar className="h-4 w-4 mr-2" />
-            Historial
-          </TabsTrigger>
+          {userIsAdmin && (
+            <>
+              <TabsTrigger value="billing" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
+                <FileText className="h-4 w-4 mr-2" />
+                Facturación
+              </TabsTrigger>
+              <TabsTrigger value="payments" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
+                <CreditCard className="h-4 w-4 mr-2" />
+                Métodos de Pago
+              </TabsTrigger>
+              <TabsTrigger value="history" className="text-white data-[state=active]:bg-slate-600 data-[state=active]:text-white">
+                <Calendar className="h-4 w-4 mr-2" />
+                Historial
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         {/* Perfil Personal */}
@@ -387,293 +397,299 @@ export default function PerfilPage() {
         </TabsContent>
 
         {/* Datos de Facturación */}
-        <TabsContent value="billing" className="space-y-6">
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <FileText className="h-5 w-5 text-green-400 mr-2" />
-                Datos de Facturación
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-white">Nombre de la Empresa</Label>
-                  <Input
-                    value={billingInfo.companyName}
-                    onChange={(e) => setBillingInfo({...billingInfo, companyName: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
+        {userIsAdmin && (
+          <TabsContent value="billing" className="space-y-6">
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center">
+                  <FileText className="h-5 w-5 text-green-400 mr-2" />
+                  Datos de Facturación
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-white">Nombre de la Empresa</Label>
+                    <Input
+                      value={billingInfo.companyName}
+                      onChange={(e) => setBillingInfo({...billingInfo, companyName: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white">Razón Social</Label>
+                    <Input
+                      value={billingInfo.legalName}
+                      onChange={(e) => setBillingInfo({...billingInfo, legalName: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white">RUT</Label>
+                    <Input
+                      value={billingInfo.taxId}
+                      onChange={(e) => setBillingInfo({...billingInfo, taxId: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white">Email de Facturación</Label>
+                    <Input
+                      type="email"
+                      value={billingInfo.billingEmail}
+                      onChange={(e) => setBillingInfo({...billingInfo, billingEmail: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label className="text-white">Dirección</Label>
+                    <Input
+                      value={billingInfo.address}
+                      onChange={(e) => setBillingInfo({...billingInfo, address: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white">Ciudad</Label>
+                    <Input
+                      value={billingInfo.city}
+                      onChange={(e) => setBillingInfo({...billingInfo, city: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white">Región</Label>
+                    <Input
+                      value={billingInfo.region}
+                      onChange={(e) => setBillingInfo({...billingInfo, region: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white">Código Postal</Label>
+                    <Input
+                      value={billingInfo.postalCode}
+                      onChange={(e) => setBillingInfo({...billingInfo, postalCode: e.target.value})}
+                      className="bg-slate-700 border-slate-600 text-white"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Razón Social</Label>
-                  <Input
-                    value={billingInfo.legalName}
-                    onChange={(e) => setBillingInfo({...billingInfo, legalName: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
+                <div className="flex justify-end">
+                  <Button onClick={handleBillingUpdate} disabled={loading} className="bg-green-600 hover:bg-green-700">
+                    {loading ? 'Actualizando...' : 'Actualizar Facturación'}
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-white">RUT</Label>
-                  <Input
-                    value={billingInfo.taxId}
-                    onChange={(e) => setBillingInfo({...billingInfo, taxId: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Email de Facturación</Label>
-                  <Input
-                    type="email"
-                    value={billingInfo.billingEmail}
-                    onChange={(e) => setBillingInfo({...billingInfo, billingEmail: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label className="text-white">Dirección</Label>
-                  <Input
-                    value={billingInfo.address}
-                    onChange={(e) => setBillingInfo({...billingInfo, address: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Ciudad</Label>
-                  <Input
-                    value={billingInfo.city}
-                    onChange={(e) => setBillingInfo({...billingInfo, city: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Región</Label>
-                  <Input
-                    value={billingInfo.region}
-                    onChange={(e) => setBillingInfo({...billingInfo, region: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Código Postal</Label>
-                  <Input
-                    value={billingInfo.postalCode}
-                    onChange={(e) => setBillingInfo({...billingInfo, postalCode: e.target.value})}
-                    className="bg-slate-700 border-slate-600 text-white"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={handleBillingUpdate} disabled={loading} className="bg-green-600 hover:bg-green-700">
-                  {loading ? 'Actualizando...' : 'Actualizar Facturación'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* Métodos de Pago */}
-        <TabsContent value="payments" className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold text-white">Métodos de Pago</h2>
-            <AddPaymentMethodModal onPaymentMethodAdded={loadPaymentMethods} />
-          </div>
+        {userIsAdmin && (
+          <TabsContent value="payments" className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-white">Métodos de Pago</h2>
+              <AddPaymentMethodModal onPaymentMethodAdded={loadPaymentMethods} />
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {paymentMethods.map((method) => (
-              <Card key={method.id} className="bg-slate-800/50 border-slate-700">
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center space-x-2">
-                      <CreditCard className="h-5 w-5 text-blue-400" />
-                      <span className="text-white font-medium">{method.name}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {paymentMethods.map((method) => (
+                <Card key={method.id} className="bg-slate-800/50 border-slate-700">
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center space-x-2">
+                        <CreditCard className="h-5 w-5 text-blue-400" />
+                        <span className="text-white font-medium">{method.name}</span>
+                      </div>
+                      {method.isDefault && (
+                        <Badge className="bg-green-100 text-green-800 text-xs">Principal</Badge>
+                      )}
                     </div>
-                    {method.isDefault && (
-                      <Badge className="bg-green-100 text-green-800 text-xs">Principal</Badge>
+                    
+                    {method.expiryDate && (
+                      <p className="text-slate-400 text-sm mb-2">Vence: {method.expiryDate}</p>
                     )}
+                    
+                    <div className="flex justify-between items-center">
+                      <Badge variant={method.status === 'active' ? 'secondary' : 'destructive'}>
+                        {method.status === 'active' ? 'Activo' : 'Inactivo'}
+                      </Badge>
+                      <div className="flex space-x-2">
+                        <Button variant="outline" size="sm">
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-red-400 hover:text-red-300"
+                          onClick={() => handleDeletePaymentMethod(method.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Nuevos Métodos de Pago */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Mercado Pago */}
+              <Card className="bg-slate-800 border-slate-700">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center">
+                    <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
+                      <CreditCard className="w-4 h-4 text-white" />
+                    </div>
+                    Mercado Pago
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-slate-300 text-sm mb-4">
+                    Paga con tarjetas de crédito, débito o dinero en cuenta de Mercado Pago
+                  </p>
+                  <ul className="text-xs text-slate-400 space-y-1 mb-4">
+                    <li>• Procesamiento instantáneo</li>
+                    <li>• Protección al comprador</li>
+                    <li>• Múltiples medios de pago</li>
+                  </ul>
+                  <Button 
+                    onClick={addMercadoPagoPayment} 
+                    className="w-full bg-blue-600 hover:bg-blue-700"
+                  >
+                    Configurar Mercado Pago
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Transferencia Bancaria */}
+              <Card className="bg-slate-800 border-slate-700">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center">
+                    <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center mr-3">
+                      <Building2 className="w-4 h-4 text-white" />
+                    </div>
+                    Transferencia Bancaria
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-slate-300 text-sm mb-4">
+                    Paga directamente desde tu cuenta bancaria
+                  </p>
+                  <div className="text-xs text-slate-400 space-y-1 mb-4">
+                    <p><strong className="text-slate-300">Banco:</strong> Banco de Chile</p>
+                    <p><strong className="text-slate-300">Cuenta:</strong> 12345678-9</p>
+                    <p><strong className="text-slate-300">RUT:</strong> 76.123.456-7</p>
+                    <p><strong className="text-slate-300">Email:</strong> pagos@ondaverificada.cl</p>
                   </div>
-                  
-                  {method.expiryDate && (
-                    <p className="text-slate-400 text-sm mb-2">Vence: {method.expiryDate}</p>
+                  <Button className="w-full bg-green-600 hover:bg-green-700">
+                    Ver Instrucciones
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        )}
+
+        {/* Historial */}
+        {userIsAdmin && (
+          <TabsContent value="history" className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-white">Historial de Facturas</h2>
+            </div>
+
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-700/50">
+                      <tr>
+                        <th className="text-left p-4 text-white font-medium">Número</th>
+                        <th className="text-left p-4 text-white font-medium">Fecha</th>
+                        <th className="text-left p-4 text-white font-medium">Vencimiento</th>
+                        <th className="text-left p-4 text-white font-medium">Total</th>
+                        <th className="text-left p-4 text-white font-medium">Estado</th>
+                        <th className="text-left p-4 text-white font-medium">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((invoice) => (
+                        <tr key={invoice.id} className="border-b border-slate-700">
+                          <td className="p-4 text-white font-mono">{invoice.invoiceNumber}</td>
+                          <td className="p-4 text-slate-300">
+                            {new Date(invoice.issueDate).toLocaleDateString('es-CL')}
+                          </td>
+                          <td className="p-4 text-slate-300">
+                            {new Date(invoice.dueDate).toLocaleDateString('es-CL')}
+                          </td>
+                          <td className="p-4 text-white font-medium">
+                            {formatCurrency(invoice.total)}
+                          </td>
+                          <td className="p-4">
+                            {getStatusBadge(invoice.status)}
+                          </td>
+                          <td className="p-4">
+                            <div className="flex space-x-2">
+                              <Button variant="outline" size="sm" className="text-blue-400 hover:text-blue-300">
+                                <Eye className="h-3 w-3 mr-1" />
+                                Ver
+                              </Button>
+                              <Button variant="outline" size="sm" className="text-green-400 hover:text-green-300">
+                                <Download className="h-3 w-3 mr-1" />
+                                PDF
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {invoices.length === 0 && (
+                    <div className="p-8 text-center text-slate-400">
+                      No hay facturas disponibles
+                    </div>
                   )}
-                  
-                  <div className="flex justify-between items-center">
-                    <Badge variant={method.status === 'active' ? 'secondary' : 'destructive'}>
-                      {method.status === 'active' ? 'Activo' : 'Inactivo'}
-                    </Badge>
-                    <div className="flex space-x-2">
-                      <Button variant="outline" size="sm">
-                        <Edit className="h-3 w-3" />
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="text-red-400 hover:text-red-300"
-                        onClick={() => handleDeletePaymentMethod(method.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Información de Suscripción */}
+            {subscription && (
+              <Card className="bg-slate-800/50 border-slate-700">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center">
+                    <Calendar className="h-5 w-5 text-purple-400 mr-2" />
+                    Suscripción Actual
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <Label className="text-slate-400">Plan</Label>
+                      <p className="text-white font-medium">{subscription.planId}</p>
+                    </div>
+                    <div>
+                      <Label className="text-slate-400">Estado</Label>
+                      <div className="mt-1">
+                        <Badge variant={subscription.status === 'active' ? 'secondary' : 'destructive'}>
+                          {subscription.status === 'active' ? 'Activa' : 
+                           subscription.status === 'cancelled' ? 'Cancelada' : 'Vencida'}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-slate-400">Próximo Cobro</Label>
+                      <p className="text-white">
+                        {new Date(subscription.currentPeriodEnd).toLocaleDateString('es-CL')}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-
-          {/* Nuevos Métodos de Pago */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Mercado Pago */}
-            <Card className="bg-slate-800 border-slate-700">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center">
-                  <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
-                    <CreditCard className="w-4 h-4 text-white" />
-                  </div>
-                  Mercado Pago
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-slate-300 text-sm mb-4">
-                  Paga con tarjetas de crédito, débito o dinero en cuenta de Mercado Pago
-                </p>
-                <ul className="text-xs text-slate-400 space-y-1 mb-4">
-                  <li>• Procesamiento instantáneo</li>
-                  <li>• Protección al comprador</li>
-                  <li>• Múltiples medios de pago</li>
-                </ul>
-                <Button 
-                  onClick={addMercadoPagoPayment} 
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                >
-                  Configurar Mercado Pago
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Transferencia Bancaria */}
-            <Card className="bg-slate-800 border-slate-700">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center">
-                  <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center mr-3">
-                    <Building2 className="w-4 h-4 text-white" />
-                  </div>
-                  Transferencia Bancaria
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-slate-300 text-sm mb-4">
-                  Paga directamente desde tu cuenta bancaria
-                </p>
-                <div className="text-xs text-slate-400 space-y-1 mb-4">
-                  <p><strong className="text-slate-300">Banco:</strong> Banco de Chile</p>
-                  <p><strong className="text-slate-300">Cuenta:</strong> 12345678-9</p>
-                  <p><strong className="text-slate-300">RUT:</strong> 76.123.456-7</p>
-                  <p><strong className="text-slate-300">Email:</strong> pagos@ondaverificada.cl</p>
-                </div>
-                <Button className="w-full bg-green-600 hover:bg-green-700">
-                  Ver Instrucciones
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Historial */}
-        <TabsContent value="history" className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold text-white">Historial de Facturas</h2>
-          </div>
-
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-700/50">
-                    <tr>
-                      <th className="text-left p-4 text-white font-medium">Número</th>
-                      <th className="text-left p-4 text-white font-medium">Fecha</th>
-                      <th className="text-left p-4 text-white font-medium">Vencimiento</th>
-                      <th className="text-left p-4 text-white font-medium">Total</th>
-                      <th className="text-left p-4 text-white font-medium">Estado</th>
-                      <th className="text-left p-4 text-white font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoices.map((invoice) => (
-                      <tr key={invoice.id} className="border-b border-slate-700">
-                        <td className="p-4 text-white font-mono">{invoice.invoiceNumber}</td>
-                        <td className="p-4 text-slate-300">
-                          {new Date(invoice.issueDate).toLocaleDateString('es-CL')}
-                        </td>
-                        <td className="p-4 text-slate-300">
-                          {new Date(invoice.dueDate).toLocaleDateString('es-CL')}
-                        </td>
-                        <td className="p-4 text-white font-medium">
-                          {formatCurrency(invoice.total)}
-                        </td>
-                        <td className="p-4">
-                          {getStatusBadge(invoice.status)}
-                        </td>
-                        <td className="p-4">
-                          <div className="flex space-x-2">
-                            <Button variant="outline" size="sm" className="text-blue-400 hover:text-blue-300">
-                              <Eye className="h-3 w-3 mr-1" />
-                              Ver
-                            </Button>
-                            <Button variant="outline" size="sm" className="text-green-400 hover:text-green-300">
-                              <Download className="h-3 w-3 mr-1" />
-                              PDF
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {invoices.length === 0 && (
-                  <div className="p-8 text-center text-slate-400">
-                    No hay facturas disponibles
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Información de Suscripción */}
-          {subscription && (
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center">
-                  <Calendar className="h-5 w-5 text-purple-400 mr-2" />
-                  Suscripción Actual
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-slate-400">Plan</Label>
-                    <p className="text-white font-medium">{subscription.planId}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-400">Estado</Label>
-                    <div className="mt-1">
-                      <Badge variant={subscription.status === 'active' ? 'secondary' : 'destructive'}>
-                        {subscription.status === 'active' ? 'Activa' : 
-                         subscription.status === 'cancelled' ? 'Cancelada' : 'Vencida'}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-slate-400">Próximo Cobro</Label>
-                    <p className="text-white">
-                      {new Date(subscription.currentPeriodEnd).toLocaleDateString('es-CL')}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
+            )}
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

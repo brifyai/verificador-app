@@ -93,6 +93,7 @@
     "googleapis": "^159.0.0",
     "gray-matter": "4.0.3",
     "groq-sdk": "^0.32.0",
+    "hls.js": "^1.6.13",
     "input-otp": "1.2.4",
     "ioredis": "^5.7.0",
     "jotai": "2.6.0",

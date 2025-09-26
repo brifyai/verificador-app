@@ -17,6 +17,7 @@ import RadioPricing from '@/components/radio-pricing';
 import { Plus, Radio as RadioIcon, Volume2, VolumeX, Search, MapPin, Globe, Zap, Settings, Play, Pause, Youtube, Twitch, Facebook, Instagram, Music, Headphones, Mic, Cast, Server, Database, Cpu, Cloud, Shield, DollarSign, BarChart3, Users, Wrench, Loader, Upload, FileSpreadsheet, Download, CheckCircle, AlertTriangle, Edit, Trash2, Clock } from 'lucide-react';
 import { useConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
+import Hls from "hls.js";
 
 const getPlatformIcon = (platform: string) => {
   switch (platform) {
@@ -380,129 +381,166 @@ export default function RadiosPage() {
   };
 
   // Función para limpiar el audio correctamente
-  const cleanupAudio = (audio: HTMLAudioElement) => {
+  const cleanupAudio = (audio: HTMLAudioElement | HTMLVideoElement) => {
     try {
       audio.pause();
       audio.removeAttribute('src');
       audio.load(); // Esto limpia completamente el elemento
       
       // Remover todos los event listeners posibles
-      const events = ['canplay', 'error', 'ended', 'loadstart', 'loadeddata', 'loadedmetadata'];
+      const events = ['canplay', 'error', 'ended', 'loadstart', 'loadeddata', 'loadedmetadata', 'playing'];
       events.forEach(event => {
         audio.removeEventListener(event, () => {});
       });
     } catch (error) {
       console.warn('Error limpiando audio:', error);
     }
-  };
+  }; 
 
-  const handlePlay = async (radioId: string) => {
-    const radio = radios.find(r => r.id === radioId);
-    if (!radio) return;
+const handlePlay = async (radioId: string) => {
+  const radio = radios.find(r => r.id === radioId);
+  if (!radio) return;
 
-    // Si ya está reproduciendo esta radio, detener
-    if (playingRadio === radioId) {
-      if (audioElement) {
-        cleanupAudio(audioElement);
-        setAudioElement(null);
-      }
-      setPlayingRadio(null);
-      setIsLoading(null);
-      console.log(`⏹️ Detenido: ${radio.name}`);
-      return;
-    }
-
-    // Si hay otro audio reproduciéndose, detenerlo
+  // Si ya está reproduciendo esta radio, detener
+  if (playingRadio === radioId) {
     if (audioElement) {
       cleanupAudio(audioElement);
       setAudioElement(null);
     }
+    setPlayingRadio(null);
+    setIsLoading(null);
+    console.log(`⏹️ Detenido: ${radio.name}`);
+    return;
+  }
 
-    // Verificar si la radio está activa
-    if (!radio.isActive) {
-      toast.warning('Esta radio no está activa. Actívala primero para poder escucharla.');
+  // Si hay otro audio reproduciéndose, detenerlo
+  if (audioElement) {
+    cleanupAudio(audioElement);
+    setAudioElement(null);
+  }
+
+  // Verificar si la radio está activa
+  if (!radio.isActive) {
+    toast.warning('Esta radio no está activa. Actívala primero para poder escucharla.');
+    return;
+  }
+
+  setIsLoading(radioId);
+  console.log(`🎵 Intentando reproducir: ${radio.name}`);
+  console.log(`🔗 URL: ${radio.streamUrl}`);
+
+  try {
+    const url = radio.streamUrl?.trim();
+    if (!url) throw new Error("URL de streaming vacía");
+
+    // Detectar tipo de stream
+    const isHls = url.endsWith(".m3u8");
+    const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
+    const isTwitch = url.includes("twitch.tv");
+    const isFacebook = url.includes("facebook.com");
+
+    // 🔹 Caso: YouTube / Twitch / Facebook → usar iframe en lugar de <audio>
+    if (isYouTube || isTwitch || isFacebook) {
+      setIsLoading(null);
+      setPlayingRadio(null);
+      toast.info(`🎥 ${radio.name} se reproduce en reproductor externo (${isYouTube ? "YouTube" : isTwitch ? "Twitch" : "Facebook"})`);
+      // Aquí en vez de <audio>, deberías renderizar un iframe con el player oficial
+      // Ej: setEmbeddedPlayer({ type: "youtube", url });
       return;
     }
 
-    setIsLoading(radioId);
-    console.log(`🎵 Intentando reproducir: ${radio.name}`);
-    console.log(`🔗 URL: ${radio.streamUrl}`);
+    // 🔹 Caso: HLS (.m3u8) → usar hls.js
+    if (isHls && Hls.isSupported()) {
+      const video = document.createElement("video"); // hls.js requiere <video>
+      video.crossOrigin = "anonymous";
+      video.volume = 0.7;
+      video.controls = false;
+      video.autoplay = true;
 
-    try {
-      // Validar URL antes de intentar reproducir
-      if (!radio.streamUrl || !radio.streamUrl.trim()) {
-        throw new Error('URL de streaming vacía');
-      }
+      const hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(video);
 
-      // Crear nuevo elemento de audio
-      const audio = new Audio();
-      
-      // Configurar propiedades ANTES de los eventos
-      audio.crossOrigin = 'anonymous';
-      audio.preload = 'auto';
-      audio.volume = 0.7;
-      
-      // Timeout simple
-      const timeout = setTimeout(() => {
-        toast.error(`⏰ Tiempo agotado cargando ${radio.name}`);
-        setIsLoading(null);
-        audio.src = '';
-      }, 15000);
-
-      // Evento de éxito - cuando puede empezar a reproducir
-      const onCanPlay = () => {
-        clearTimeout(timeout);
+      video.addEventListener("playing", () => {
         setIsLoading(null);
         setPlayingRadio(radioId);
-        audio.play()
-          .then(() => {
-            console.log(`✅ Reproduciendo: ${radio.name}`);
-            toast.audioSuccess(`Reproduciendo: ${radio.name}`);
-          })
-          .catch(error => {
-            console.error('❌ Error reproduciendo:', error);
-            toast.audioError(`No se pudo reproducir ${radio.name}`);
-            setPlayingRadio(null);
-          });
-      };
+        console.log(`✅ Reproduciendo HLS: ${radio.name}`);
+        toast.audioSuccess(`Reproduciendo: ${radio.name}`);
+      });
 
-      // Evento de error
-      const onError = (event: any) => {
-        clearTimeout(timeout);
-        console.error(`❌ Error cargando ${radio.name}:`, event);
+      video.addEventListener("error", (err) => {
+        console.error("❌ Error HLS:", err);
         setIsLoading(null);
         setPlayingRadio(null);
-        cleanupAudio(audio);
-        setAudioElement(null);
-        toast.audioError(`Error: No se pudo cargar ${radio.name}`);
-      };
+        toast.audioError(`Error HLS: No se pudo reproducir ${radio.name}`);
+      });
 
-      // Evento de finalización
-      const onEnded = () => {
-        setPlayingRadio(null);
-        cleanupAudio(audio);
-        setAudioElement(null);
-        console.log(`🔚 Stream finalizado: ${radio.name}`);
-      };
+      setAudioElement(video); // lo guardamos igual en audioElement
+      return;
+    }
 
-      // Agregar event listeners
-      audio.addEventListener('canplay', onCanPlay, { once: true });
-      audio.addEventListener('error', onError, { once: true });
-      audio.addEventListener('ended', onEnded, { once: true });
+    // 🔹 Caso: streams normales (MP3/AAC/OGG)
+    const audio = new Audio();
+    audio.crossOrigin = "anonymous";
+    audio.preload = "auto";
+    audio.volume = 0.7;
 
-      // Establecer URL y cargar
-      audio.src = radio.streamUrl;
-      audio.load();
-      
-      setAudioElement(audio);
-      
-    } catch (error) {
-      console.error('❌ Error configurando audio:', error);
-      toast.audioError(`Error configurando reproductor para ${radio.name}`);
+    const timeout = setTimeout(() => {
+      toast.error(`⏰ Tiempo agotado cargando ${radio.name}`);
+      setIsLoading(null);
+      audio.src = "";
+    }, 15000);
+
+    const onCanPlay = () => {
+      clearTimeout(timeout);
+      setIsLoading(null);
+      setPlayingRadio(radioId);
+      audio.play()
+        .then(() => {
+          console.log(`✅ Reproduciendo: ${radio.name}`);
+          toast.audioSuccess(`Reproduciendo: ${radio.name}`);
+        })
+        .catch(error => {
+          console.error("❌ Error reproduciendo:", error);
+          toast.audioError(`No se pudo reproducir ${radio.name}`);
+          setPlayingRadio(null);
+        });
+    };
+
+    const onError = (event: any) => {
+      clearTimeout(timeout);
+      console.error(`❌ Error cargando ${radio.name}:`, event);
       setIsLoading(null);
       setPlayingRadio(null);
-    }
-  };
+      cleanupAudio(audio);
+      setAudioElement(null);
+      toast.audioError(`Error: No se pudo cargar ${radio.name}`);
+    };
+
+    const onEnded = () => {
+      setPlayingRadio(null);
+      cleanupAudio(audio);
+      setAudioElement(null);
+      console.log(`🔚 Stream finalizado: ${radio.name}`);
+    };
+
+    audio.addEventListener("canplay", onCanPlay, { once: true });
+    audio.addEventListener("error", onError, { once: true });
+    audio.addEventListener("ended", onEnded, { once: true });
+
+    audio.src = url;
+    audio.load();
+
+    setAudioElement(audio);
+
+  } catch (error) {
+    console.error("❌ Error configurando audio:", error);
+    toast.audioError(`Error configurando reproductor para ${radio.name}`);
+    setIsLoading(null);
+    setPlayingRadio(null);
+  }
+};
+
 
   const totalActive = radios.filter(r => r.isActive).length;
   const totalInactive = radios.filter(r => !r.isActive).length;

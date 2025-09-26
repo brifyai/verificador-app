@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { UserPlus, Mail, Shield, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddUserModal } from '@/components/ui/add-user-modal';
-import { mockTeamMembers, TeamMember } from '@/lib/mock-data';
+import { TeamMember } from '@/lib/types';
 import { getDisplayRole, DatabaseRole } from '@/lib/types';
 import { useSession } from 'next-auth/react';
 import { isAdmin } from '@/lib/permissions';
@@ -14,9 +14,9 @@ import { ConfirmationDialog, useConfirmationDialog } from '@/components/ui/confi
 
 export default function Equipo() {
   const { data: session } = useSession();
-  const [members, setMembers] = useState<TeamMember[]>(mockTeamMembers);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const toast = useEnhancedToast();
   const { confirm, ConfirmationDialog: ConfirmDialog } = useConfirmationDialog();
 
@@ -60,11 +60,20 @@ export default function Equipo() {
   };
 
   // Función para bloquear/desbloquear usuario
-  const handleToggleUserStatus = async (userId: string, currentStatus: string, userName: string) => {
+  const handleToggleUserStatus = async (userId: string, currentStatus: string, userName: string, userRole: string) => {
     // Verificar permisos de administrador
     if (!isAdmin(session?.user?.role)) {
       toast.error('No tienes permisos para realizar esta acción', {
         title: '🚫 Acceso Denegado',
+        duration: 4000
+      });
+      return;
+    }
+    
+    // No permitir bloquear a administradores
+    if (userRole === 'Administrador') {
+      toast.error('No es posible bloquear a un administrador', {
+        title: '🚫 Operación no permitida',
         duration: 4000
       });
       return;
@@ -211,11 +220,17 @@ export default function Equipo() {
                 <tr key={member.id} className="hover:bg-slate-700/30">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${
+                        member.role === 'Administrador' 
+                          ? 'bg-gradient-to-br from-purple-500 to-indigo-600 ring-2 ring-purple-400' 
+                          : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                      }`}>
                         {member.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="ml-4">
-                        <div className="text-sm font-medium text-white">{member.name}</div>
+                        <div className={`text-sm font-medium ${
+                          member.role === 'Administrador' ? 'text-purple-300' : 'text-white'
+                        }`}>{member.name}</div>
                       </div>
                     </div>
                   </td>
@@ -262,18 +277,22 @@ export default function Equipo() {
                         className={`${
                           isAdmin(session?.user?.role) 
                             ? member.status === 'Activo' 
-                              ? 'text-red-400 hover:text-red-300' 
+                              ? member.role === 'Administrador'
+                                ? 'text-slate-600 cursor-not-allowed'
+                                : 'text-red-400 hover:text-red-300' 
                               : 'text-green-400 hover:text-green-300'
                             : 'text-slate-600 cursor-not-allowed'
                         }`}
-                        onClick={() => handleToggleUserStatus(member.id, member.status, member.name)}
-                        disabled={!isAdmin(session?.user?.role)}
+                        onClick={() => handleToggleUserStatus(member.id, member.status, member.name, member.role)}
+                        disabled={!isAdmin(session?.user?.role) || member.role === 'Administrador'}
                         title={
                           !isAdmin(session?.user?.role) 
                             ? 'Solo administradores pueden bloquear usuarios' 
-                            : member.status === 'Activo' 
-                              ? 'Bloquear usuario' 
-                              : 'Desbloquear usuario'
+                            : member.role === 'Administrador'
+                              ? 'No es posible bloquear administradores'
+                              : member.status === 'Activo' 
+                                ? 'Bloquear usuario' 
+                                : 'Desbloquear usuario'
                         }
                       >
                         <Shield className="w-4 h-4" />
