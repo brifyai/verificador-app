@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import StartMonitoringPanel from '@/components/start-monitoring-panel';
 import { 
   Activity, 
   Radio as RadioIcon, 
@@ -319,181 +320,13 @@ export default function MonitoreoPage() {
 
       {/* Panel de Inicio de Análisis */}
       {showStartDialog && (
-        <Card className="bg-slate-800/50 border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Settings className="h-5 w-5 text-blue-400" />
-              Configurar Nuevo Análisis
-            </CardTitle>
-            <p className="text-slate-300 text-sm">
-              Selecciona las radios y regiones que deseas monitorear para detectar publicidad automáticamente
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Filtros de Selección */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm font-medium text-white mb-2 block">Tipo de Selección:</label>
-                <Select value={filterType} onValueChange={(value: 'all' | 'region' | 'custom') => {
-                  setFilterType(value);
-                  setSelectedRegion('');
-                  setSelectedCity('');
-                  setSelectedRadios([]);
-                }}>
-                  <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-700 border-slate-600">
-                    <SelectItem value="all" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                      <div className="flex items-center gap-2">
-                        <RadioIcon className="h-4 w-4" />
-                        Todas las Radios Activas
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="region" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4" />
-                        Filtrar por Región/Ciudad
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="custom" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                      <div className="flex items-center gap-2">
-                        <Filter className="h-4 w-4" />
-                        Selección Personalizada
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {filterType === 'region' && (
-                <>
-                  <div>
-                    <label className="text-sm font-medium text-white mb-2 block">Región:</label>
-                    <Select value={selectedRegion} onValueChange={(value) => {
-                      setSelectedRegion(value);
-                      setSelectedCity('');
-                      setSelectedRadios([]);
-                    }}>
-                      <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                        <SelectValue placeholder="Seleccionar región..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-700 border-slate-600">
-                        {getUniqueRegions().map((region) => (
-                          <SelectItem key={region} value={region} className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                            {region}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedRegion && (
-                    <div>
-                      <label className="text-sm font-medium text-white mb-2 block">Ciudad (Opcional):</label>
-                      <Select value={selectedCity} onValueChange={(value) => {
-                        setSelectedCity(value);
-                        setSelectedRadios([]);
-                      }}>
-                        <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                          <SelectValue placeholder="Todas las ciudades..." />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-700 border-slate-600">
-                          <SelectItem value="all" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                            Todas las ciudades
-                          </SelectItem>
-                          {getCitiesByRegion(selectedRegion).map((city) => (
-                            <SelectItem key={city} value={city} className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                              {city}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Lista de Radios */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-white font-medium">
-                  Radios Disponibles ({getFilteredRadios().length})
-                </h4>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleSelectAllRadios}
-                    variant="outline"
-                    size="sm"
-                    className="bg-green-500 border-green-500 text-white hover:bg-green-600 hover:border-green-600 hover:text-white"
-                  >
-                    Seleccionar Todas
-                  </Button>
-                  <Button
-                    onClick={handleDeselectAllRadios}
-                    variant="outline"
-                    size="sm"
-                    className="bg-red-500 text-white border-red-500 hover:bg-red-700 hover:text-white hover:border-red-700  "
-                  >
-                    Deseleccionar Todas
-                  </Button>
-                </div>
-              </div>
-
-              <div className="max-h-64 overflow-y-auto bg-slate-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {getFilteredRadios().map((radio) => (
-                    <div key={radio.id} className="flex items-center space-x-3 p-2 rounded hover:bg-slate-700/50">
-                      <Checkbox
-                        id={`radio-${radio.id}`}
-                        checked={selectedRadios.includes(radio.id)}
-                        className="data-[state=checked]:bg-white data-[state=checked]:text-black border-white"
-                        onCheckedChange={(checked) => handleRadioSelection(radio.id, checked as boolean)}
-                      />
-                      <label 
-                        htmlFor={`radio-${radio.id}`} 
-                        className="flex-1 cursor-pointer text-sm text-white"
-                      >
-                        <div className="font-medium">{radio.name}</div>
-                        <div className="text-xs text-slate-400">{radio.region} — {radio.metadata?.city || 'N/A'}</div>
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Resumen y Acciones */}
-            <div className="flex items-center justify-between bg-slate-800/50 p-4 rounded-lg">
-              <div className="text-sm text-slate-300">
-                <strong className="text-white">{selectedRadios.length}</strong> radios seleccionadas
-                {filterType === 'region' && selectedRegion && (
-                  <span> • Región: <strong className="text-white">{selectedRegion}</strong></span>
-                )}
-                {selectedCity && (
-                  <span> • Ciudad: <strong className="text-white">{selectedCity}</strong></span>
-                )}
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowStartDialog(false)}
-                  variant="outline"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={startMonitoring}
-                  disabled={selectedRadios.length === 0 || loading}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <PlayCircle className="h-4 w-4 mr-2" />
-                  {loading ? 'Iniciando...' : 'Iniciar Monitoreo'}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StartMonitoringPanel 
+          radios={radios}
+          regions={regions}
+          loading={loading}
+          onClose={() => setShowStartDialog(false)}
+          onStartMonitoring={startMonitoring}
+        />
       )}
 
       {/* Estado del Sistema */}
@@ -705,7 +538,7 @@ export default function MonitoreoPage() {
                         {detection.radioName}
                       </span>
                       <Badge variant="secondary" className="text-xs">
-                        {Math.round(detection.confidence * 100)}%
+                        {Math.round((detection.confidence || 0) * 100)}%
                       </Badge>
                     </div>
                     
@@ -715,17 +548,17 @@ export default function MonitoreoPage() {
                     </div>
 
                     <p className="text-xs text-slate-300 mb-2 line-clamp-2">
-                      {detection.analysis.summary}
+                      {detection.analysis?.summary || 'Sin resumen disponible'}
                     </p>
 
-                    {detection.analysis.brandMentions.length > 0 && (
+                    {detection.analysis?.brandMentions && detection.analysis.brandMentions.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {detection.analysis.brandMentions.slice(0, 3).map((brand, i) => (
                           <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">
                             {brand}
                           </Badge>
                         ))}
-                        {detection.analysis.brandMentions.length > 3 && (
+                        {detection.analysis.brandMentions && detection.analysis.brandMentions.length > 3 && (
                           <Badge variant="outline" className="text-[10px] px-1 py-0">
                             +{detection.analysis.brandMentions.length - 3}
                           </Badge>

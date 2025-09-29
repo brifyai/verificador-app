@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, Play, Clock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { AudioPlayer } from '@/components/audio-player';
 
 // Interfaz para los elementos de verificación basada en la estructura real

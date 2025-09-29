@@ -1,14 +1,15 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Play, MessageCircle, Filter, Download, DollarSign, BarChart3, CheckCircle, Clock } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Play, MessageCircle, Filter, Download, DollarSign, BarChart3, CheckCircle, Clock, X, Volume2, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 
 interface Detection {
   id: string;
@@ -55,6 +56,7 @@ interface DetectionResponse {
 }
 
 export default function Reportes() {
+  const toast = useEnhancedToast();
   const [detections, setDetections] = useState<Detection[]>([]);
   const [stats, setStats] = useState<DetectionStats>({
     totalDetections: 0,
@@ -78,6 +80,12 @@ export default function Reportes() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalDetections, setTotalDetections] = useState(0);
+  
+  // Estados para las acciones
+  const [selectedDetection, setSelectedDetection] = useState<Detection | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Función para cargar datos
   const loadDetections = async () => {
@@ -103,6 +111,7 @@ export default function Reportes() {
       
       const data: DetectionResponse = await response.json();
       
+      // Los datos ya vienen formateados desde la API
       setDetections(data.detections);
       setStats(data.stats);
       setAvailableRegions(data.filters.regions);
@@ -217,6 +226,80 @@ export default function Reportes() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Función para reproducir audio
+  const handlePlayAudio = (detectionId: string) => {
+    if (currentlyPlaying === detectionId) {
+      // Si ya está reproduciendo, pausar
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setCurrentlyPlaying(null);
+        toast.info('Audio pausado');
+      }
+    } else {
+      // Pausar cualquier audio anterior
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      
+      // Buscar la detección específica para obtener su audioPath
+      const detection = detections.find(d => d.id === detectionId);
+      
+      if (!detection?.audioPath) {
+        toast.audioError('No hay archivo de audio disponible para esta detección.');
+        return;
+      }
+      
+      // Construir la URL del archivo de audio para Next.js static files
+      // Los archivos en public/ se sirven desde la raíz
+      let audioUrl = detection.audioPath;
+      
+      // Si la ruta no empieza con /, agregarla
+      if (!audioUrl.startsWith('/')) {
+        audioUrl = `/${audioUrl}`;
+      }
+      
+      // Si la ruta apunta a captures/ pero no está en public/, corregirla
+      if (audioUrl.startsWith('/captures/')) {
+        // Ya está correcta para archivos estáticos de Next.js
+      } else if (audioUrl.includes('captures/')) {
+        // Extraer solo la parte de captures/ hacia adelante
+        const capturesIndex = audioUrl.indexOf('captures/');
+        audioUrl = `/${audioUrl.substring(capturesIndex)}`;
+      }
+      
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      
+      audio.onplay = () => {
+        setCurrentlyPlaying(detectionId);
+        toast.success('Reproduciendo audio de detección');
+      };
+      
+      audio.onended = () => {
+        setCurrentlyPlaying(null);
+        toast.info('Reproducción finalizada');
+      };
+      
+      audio.onerror = (error) => {
+        setCurrentlyPlaying(null);
+        console.error('Error playing audio:', error);
+        toast.audioError(`No se pudo reproducir el archivo de audio: ${audioUrl}. Verifique que el archivo existe.`);
+      };
+      
+      audio.play().catch((error) => {
+        setCurrentlyPlaying(null);
+        console.error('Error playing audio:', error);
+        toast.audioError('Error al iniciar la reproducción. Verifique los permisos del navegador.');
+      });
+    }
+  };
+
+  // Función para mostrar detalles
+  const handleShowDetails = (detection: Detection) => {
+    setSelectedDetection(detection);
+    setIsDetailsModalOpen(true);
   };
 
   return (
@@ -447,10 +530,26 @@ export default function Reportes() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center space-x-2">
-                      <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300">
-                        <Play className="w-4 h-4" />
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className={`${detection.audioPath ? 'text-blue-400 hover:text-blue-300' : 'text-gray-500 cursor-not-allowed'}`}
+                        onClick={() => detection.audioPath && handlePlayAudio(detection.id)}
+                        disabled={!detection.audioPath}
+                        title={detection.audioPath ? 'Reproducir audio' : 'Audio no disponible'}
+                      >
+                        {currentlyPlaying === detection.id ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
                       </Button>
-                      <Button size="sm" variant="ghost" className="text-slate-400 hover:text-slate-300">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="text-slate-400 hover:text-slate-300"
+                        onClick={() => handleShowDetails(detection)}
+                      >
                         <MessageCircle className="w-4 h-4" />
                       </Button>
                     </div>
@@ -503,6 +602,99 @@ export default function Reportes() {
           </div>
         )}
       </div>
+
+      {/* Modal de detalles */}
+      <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
+        <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-white">Detalles de la Detección</DialogTitle>
+          </DialogHeader>
+          {selectedDetection && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-slate-300">Fecha y Hora</Label>
+                  <p className="text-white">{selectedDetection.date} {selectedDetection.time}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Estado</Label>
+                  <p className={`inline-flex px-2 py-1 text-xs font-medium rounded-full text-white ${getStatusColor(selectedDetection.status)}`}>
+                    {selectedDetection.status}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Programadora</Label>
+                  <p className="text-white">{selectedDetection.programadora}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Radio</Label>
+                  <p className="text-white">{selectedDetection.radio}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Región</Label>
+                  <p className="text-white">{selectedDetection.region}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Comuna</Label>
+                  <p className="text-white">{selectedDetection.comuna}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Marca</Label>
+                  <p className="text-white font-medium">{selectedDetection.marca}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Campaña</Label>
+                  <p className="text-white">{selectedDetection.campaña}</p>
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300">Texto Detectado</Label>
+                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.detectedText}</p>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300">Texto Original</Label>
+                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.originalText}</p>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-slate-300">Confianza</Label>
+                  <p className="text-white">{(selectedDetection.confidence * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Similitud</Label>
+                  <p className="text-white">{(selectedDetection.similarity * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Valor</Label>
+                  <p className="text-green-400 font-medium">${selectedDetection.cost.toLocaleString()} CLP</p>
+                </div>
+              </div>
+              
+              <div className="flex justify-between items-center pt-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => selectedDetection.audioPath && handlePlayAudio(selectedDetection.id)}
+                  disabled={!selectedDetection.audioPath}
+                  className={`${selectedDetection.audioPath ? 'bg-slate-800 border-slate-600 text-white hover:bg-slate-700' : 'bg-gray-600 border-gray-500 text-gray-400 cursor-not-allowed'}`}
+                  title={selectedDetection.audioPath ? 'Reproducir audio' : 'Audio no disponible'}
+                >
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  {selectedDetection.audioPath 
+                    ? (currentlyPlaying === selectedDetection.id ? 'Pausar Audio' : 'Reproducir Audio')
+                    : 'Audio no disponible'
+                  }
+                </Button>
+                <Button onClick={() => setIsDetailsModalOpen(false)}>
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
