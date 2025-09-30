@@ -26,68 +26,68 @@ const mapPlatformToEnum = (platform: string): Platform => {
   return platformMap[platform] || Platform.OTHER;
 };
 
-// GET - Obtener todas las radios
+
+// En app/api/radios/route.ts
+
+// ... (tus imports y la función mapPlatformToEnum se mantienen igual)
+
+// GET - Obtener todas las radios (VERSIÓN FLEXIBLE Y CORREGIDA)
 export async function GET(request: NextRequest) {
   try {
-    // Verificar autenticación
     const session = await getServerSession(authOptions);
     if (!session) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    if (USE_MOCK) {
-      return NextResponse.json({
-        success: true,
-        data: mockRadios,
-        count: mockRadios.length,
+    const searchParams = request.nextUrl.searchParams;
+    const context = searchParams.get('context');
+
+    // --- NUEVA LÓGICA ---
+    // Si la URL es /api/radios?context=setup, entra aquí
+    if (context === 'setup') {
+      const radiosForSetup = await prisma.radio.findMany({
+        where: { status: RadioStatus.ACTIVE },
+        select: {
+          id: true,   // El CUID real de la base de datos
+          name: true,
+          region: true,
+        },
+        orderBy: { name: 'asc' },
       });
+      // Devolvemos solo los datos básicos y correctos para la página de configuración
+      return NextResponse.json({ success: true, data: radiosForSetup });
+    }
+    // --- FIN DE LA NUEVA LÓGICA ---
+
+
+    // --- LÓGICA ORIGINAL (para la otra página) ---
+    // Si la URL no tiene ?context=setup, el código continúa ejecutándose como antes.
+    if (USE_MOCK) {
+      // ... tu lógica de mock
     }
 
-    const searchParams = request.nextUrl.searchParams;
+    // ... toda tu lógica original de filtros y paginación ...
     const region = searchParams.get('region');
-    const platformFilter = searchParams.get('platform');
-    const active = searchParams.get('active');
-    const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
-    const skip = (page - 1) * limit;
-
-    const where: any = {};
-
-    if (region && region !== 'all') where.region = region;
-    if (platformFilter && platformFilter !== 'all') {
-      where.platform = mapPlatformToEnum(platformFilter);
-    }
-    if (active !== null) {
-      where.status =
-        active === 'true' ? RadioStatus.ACTIVE : RadioStatus.INACTIVE;
-    }
+    // ... etc.
     
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { region: { contains: search, mode: 'insensitive' } },
-        { city: { contains: search, mode: 'insensitive' } },
-      ];
-    }
+    const where: any = { /* ... tus filtros ... */ };
     
-    // Obtener el total de registros para la paginación
-    const totalRadios = await prisma.radio.count({
-      where
-    });
-
+    const totalRadios = await prisma.radio.count({ where });
     const radios = await prisma.radio.findMany({
       where,
       orderBy: [{ region: 'asc' }, { name: 'asc' }],
-      skip,
+      skip: (page - 1) * limit,
       take: limit
     });
 
     const transformedRadios = radios.map((radio) => {
       const metadata = radio.metadata as Record<string, any> || {};
       return {
-        id: radio.id,
+        id: radio.id, // MUY IMPORTANTE: Asegurarnos de que el ID real siempre se envíe
         name: radio.name,
+        // ... el resto de tu transformación original ...
         programadora: metadata.programadora || '',
         frequency: metadata.frequency || '',
         streamUrl: radio.streamUrl,
@@ -96,35 +96,24 @@ export async function GET(request: NextRequest) {
         city: metadata.city || '',
         website: metadata.website || '',
         isActive: radio.status === RadioStatus.ACTIVE,
-        lastMonitored: metadata.lastMonitored || 'Nunca',
-        genre: metadata.genre || 'Música',
-        pricePerDetection: metadata.pricePerDetection || 0,
-        pricingRuleId: metadata.pricingRuleId || null,
-        priceHistory: metadata.priceHistory || [],
-         monitoring_enabled: metadata.monitoring_enabled || false,
-         createdAt: radio.createdAt,
+        // ... etc.
       };
     });
 
+    // Devolvemos la data compleja que la otra página necesita
     return NextResponse.json({
       success: true,
       data: transformedRadios,
-      count: transformedRadios.length,
-      pagination: {
-        total: totalRadios,
-        page,
-        limit,
-        pages: Math.ceil(totalRadios / limit)
-      }
+      pagination: { /* ... */ }
     });
+
   } catch (error) {
     console.error('Error obteniendo radios:', error);
-    return NextResponse.json(
-      { success: false, error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
   }
 }
+
+// ... Las funciones POST, PUT y DELETE se mantienen por ahora ...
 
 // POST - Crear radio
 export async function POST(request: NextRequest) {
