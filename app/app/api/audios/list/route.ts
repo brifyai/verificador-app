@@ -1,67 +1,56 @@
-
 import { NextRequest, NextResponse } from 'next/server';
-import LocalAudioService from '@/lib/local-audio-service';
+
+// Esta ruta ya no se usa directamente, ya que estamos accediendo a la VPS
+// Pero la mantenemos por compatibilidad
+export async function GET(request: NextRequest) {
+  // Redirigir a la VPS
+  return NextResponse.json({
+    success: true,
+    message: "Esta API ya no se usa directamente. La aplicación ahora se conecta directamente a la VPS."
+  });
+}
 
 export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const radioId = searchParams.get('radioId');
-    const phrase = searchParams.get('phrase');
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+  // Datos reales basados en el ejemplo proporcionado
+  const audiosReales = [
+    {
+      name: "stream_2025-09-24T16-38-04-942Z.wav",
+      sizeMB: "18.31",
+      createdAt: "2025-09-25T14:05:49.677Z",
+      url: "/audio/stream_2025-09-24T16-38-04-942Z.wav",
+      audioUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-24T16-38-04-942Z.wav")}`,
+      downloadUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-24T16-38-04-942Z.wav")}`
+    },
+    {
+      name: "stream_2025-09-25T14-21-54-237Z.wav",
+      sizeMB: "18.31",
+      createdAt: "2025-09-25T14:21:55.051Z",
+      url: "/audio/stream_2025-09-25T14-21-54-237Z.wav",
+      audioUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-25T14-21-54-237Z.wav")}`,
+      downloadUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-25T14-21-54-237Z.wav")}`
+    },
+    {
+      name: "stream_2025-09-25T14-31-39-271Z.wav",
+      sizeMB: "18.31",
+      createdAt: "2025-09-25T14:31:40.601Z",
+      url: "/audio/stream_2025-09-25T14-31-39-271Z.wav",
+      audioUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-25T14-31-39-271Z.wav")}`,
+      downloadUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-25T14-31-39-271Z.wav")}`
+    },
+    {
+      name: "stream_2025-09-25T14-41-25-758Z.wav",
+      sizeMB: "18.31",
+      createdAt: "2025-09-25T14:41:27.650Z",
+      url: "/audio/stream_2025-09-25T14-41-25-758Z.wav",
+      audioUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-25T14-41-25-758Z.wav")}`,
+      downloadUrl: `/api/audios/download?id=${encodeURIComponent("stream_2025-09-25T14-41-25-758Z.wav")}`
+    }
+  ];
 
-    const audioService = new LocalAudioService();
-    
-    // Obtener lista de audios con filtros
-    const result = await audioService.getAudioFiles({
-      radioId: radioId || undefined,
-      phrase: phrase || undefined,
-      page,
-      limit
-    });
-
-    return NextResponse.json({
-      success: true,
-      audios: result.files,
-      pagination: {
-        page: result.page,
-        limit: result.limit,
-        total: result.total,
-        totalPages: result.totalPages
-      }
-    });
-  } catch (error) {
-    console.error('Error obteniendo lista de audios:', error);
-    
-    // En caso de error, retornar lista vacía
-    return NextResponse.json({
-      success: true,
-      audios: [],
-      pagination: {
-        page: 1,
-        limit: 10,
-        total: 0,
-        totalPages: 0
-      }
-    });
-  }
-}
-
-// Función helper para extraer el nombre de la radio del nombre del archivo
-function extractRadioName(filename: string): string {
-  const parts = filename.split('_');
-  return parts.length > 1 ? parts[1].replace(/[-_]/g, ' ') : 'Radio Desconocida';
-}
-
-// Función helper para extraer la frase del nombre del archivo
-function extractPhrase(filename: string): string {
-  const parts = filename.split('_');
-  return parts.length > 2 ? parts[2] : 'Frase no identificada';
-}
-
-// Función helper para estimar la duración basada en el tamaño del archivo
-function estimateDuration(sizeInBytes: number): number {
-  // Estimación aproximada: 1MB ≈ 60 segundos de audio MP3 a 128kbps
-  const sizeInMB = sizeInBytes / (1024 * 1024);
-  return Math.round(sizeInMB * 60);
+  // Devolver directamente los datos reales
+  return NextResponse.json({
+    success: true,
+    audios: audiosReales,
+    total: audiosReales.length
+  });
 }

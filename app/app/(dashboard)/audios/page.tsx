@@ -70,20 +70,72 @@ export default function AudiosPage() {
     applyFilters();
   }, [audios, searchTerm, selectedRadio, dateRange, sortBy]);
 
+  // Modificar la función loadAudios
+  // Modificar la función loadAudios para usar las URLs correctas
   const loadAudios = async () => {
+  try {
+    setLoading(true);
+    console.log('🔄 Cargando audios desde Express...');
+  
+    // Cambiá esta URL por la IP o dominio real de tu VPS si es distinto
+    const BASE = 'http://173.249.26.38'; // <- reemplazá si procede
+    const response = await fetch(`${BASE}/api/audios?limit=200`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    });
+  
+    console.log('📡 fetch -> url:', response.url, 'status:', response.status, 'content-type:', response.headers.get('content-type'));
+  
+    const text = await response.text();
+    console.log('📦 body start:', text.slice(0, 400));
+  
+    // intentar parsear JSON
+    let data;
     try {
-      setLoading(true);
-      const response = await fetch('/api/audios/list');
-      if (response.ok) {
-        const data = await response.json();
-        setAudios(data.audios || []);
-      }
-    } catch (error) {
-      console.error('Error cargando audios:', error);
-    } finally {
-      setLoading(false);
+      data = JSON.parse(text);
+    } catch (err) {
+      console.error('❌ JSON parse failed, response is not JSON:', err);
+      return;
     }
-  };
+  
+    const audiosTransformados = (data.audios || []).map((audio: any) => ({
+      id: audio.name,
+      name: audio.name,
+      radioName: 'Desconocida',
+      phrase: '',
+      timestamp: audio.createdAt || audio.timestamp,
+      duration: audio.duration || 0,
+      size: Math.round((parseFloat(audio.sizeMB || '0') || 0) * 1024 * 1024),
+      audioUrl: `${BASE}${audio.url}`,         // URL absoluta al archivo servido por Express
+      downloadUrl: `${BASE}${audio.url}`,
+      transcription: undefined
+    }));
+  
+    console.log(`✅ Audios transformados: ${audiosTransformados.length}`);
+    setAudios(audiosTransformados);
+  } catch (error) {
+    console.error('❌ Error cargando audios:', error);
+  } finally {
+    setLoading(false);
+  }
+};
+
+  
+  // Modificar useEffect para recargar automáticamente
+  useEffect(() => {
+    loadAudios();
+    loadStorageStats();
+    
+    // Configurar una recarga automática cada 2 minutos
+    const intervalId = setInterval(() => {
+      loadAudios();
+      loadStorageStats();
+    }, 2 * 60 * 1000);
+    
+    // Limpiar el intervalo cuando el componente se desmonte
+    return () => clearInterval(intervalId);
+  }, []);
 
   const loadStorageStats = async () => {
     try {
@@ -161,21 +213,44 @@ export default function AudiosPage() {
     setFilteredAudios(filtered);
   };
 
+  // Modificar la función handleDownload para que funcione con las URLs de la VPS
+  // Modificar la función handleDownload para realizar una descarga automática
   const handleDownload = async (audio: AudioFile) => {
     try {
-      const response = await fetch(audio.downloadUrl);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      console.log('🔄 Descargando audio:', audio.downloadUrl);
       
+      // Realizar una solicitud fetch para obtener el archivo como blob
+      const response = await fetch(audio.downloadUrl);
+      if (!response.ok) {
+        throw new Error(`Error al descargar: ${response.status} ${response.statusText}`);
+      }
+      
+      // Convertir la respuesta a blob
+      const blob = await response.blob();
+      
+      // Crear una URL para el blob
+      const url = window.URL.createObjectURL(blob);
+      
+      // Crear un elemento de enlace para la descarga
       const a = document.createElement('a');
       a.href = url;
-      a.download = audio.name;
+      a.download = audio.name; // Nombre del archivo para la descarga
+      a.style.display = 'none';
+      
+      // Añadir el enlace al documento, hacer clic y luego eliminarlo
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      
+      // Limpiar después de la descarga
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log('✅ Descarga completada');
     } catch (error) {
-      console.error('Error descargando audio:', error);
+      console.error('❌ Error descargando audio:', error);
+      alert('Error al descargar el archivo. Por favor, inténtalo de nuevo.');
     }
   };
 

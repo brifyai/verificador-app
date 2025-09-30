@@ -1,31 +1,27 @@
 
-import { NextResponse } from 'next/server';
-import LocalAudioService from '@/lib/local-audio-service';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const audioService = new LocalAudioService();
-    
-    // Obtener estadísticas de almacenamiento
-    const stats = await audioService.getStorageStats();
-
+    // Estadísticas de demostración
     return NextResponse.json({
       success: true,
-      stats
+      stats: {
+        totalFiles: 4,
+        totalSize: 15 * 1024 * 1024, // 15 MB en bytes
+        usedStorage: '15 MB'
+      }
     });
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
-    
-    // En caso de error, retornar datos por defecto
+    console.error('❌ Error generando estadísticas de demostración:', error);
     return NextResponse.json({
       success: true,
       stats: {
         totalFiles: 0,
         totalSize: 0,
-        usedStorage: '0 B',
-        freeStorage: '∞',
-        totalStorage: '∞'
-      }
+        usedStorage: '0 MB'
+      },
+      error: 'Error generando estadísticas de demostración'
     });
   }
 }
