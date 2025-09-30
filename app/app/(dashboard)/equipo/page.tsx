@@ -24,9 +24,10 @@ export default function Equipo() {
   const loadUsers = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/users');
+      const response = await fetch('/api/usuarios');
       if (response.ok) {
-        const users = await response.json();
+        const result = await response.json();
+        const users = result.data || [];
         // Convertir usuarios de la API al formato TeamMember
         const teamMembers: TeamMember[] = users.map((user: any) => ({
           id: user.id,
@@ -95,7 +96,7 @@ export default function Equipo() {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/users/${userId}/toggle-status`, {
+      const response = await fetch(`/api/usuarios/${userId}/toggle-status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

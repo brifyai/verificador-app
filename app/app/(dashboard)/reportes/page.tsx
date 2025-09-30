@@ -23,14 +23,13 @@ interface Detection {
   campaña: string;
   status: string;
   detectedText: string;
-  originalText: string;
   confidence: number;
   similarity: number;
   cost: number;
   timestamp: string;
   audioPath?: string;
-  sessionId: string;
-  userId: string;
+  verified: boolean;
+  falsePositive: boolean;
 }
 
 interface DetectionStats {
@@ -95,26 +94,59 @@ export default function Reportes() {
       
       const params = new URLSearchParams({
         page: currentPage.toString(),
-        limit: '50',
-        search: searchTerm,
-        status: statusFilter,
-        region: regionFilter,
-        ...(dateRange.start && { startDate: dateRange.start }),
-        ...(dateRange.end && { endDate: dateRange.end })
+        limit: '50'
       });
       
-      const response = await fetch(`/api/monitoring/detections?${params}`);
+      // Agregar filtros solo si tienen valores
+      if (searchTerm) params.append('search', searchTerm);
+      if (regionFilter && regionFilter !== 'all') params.append('region', regionFilter);
+      if (statusFilter && statusFilter !== 'all') {
+        if (statusFilter === 'Verificado') params.append('verified', 'true');
+        else if (statusFilter === 'Falso Positivo') params.append('falsePositive', 'true');
+        else if (statusFilter === 'Pendiente') {
+          params.append('verified', 'false');
+          params.append('falsePositive', 'false');
+        }
+      }
+      if (dateRange.start) params.append('dateFrom', dateRange.start);
+      if (dateRange.end) params.append('dateTo', dateRange.end);
+      
+      const response = await fetch(`/api/detecciones?${params}`);
       
       if (!response.ok) {
         throw new Error('Error al cargar las detecciones');
       }
       
-      const data: DetectionResponse = await response.json();
+      const data = await response.json();
       
-      // Los datos ya vienen formateados desde la API
-      setDetections(data.detections);
-      setStats(data.stats);
-      setAvailableRegions(data.filters.regions);
+      if (!data.success) {
+        throw new Error(data.error || 'Error al cargar detecciones');
+      }
+      
+      // Adaptar los datos al formato esperado por el componente
+      setDetections(data.data);
+      
+      // Calcular estadísticas desde los datos
+      const totalDetections = data.pagination.total;
+      const completedDetections = data.data.filter((d: Detection) => d.verified).length;
+      const pendingDetections = data.data.filter((d: Detection) => !d.verified && !d.falsePositive).length;
+      const totalValue = data.data.reduce((sum: number, d: Detection) => sum + (d.cost || 0), 0);
+      const averageConfidence = data.data.length > 0 
+        ? data.data.reduce((sum: number, d: Detection) => sum + d.confidence, 0) / data.data.length 
+        : 0;
+      
+      setStats({
+        totalDetections,
+        completedDetections,
+        pendingDetections,
+        totalValue,
+        averageConfidence
+      });
+      
+      // Extraer regiones únicas de los datos
+      const regions = [...new Set(data.data.map((d: Detection) => d.region).filter(Boolean))];
+      setAvailableRegions(regions);
+      
       setTotalPages(data.pagination.pages);
       setTotalDetections(data.pagination.total);
       

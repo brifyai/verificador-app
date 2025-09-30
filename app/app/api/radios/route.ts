@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { PrismaClient, Platform, RadioStatus } from '@prisma/client';
 import { mockRadios } from '@/lib/mock-data';
 const prisma = new PrismaClient();
 
-// Variable para controlar el uso de datos mock
+// Variable para controlar el uso de datos mock (por defecto false para usar datos reales)
 const USE_MOCK = process.env.USE_MOCK_DATA === 'true';
 
 // Mapear plataformas del frontend al enum de Prisma
@@ -27,6 +29,12 @@ const mapPlatformToEnum = (platform: string): Platform => {
 // GET - Obtener todas las radios
 export async function GET(request: NextRequest) {
   try {
+    // Verificar autenticación
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+
     if (USE_MOCK) {
       return NextResponse.json({
         success: true,
@@ -121,6 +129,12 @@ export async function GET(request: NextRequest) {
 // POST - Crear radio
 export async function POST(request: NextRequest) {
   try {
+    // Verificar autenticación
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+
     const body = await request.json();
 
     if (!body.id || !body.name || !body.streamUrl) {
@@ -164,6 +178,12 @@ export async function POST(request: NextRequest) {
 // PUT - Editar radio
 export async function PUT(request: NextRequest) {
   try {
+    // Verificar autenticación
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+
     const body = await request.json();
 
     if (!body.id) {
@@ -212,6 +232,12 @@ export async function PUT(request: NextRequest) {
 // DELETE - Eliminar radio
 export async function DELETE(request: NextRequest) {
   try {
+    // Verificar autenticación
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 

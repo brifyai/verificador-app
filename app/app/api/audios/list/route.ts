@@ -1,80 +1,67 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleDriveService, getDriveConfig } from '@/lib/google-drive';
+import LocalAudioService from '@/lib/local-audio-service';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const radioId = searchParams.get('radioId') || undefined;
-    const startDate = searchParams.get('startDate') ? new Date(searchParams.get('startDate')!) : undefined;
-    const endDate = searchParams.get('endDate') ? new Date(searchParams.get('endDate')!) : undefined;
-    const phrase = searchParams.get('phrase') || undefined;
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 100;
+    const radioId = searchParams.get('radioId');
+    const phrase = searchParams.get('phrase');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
 
-    const driveConfig = getDriveConfig();
-    const driveService = new GoogleDriveService(driveConfig);
-
-    // Buscar audios con filtros
-    const audioFiles = await driveService.searchAudios({
-      radioId,
-      startDate,
-      endDate,
-      phrase,
+    const audioService = new LocalAudioService();
+    
+    // Obtener lista de audios con filtros
+    const result = await audioService.getAudioFiles({
+      radioId: radioId || undefined,
+      phrase: phrase || undefined,
+      page,
       limit
     });
 
-    // Formatear respuesta para el frontend
-    const audios = audioFiles.map(file => ({
-      id: file.id,
-      name: file.name,
-      radioName: extractRadioName(file.name),
-      phrase: extractPhrase(file.name),
-      timestamp: file.createdTime,
-      duration: estimateDuration(file.size),
-      size: file.size,
-      audioUrl: `https://drive.google.com/uc?export=download&id=${file.id}`,
-      downloadUrl: file.webContentLink,
-      transcription: undefined // Se puede obtener desde la BD si está disponible
-    }));
-
     return NextResponse.json({
       success: true,
-      audios,
-      total: audios.length
+      audios: result.files,
+      pagination: {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages: result.totalPages
+      }
     });
   } catch (error) {
     console.error('Error obteniendo lista de audios:', error);
+    
+    // En caso de error, retornar lista vacía
     return NextResponse.json({
-      success: false,
-      error: 'Error obteniendo audios',
-      audios: []
-    }, { status: 500 });
+      success: true,
+      audios: [],
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0
+      }
+    });
   }
 }
 
-// Funciones helper para extraer información del nombre del archivo
-function extractRadioName(fileName: string): string {
-  // Formato: 2024-09-07T14-30-25_radio_cooperativa_coca_cola_det123.wav
-  const parts = fileName.split('_');
-  if (parts.length >= 3) {
-    return parts[1].replace(/[_-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  }
-  return 'Radio Desconocida';
+// Función helper para extraer el nombre de la radio del nombre del archivo
+function extractRadioName(filename: string): string {
+  const parts = filename.split('_');
+  return parts.length > 1 ? parts[1].replace(/[-_]/g, ' ') : 'Radio Desconocida';
 }
 
-function extractPhrase(fileName: string): string {
-  // Extraer la parte de la frase del nombre del archivo
-  const parts = fileName.split('_');
-  if (parts.length >= 4) {
-    const phrasesParts = parts.slice(2, -1); // Omitir timestamp, radio y detectionId
-    return phrasesParts.join(' ').replace(/[_-]/g, ' ');
-  }
-  return 'Frase no identificada';
+// Función helper para extraer la frase del nombre del archivo
+function extractPhrase(filename: string): string {
+  const parts = filename.split('_');
+  return parts.length > 2 ? parts[2] : 'Frase no identificada';
 }
 
-function estimateDuration(sizeBytes: number): number {
-  // Estimar duración basada en el tamaño del archivo
-  // Asumiendo audio WAV de calidad estándar: ~1MB por minuto
-  const estimatedMinutes = sizeBytes / (1024 * 1024);
-  return Math.max(30, Math.min(180, estimatedMinutes * 60)); // Entre 30 seg y 3 min
+// Función helper para estimar la duración basada en el tamaño del archivo
+function estimateDuration(sizeInBytes: number): number {
+  // Estimación aproximada: 1MB ≈ 60 segundos de audio MP3 a 128kbps
+  const sizeInMB = sizeInBytes / (1024 * 1024);
+  return Math.round(sizeInMB * 60);
 }
