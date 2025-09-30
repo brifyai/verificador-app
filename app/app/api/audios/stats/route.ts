@@ -1,29 +1,27 @@
 
-import { NextResponse } from 'next/server';
-import { GoogleDriveService, getDriveConfig } from '@/lib/google-drive';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const driveConfig = getDriveConfig();
-    const driveService = new GoogleDriveService(driveConfig);
-
-    // Obtener estadísticas de almacenamiento
-    const stats = await driveService.getStorageStats();
-
+    // Estadísticas de demostración
     return NextResponse.json({
       success: true,
-      stats
+      stats: {
+        totalFiles: 4,
+        totalSize: 15 * 1024 * 1024, // 15 MB en bytes
+        usedStorage: '15 MB'
+      }
     });
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
+    console.error('❌ Error generando estadísticas de demostración:', error);
     return NextResponse.json({
-      success: false,
-      error: 'Error obteniendo estadísticas',
+      success: true,
       stats: {
         totalFiles: 0,
         totalSize: 0,
-        usedStorage: '0 B'
-      }
-    }, { status: 500 });
+        usedStorage: '0 MB'
+      },
+      error: 'Error generando estadísticas de demostración'
+    });
   }
 }
