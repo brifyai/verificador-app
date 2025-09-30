@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { DatabaseRole } from '@/lib/types'
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 
 // Schema de validación para crear usuario
 const createUserSchema = z.object({
