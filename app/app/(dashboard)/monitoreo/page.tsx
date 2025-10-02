@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Waves, TextSelect, Bot, Calculator, CalendarDays } from "lucide-react";
+import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // --- Interfaces para los datos que vienen de la API ---
@@ -44,16 +44,20 @@ export default function ConfigurarAnalisisPage() {
   const [selectedRadioIds, setSelectedRadioIds] = useState<Set<string>>(new Set());
   const [selectedPhraseId, setSelectedPhraseId] = useState<string>('');
   const [selectedAiModel, setSelectedAiModel] = useState<AiModelType>('estandar');
-  const [scheduleDays, setScheduleDays] = useState<string[]>([]); // Estado para los días
+  const [scheduleDays, setScheduleDays] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // ✅ NUEVOS ESTADOS PARA FILTROS
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRegion, setFilterRegion] = useState<string>('all');
 
-  // Carga de datos inicial (radios y frases)
+  // Carga de datos inicial (radios y frases) - SIN LÍMITE
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [radiosRes, phrasesRes] = await Promise.all([
-          fetch("/api/radios"),
+          fetch("/api/radios?limit=1000"), // ✅ Cargar todas las radios
           fetch("/api/phrases"),
         ]);
         if (!radiosRes.ok || !phrasesRes.ok) throw new Error("Error al cargar datos iniciales");
@@ -81,8 +85,37 @@ export default function ConfigurarAnalisisPage() {
       return newSet;
     });
   };
+  
   const selectAllRadios = () => setSelectedRadioIds(new Set(radios.map(r => r.id)));
   const deselectAllRadios = () => setSelectedRadioIds(new Set());
+
+  // ✅ NUEVA FUNCIÓN: Filtrar radios según criterios
+  const filteredRadios = useMemo(() => {
+    let result = radios;
+
+    // Filtrar por búsqueda
+    if (searchTerm) {
+      result = result.filter(radio =>
+        radio.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (radio.region && radio.region.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    // Filtrar por región
+    if (filterRegion !== 'all') {
+      result = result.filter(radio => radio.region === filterRegion);
+    }
+
+    return result;
+  }, [radios, searchTerm, filterRegion]);
+
+  // ✅ Obtener regiones únicas para el filtro
+  const uniqueRegions = useMemo(() => {
+    const regions = radios
+      .map(r => r.region)
+      .filter((region): region is string => region !== null);
+    return Array.from(new Set(regions)).sort();
+  }, [radios]);
 
   // Cálculo de costos
   const { radioCost, aiCost, totalCost } = useMemo(() => {
@@ -91,35 +124,72 @@ export default function ConfigurarAnalisisPage() {
     return { radioCost, aiCost, totalCost: radioCost + aiCost };
   }, [selectedRadioIds.size, selectedAiModel]);
 
-  // Función para enviar el formulario al hacer clic en "Iniciar Monitoreo"
+  // ✅ FUNCIÓN MEJORADA: Iniciar Monitoreo con mejor UX
   const handleStartMonitoring = async () => {
-    if (selectedRadioIds.size === 0 || !selectedPhraseId) {
-      toast.warning("Debes seleccionar al menos una radio y una frase.");
+    // ✅ Validaciones separadas para mejor feedback
+    if (selectedRadioIds.size === 0) {
+      toast.warning("⚠️ Debes seleccionar al menos una radio.");
+      return;
+    }
+
+    if (!selectedPhraseId) {
+      toast.warning("⚠️ Debes seleccionar una frase para monitorear.");
       return;
     }
 
     setIsSubmitting(true);
+    
     try {
-      const response = await fetch("/api/sessions", {
+      console.log('🚀 Iniciando monitoreo con:', {
+        radios: selectedRadioIds.size,
+        phraseId: selectedPhraseId,
+        aiModel: selectedAiModel,
+        scheduleDays
+      });
+
+      const response = await fetch("/api/monitoring/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          filterType: 'custom',
           radioIds: Array.from(selectedRadioIds),
-          configuration: {
-            phraseId: selectedPhraseId,
-            aiModel: selectedAiModel,
-            // Se incluyen los días seleccionados
-            scheduleDays: scheduleDays.length > 0 ? scheduleDays : undefined,
-          },
         }),
       });
 
-      if (!response.ok) throw new Error("La respuesta del servidor no fue exitosa.");
+      const data = await response.json();
+      console.log('📥 Respuesta recibida:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error al iniciar el monitoreo");
+      }
       
-      toast.success("¡Monitoreo iniciado correctamente!");
-      router.push("/dashboard/monitoreo");
-    } catch (error) {
-      toast.error("No se pudo iniciar el monitoreo. Inténtalo de nuevo.");
+      // ✅ Mensaje de éxito detallado
+      const radioCount = selectedRadioIds.size;
+      const scheduleInfo = scheduleDays.length > 0 
+        ? ` programado para ${scheduleDays.length} día${scheduleDays.length > 1 ? 's' : ''}` 
+        : ' (monitoreo 24/7)';
+      
+      toast.success(
+        `✅ ¡Monitoreo iniciado! ${radioCount} radio${radioCount > 1 ? 's' : ''} activa${radioCount > 1 ? 's' : ''}${scheduleInfo}`,
+        { duration: 5000 }
+      );
+
+      // ✅ Limpiar formulario después del éxito
+      setSelectedRadioIds(new Set());
+      setSelectedPhraseId('');
+      setScheduleDays([]);
+      
+      // ✅ Redirigir al dashboard principal
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+      
+    } catch (error: any) {
+      console.error('❌ Error al iniciar monitoreo:', error);
+      toast.error(
+        `❌ Error: ${error.message || 'No se pudo iniciar el monitoreo'}`,
+        { duration: 6000 }
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -138,78 +208,186 @@ export default function ConfigurarAnalisisPage() {
         </p>
       </div>
 
-      {/* --- Selección de Radios --- */}
+      {/* ✅ SELECCIÓN DE RADIOS CON FILTROS MEJORADOS */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
-          <div className="flex items-center">
-            <Waves className="h-6 w-6 mr-3 text-blue-400" />
-            <div>
-              <CardTitle className="text-lg text-white">Selecciona las Radios</CardTitle>
-              <CardDescription className="text-slate-400">Radios Disponibles ({radios.length})</CardDescription>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center">
+              <Waves className="h-6 w-6 mr-3 text-blue-400" />
+              <div>
+                <CardTitle className="text-lg text-white">Selecciona las Radios</CardTitle>
+                <CardDescription className="text-slate-400">
+                  {radios.length} radios totales • {filteredRadios.length} mostradas • {selectedRadioIds.size} seleccionadas
+                </CardDescription>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                onClick={() => setSelectedRadioIds(new Set(filteredRadios.map(r => r.id)))} 
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Seleccionar Mostradas
+              </Button>
+              <Button size="sm" variant="destructive" onClick={deselectAllRadios}>
+                Ninguna
+              </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-end gap-2 mb-4">
-            <Button size="sm" onClick={selectAllRadios} className="bg-green-600 hover:bg-green-700">Seleccionar Todas</Button>
-            <Button size="sm" variant="destructive" onClick={deselectAllRadios}>Deseleccionar Todas</Button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {radios.map(radio => (
-              <div
-                key={radio.id}
-                onClick={() => handleRadioToggle(radio.id)}
-                className={`p-4 rounded-lg border-2 transition-all cursor-pointer flex items-center gap-3 ${
-                  selectedRadioIds.has(radio.id)
-                    ? 'border-blue-500 bg-blue-500/10'
-                    : 'border-slate-700 hover:border-slate-500'
-                }`}
-              >
-                <Checkbox checked={selectedRadioIds.has(radio.id)} className="pointer-events-none" />
-                <div>
-                  <p className="font-semibold text-white">{radio.name}</p>
-                  <p className="text-sm text-slate-400">{radio.region || 'Región no especificada'}</p>
+          {/* ✅ BARRA DE FILTROS */}
+          <div className="mb-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Búsqueda */}
+              <div>
+                <label className="text-sm text-slate-400 mb-2 block">Buscar radio</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Nombre o región..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
               </div>
-            ))}
+
+              {/* Filtro por Región */}
+              <div>
+                <label className="text-sm text-slate-400 mb-2 block">Filtrar por región</label>
+                <Select value={filterRegion} onValueChange={setFilterRegion}>
+                  <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                    <SelectValue placeholder="Todas las regiones" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
+                    <SelectItem value="all" className="focus:bg-slate-600">
+                      Todas las regiones ({radios.length})
+                    </SelectItem>
+                    {uniqueRegions.map(region => {
+                      const count = radios.filter(r => r.region === region).length;
+                      return (
+                        <SelectItem key={region} value={region} className="focus:bg-slate-600">
+                          {region} ({count})
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Botón Limpiar Filtros */}
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setFilterRegion('all');
+                  }}
+                  className="w-full border-slate-600 text-slate-300 hover:bg-slate-700"
+                  disabled={searchTerm === '' && filterRegion === 'all'}
+                >
+                  Limpiar Filtros
+                </Button>
+              </div>
+            </div>
           </div>
+
+          {/* ✅ LISTA DE RADIOS FILTRADAS */}
+          {filteredRadios.length === 0 ? (
+            <div className="text-center py-12 bg-slate-700/30 rounded-lg">
+              <p className="text-slate-400 mb-2">No se encontraron radios con los filtros aplicados</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm('');
+                  setFilterRegion('all');
+                }}
+                className="border-slate-600 text-slate-300"
+              >
+                Limpiar filtros
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* Scroll container con altura máxima */}
+              <div className="max-h-[500px] overflow-y-auto pr-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {filteredRadios.map(radio => (
+                    <div
+                      key={radio.id}
+                      onClick={() => handleRadioToggle(radio.id)}
+                      className={`p-4 rounded-lg border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                        selectedRadioIds.has(radio.id)
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-slate-700 hover:border-slate-500'
+                      }`}
+                    >
+                      <Checkbox checked={selectedRadioIds.has(radio.id)} className="pointer-events-none" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-white truncate">{radio.name}</p>
+                        <p className="text-sm text-slate-400 truncate">{radio.region || 'Sin región'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contador de resultados */}
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <p className="text-sm text-slate-400 text-center">
+                  Mostrando {filteredRadios.length} de {radios.length} radios
+                  {selectedRadioIds.size > 0 && ` • ${selectedRadioIds.size} seleccionadas`}
+                </p>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
       
       {/* --- Selección de Frase --- */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
-             <div className="flex items-center">
+          <div className="flex items-center">
             <TextSelect className="h-6 w-6 mr-3 text-purple-400" />
             <div>
               <CardTitle className="text-lg text-white">Seleccionar Frase para Monitoreo</CardTitle>
+              <CardDescription className="text-slate-400">
+                {phrases.length} frases disponibles
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-           <Select value={selectedPhraseId} onValueChange={setSelectedPhraseId}>
-            <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-              <SelectValue placeholder="Selecciona una frase de tu lista..." />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-700 border-slate-600 text-white">
-              {phrases.map(phrase => (
-                <SelectItem key={phrase.id} value={phrase.id} className="focus:bg-slate-600">
-                  <span className="font-semibold">{phrase.marca}:</span> "{phrase.phrase}"
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {phrases.length === 0 ? (
+            <p className="text-slate-400">No hay frases configuradas. <a href="/frases" className="text-blue-400 underline">Crear una frase</a></p>
+          ) : (
+            <Select value={selectedPhraseId} onValueChange={setSelectedPhraseId}>
+              <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                <SelectValue placeholder="Selecciona una frase de tu lista..." />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-700 border-slate-600 text-white">
+                {phrases.map(phrase => (
+                  <SelectItem key={phrase.id} value={phrase.id} className="focus:bg-slate-600">
+                    <span className="font-semibold">{phrase.marca}:</span> "{phrase.phrase}"
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </CardContent>
       </Card>
 
       {/* --- Modelo de IA --- */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
-           <div className="flex items-center">
+          <div className="flex items-center">
             <Bot className="h-6 w-6 mr-3 text-emerald-400" />
             <div>
               <CardTitle className="text-lg text-white">Modelo de IA</CardTitle>
-               <CardDescription className="text-slate-400">Elige la precisión del análisis.</CardDescription>
+              <CardDescription className="text-slate-400">Elige la precisión del análisis.</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -266,8 +444,8 @@ export default function ConfigurarAnalisisPage() {
       
       {/* --- Calculadora y Acciones --- */}
       <Card className="bg-slate-800/50 border-slate-700">
-         <CardHeader>
-           <div className="flex items-center">
+        <CardHeader>
+          <div className="flex items-center">
             <Calculator className="h-6 w-6 mr-3 text-yellow-400" />
             <div>
               <CardTitle className="text-lg text-white">Calculadora de Precio</CardTitle>
@@ -280,7 +458,7 @@ export default function ConfigurarAnalisisPage() {
               <p>Radios seleccionadas ({selectedRadioIds.size})</p>
               <p>${radioCost.toFixed(2)}</p>
             </div>
-             <div className="flex justify-between text-slate-300">
+            <div className="flex justify-between text-slate-300">
               <p>Modelo de IA ({AI_MODELS[selectedAiModel].name})</p>
               <p>${aiCost.toFixed(2)}</p>
             </div>
@@ -295,7 +473,12 @@ export default function ConfigurarAnalisisPage() {
 
       <div className="flex justify-end gap-4 pt-4">
         <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-slate-300 hover:bg-slate-700">Cancelar</Button>
-        <Button onClick={handleStartMonitoring} disabled={isSubmitting} size="lg" className="bg-blue-600 hover:bg-blue-700">
+        <Button 
+          onClick={handleStartMonitoring} 
+          disabled={isSubmitting || selectedRadioIds.size === 0 || !selectedPhraseId} 
+          size="lg" 
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+        >
           {isSubmitting ? 'Iniciando...' : 'Iniciar Monitoreo'}
         </Button>
       </div>

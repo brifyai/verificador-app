@@ -59,6 +59,8 @@ model Radio {
   pricingRules RadioPricingRule[]
   invoiceLineItems InvoiceLineItem[]
 
+  // Índice único compuesto para evitar duplicados
+  @@unique([name, region], name: "name_region")
   @@map("radios")
 }
 

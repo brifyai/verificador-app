@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db'; // CORRECTO: Usar la instancia centralizada de Prisma
+import { prisma } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { Platform, RadioStatus } from '@prisma/client';
+import { RadioCreateSchema } from '@/lib/schemas/radio.schema';
+import { z } from 'zod';
 
 // Función de utilidad (sin cambios)
 const mapPlatformToEnum = (platform: string): Platform => {
@@ -103,26 +106,33 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    // CORRECCIÓN: Ya no pedimos un 'id'. Solo los datos necesarios.
-    if (!body.name || !body.streamUrl) {
-      return NextResponse.json({ success: false, error: 'Faltan campos obligatorios: name y streamUrl' }, { status: 400 });
+    // Validar con Zod
+    const validationResult = RadioCreateSchema.safeParse(body);
+    
+    if (!validationResult.success) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Datos inválidos', 
+        details: validationResult.error.errors 
+      }, { status: 400 });
     }
+    
+    const validated = validationResult.data;
 
     const newRadio = await prisma.radio.create({
       data: {
-        // CORRECCIÓN: No hay 'id' aquí. Prisma lo generará automáticamente.
-        name: body.name,
-        streamUrl: body.streamUrl,
-        platform: body.streamPlatform ? mapPlatformToEnum(body.streamPlatform) : Platform.OTHER,
-        region: body.region,
-        status: body.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
-        description: body.genre || '',
+        name: validated.name,
+        streamUrl: validated.streamUrl,
+        platform: validated.streamPlatform ? mapPlatformToEnum(validated.streamPlatform) : Platform.OTHER,
+        region: validated.region,
+        status: validated.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
+        description: validated.genre || 'Música',
         metadata: {
-          programadora: body.programadora || body.name,
-          frequency: body.frequency || '',
-          city: body.city || body.region,
-          website: body.website || '',
-          streamPlatform: body.streamPlatform || 'direct',
+          programadora: validated.programadora || validated.name,
+          frequency: validated.frequency || '',
+          city: validated.city || validated.region,
+          website: validated.website || '',
+          streamPlatform: validated.streamPlatform || 'direct',
         },
       },
     });
@@ -146,7 +156,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: transformedRadio }, { status: 201 });
   } catch (error: any) {
-    console.error('Error creando radio:', error);
+    logger.error('Error creando radio:', error);
     if (error?.code === 'P2002') {
         return NextResponse.json({ success: false, error: 'Ya existe una radio con ese nombre y región.' }, { status: 409 });
     }
