@@ -346,7 +346,7 @@ export default function MonitoreoPage() {
                     onClick={handleSelectAllRadios}
                     variant="outline"
                     size="sm"
-                    className="text-green-400 border-green-400 hover:bg-green-400/10"
+                    className="text-gray-400 border-gray-400 hover:bg-gray-400/10"
                   >
                     Seleccionar Todas
                   </Button>
@@ -484,7 +484,7 @@ export default function MonitoreoPage() {
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center space-x-2">
+                <CardTitle className="flex items-center space-x-2 text-gray-500">
                   <Users className="h-5 w-5" />
                   <span>Monitoreo Activo</span>
                 </CardTitle>
@@ -582,7 +582,7 @@ export default function MonitoreoPage() {
           {/* Estado de Herramientas */}
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-sm">Herramientas del Sistema</CardTitle>
+              <CardTitle className="text-sm text-gray-500">Herramientas del Sistema</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {systemStatus && systemStatus.dependencies ? (
@@ -606,8 +606,8 @@ export default function MonitoreoPage() {
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <CardTitle className="text-sm flex items-center space-x-2">
-                <Zap className="h-4 w-4" />
-                <span>Detecciones Recientes</span>
+                <Zap className="h-4 w-4 text-gray-500" />
+                <span className="text-gray-500">Detecciones Recientes</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 max-h-80 overflow-y-auto">
