@@ -69,9 +69,25 @@ export async function PUT(
 
     // 3. DEVOLVEMOS EL OBJETO REAL DE LA BASE DE DATOS
     // Es más consistente y predecible. El frontend puede adaptarlo si es necesario.
+    const metadata = updatedRadio.metadata as Record<string, any> || {};
+    const transformedRadio = {
+      id: updatedRadio.id,
+      name: updatedRadio.name,
+      programadora: metadata.programadora || '',
+      frequency: metadata.frequency || '',
+      streamUrl: updatedRadio.streamUrl,
+      streamPlatform: metadata.streamPlatform || updatedRadio.platform.toLowerCase(),
+      region: updatedRadio.region,
+      city: metadata.city || '',
+      website: metadata.website || '',
+      isActive: updatedRadio.status === RadioStatus.ACTIVE,
+      genre: updatedRadio.description || 'Música',
+      lastMonitored: metadata.lastMonitored || 'Nunca',
+    };
+    
     return NextResponse.json({ 
       success: true, 
-      data: updatedRadio,
+      data: transformedRadio,
       message: 'Radio actualizada exitosamente' 
     });
   } catch (error) {

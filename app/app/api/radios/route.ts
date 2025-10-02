@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const transformedRadios = radios.map((radio) => {
       const metadata = radio.metadata as Record<string, any> || {};
       return {
-        id: radio.id, // Siempre devolvemos el CUID real
+        id: radio.id,
         name: radio.name,
         programadora: metadata.programadora || '',
         frequency: metadata.frequency || '',
@@ -75,7 +75,8 @@ export async function GET(request: NextRequest) {
         city: metadata.city || '',
         website: metadata.website || '',
         isActive: radio.status === RadioStatus.ACTIVE,
-        // ... el resto de campos que necesites
+        genre: radio.description || 'Música',
+        lastMonitored: metadata.lastMonitored || 'Nunca',
       };
     });
 
@@ -126,7 +127,24 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, data: newRadio }, { status: 201 });
+    // ✅ CORRECCIÓN: Transformar datos antes de devolver
+    const metadata = newRadio.metadata as Record<string, any> || {};
+    const transformedRadio = {
+      id: newRadio.id,
+      name: newRadio.name,
+      programadora: metadata.programadora || '',
+      frequency: metadata.frequency || '',
+      streamUrl: newRadio.streamUrl,
+      streamPlatform: metadata.streamPlatform || newRadio.platform.toLowerCase(),
+      region: newRadio.region,
+      city: metadata.city || '',
+      website: metadata.website || '',
+      isActive: newRadio.status === RadioStatus.ACTIVE,
+      genre: newRadio.description || 'Música',
+      lastMonitored: metadata.lastMonitored || 'Nunca',
+    };
+
+    return NextResponse.json({ success: true, data: transformedRadio }, { status: 201 });
   } catch (error: any) {
     console.error('Error creando radio:', error);
     if (error?.code === 'P2002') {
@@ -136,5 +154,3 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ✅ NOTA: Los métodos PUT y DELETE se movieron a /api/radios/[id]/route.ts
-// Esto evita duplicación y usa correctamente los path parameters de Next.js
