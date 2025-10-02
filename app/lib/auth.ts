@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { NextAuthOptions } from 'next-auth';
 import { prisma } from '@/lib/db'; // ✅ Usar instancia centralizada
+import { logger } from '@/lib/logger';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,18 +15,18 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' }
       },
       async authorize(credentials) {
-        console.log('🔐 AUTHORIZE - Credenciales recibidas:', { 
+        logger.auth('AUTHORIZE - Credenciales recibidas', { 
           email: credentials?.email, 
           hasPassword: !!credentials?.password 
         });
 
         if (!credentials?.email || !credentials?.password) {
-          console.log('❌ AUTHORIZE - Credenciales faltantes');
+          logger.auth('AUTHORIZE - Credenciales faltantes');
           return null;
         }
 
         try {
-          console.log('🔍 AUTHORIZE - Buscando usuario en BD...');
+          logger.auth('AUTHORIZE - Buscando usuario en BD...');
           // Buscar usuario en la base de datos
           const user = await prisma.user.findUnique({
             where: {
@@ -33,7 +34,7 @@ export const authOptions: NextAuthOptions = {
             }
           });
 
-          console.log('👤 AUTHORIZE - Usuario encontrado:', { 
+          logger.auth('AUTHORIZE - Usuario encontrado', { 
             exists: !!user, 
             active: user?.active,
             email: user?.email,
@@ -42,18 +43,18 @@ export const authOptions: NextAuthOptions = {
 
           // Si no existe el usuario o no está activo
           if (!user || !user.active) {
-            console.log('❌ AUTHORIZE - Usuario no existe o inactivo');
+            logger.auth('AUTHORIZE - Usuario no existe o inactivo');
             return null;
           }
 
-          console.log('🔒 AUTHORIZE - Verificando contraseña...');
+          logger.auth('AUTHORIZE - Verificando contraseña...');
           // Verificar contraseña
           const passwordMatch = await bcrypt.compare(credentials.password, user.password);
           
-          console.log('🔑 AUTHORIZE - Contraseña válida:', passwordMatch);
+          logger.auth('AUTHORIZE - Contraseña válida', { passwordMatch });
           
           if (!passwordMatch) {
-            console.log('❌ AUTHORIZE - Contraseña incorrecta');
+            logger.auth('AUTHORIZE - Contraseña incorrecta');
             return null;
           }
           
@@ -65,10 +66,10 @@ export const authOptions: NextAuthOptions = {
             role: user.role
           };
           
-          console.log('✅ AUTHORIZE - Login exitoso, devolviendo:', userData);
+          logger.auth('AUTHORIZE - Login exitoso, devolviendo', userData);
           return userData;
         } catch (error) {
-          console.error('💥 AUTHORIZE - Error en autenticación:', error);
+          logger.error('AUTHORIZE - Error en autenticación', error);
           return null;
         }
       }
