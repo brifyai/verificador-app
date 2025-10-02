@@ -56,17 +56,14 @@ export async function PUT(
         region: body.region,
         status: body.isActive !== undefined ? (body.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE) : undefined,
         description: body.genre,
-        // Usamos 'update' para fusionar el JSON de forma segura
+        // ✅ CORRECCIÓN: metadata es un campo JSON, no una relación
         metadata: {
-          update: {
-            city: body.city,
-            frequency: body.frequency,
-            programadora: body.programadora,
-            streamPlatform: body.streamPlatform,
-            website: body.website,
-            lastMonitored: body.lastMonitored,
-          }
-        }
+          programadora: body.programadora,
+          frequency: body.frequency,
+          city: body.city,
+          website: body.website,
+          streamPlatform: body.streamPlatform,
+        },
       },
     });
 
@@ -111,10 +108,10 @@ export async function DELETE(
       success: true, 
       message: 'Radio eliminada exitosamente' 
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error eliminando radio:', error);
     // Manejo de error por si la radio tiene relaciones que impiden borrarla
-    if (error.code === 'P2003') {
+    if (error?.code === 'P2003') {
         return NextResponse.json({ success: false, error: 'No se puede eliminar la radio porque tiene sesiones de monitoreo asociadas.' }, { status: 409 });
     }
     return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });

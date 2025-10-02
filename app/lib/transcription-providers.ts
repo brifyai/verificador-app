@@ -1,6 +1,6 @@
 
 import { TranscriptionResult } from './transcription';
-import { prisma } from './prisma';
+import { prisma } from './db';
 import OpenAI from 'openai';
 import axios from 'axios';
 import FormData from 'form-data';

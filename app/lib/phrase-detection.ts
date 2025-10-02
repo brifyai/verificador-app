@@ -1,5 +1,5 @@
 
-import { prisma } from './prisma';
+import { prisma } from './db';
 import similarity from 'string-similarity';
 import Fuse from 'fuse.js';
 import natural from 'natural';

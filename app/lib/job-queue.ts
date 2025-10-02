@@ -1,5 +1,5 @@
 
-import { prisma } from './prisma';
+import { prisma } from './db';
 import { audioCaptureService } from './audio-capture';
 import { multiProviderTranscriptionService } from './transcription-providers';
 import { phraseDetectionService } from './phrase-detection';

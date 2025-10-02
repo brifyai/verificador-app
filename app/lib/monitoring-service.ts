@@ -4,7 +4,7 @@ import { transcriptionService, AdvertisementAnalysis } from './transcription';
 import { multiProviderTranscriptionService } from './transcription-providers';
 import { phraseDetectionService } from './phrase-detection';
 import { jobQueueService } from './job-queue';
-import { prisma } from './prisma';
+import { prisma } from './db';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import path from 'path';
 
