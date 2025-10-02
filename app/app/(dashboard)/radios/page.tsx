@@ -857,10 +857,11 @@ const handlePlay = async (radioId: string) => {
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5" />
                       <div className="text-sm">
-                        <p className="text-yellow-300 font-medium mb-1">⚠️ Acción Irreversible</p>
+                      <p className="text-yellow-300 font-medium mb-1">⚠️ Importante</p>
                         <p className="text-yellow-200">
-                          Esta acción <strong>reemplazará completamente</strong> todas las radios actuales 
-                          con las radios del archivo JSON o CSV. Los datos actuales se perderán.
+                          Esta acción <strong>actualizará o creará</strong> radios desde el archivo. 
+                          Las radios existentes con el mismo nombre y región se actualizarán. 
+                          No se eliminarán radios existentes.
                         </p>
                       </div>
                     </div>
@@ -1505,14 +1506,24 @@ function RadioForm({
     setIsSubmitting(true);
 
     try {
-      // Extraer datos de plataforma
-      const platformData = extractPlatformData(formData.streamPlatform, formData.streamUrl);
-      
+      // ✅ CORRECCIÓN: Estructura correcta para el backend
       const radioData = {
-        ...formData,
-        ...(isEditing && radio ? { id: radio.id } : { id: `radio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` }),
-        platformData: platformData || {},
-        lastMonitored: isEditing ? formData.lastMonitored : 'Nunca'
+        // Solo incluir ID si estamos editando
+        ...(isEditing && radio ? { id: radio.id } : {}),
+        
+        // Campos principales que el backend espera
+        name: formData.name,
+        streamUrl: formData.streamUrl,
+        streamPlatform: formData.streamPlatform,
+        region: formData.region,
+        isActive: formData.isActive,
+        genre: formData.genre,
+        
+        // Campos que van en metadata
+        programadora: formData.programadora,
+        frequency: formData.frequency,
+        city: formData.city,
+        website: formData.website,
       };
       
       onSubmit(radioData);

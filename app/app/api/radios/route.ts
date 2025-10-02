@@ -117,87 +117,24 @@ export async function POST(request: NextRequest) {
         status: body.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
         description: body.genre || '',
         metadata: {
-          programadora: body.programadora,
-          frequency: body.frequency,
-          city: body.city,
+          programadora: body.programadora || body.name,
+          frequency: body.frequency || '',
+          city: body.city || body.region,
+          website: body.website || '',
+          streamPlatform: body.streamPlatform || 'direct',
         },
       },
     });
 
     return NextResponse.json({ success: true, data: newRadio }, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creando radio:', error);
-    if (error.code === 'P2002') {
+    if (error?.code === 'P2002') {
         return NextResponse.json({ success: false, error: 'Ya existe una radio con ese nombre y región.' }, { status: 409 });
     }
     return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
   }
 }
 
-
-// --- PUT: ACTUALIZAR UNA RADIO (VERSIÓN CORREGIDA) ---
-export async function PUT(request: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return new NextResponse("Unauthorized", { status: 401 });
-    }
-
-    const body = await request.json();
-
-    if (!body.id) {
-      return NextResponse.json({ success: false, error: 'Falta el campo obligatorio: id' }, { status: 400 });
-    }
-
-    // Separamos el 'id' para asegurar que no se intente modificar
-    const { id, ...updateData } = body;
-
-    const updatedRadio = await prisma.radio.update({
-      where: { id: id },
-      data: {
-        name: updateData.name,
-        streamUrl: updateData.streamUrl,
-        platform: updateData.streamPlatform ? mapPlatformToEnum(updateData.streamPlatform) : undefined,
-        region: updateData.region,
-        status: updateData.isActive !== undefined ? (updateData.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE) : undefined,
-        description: updateData.genre,
-        metadata: {
-          programadora: updateData.programadora,
-          frequency: updateData.frequency,
-          city: updateData.city,
-        },
-      },
-    });
-
-    return NextResponse.json({ success: true, data: updatedRadio });
-  } catch (error) {
-    console.error('Error actualizando radio:', error);
-    return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
-  }
-}
-
-
-// --- DELETE: ELIMINAR UNA RADIO (Sin cambios necesarios) ---
-export async function DELETE(request: NextRequest) {
-    // Tu código DELETE original puede permanecer aquí, ya es correcto.
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return new NextResponse("Unauthorized", { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ success: false, error: 'Falta el parámetro: id' }, { status: 400 });
-    }
-
-    await prisma.radio.delete({ where: { id } });
-
-    return NextResponse.json({ success: true, message: 'Radio eliminada' });
-  } catch (error) {
-    console.error('Error eliminando radio:', error);
-    return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
-  }
-}
+// ✅ NOTA: Los métodos PUT y DELETE se movieron a /api/radios/[id]/route.ts
+// Esto evita duplicación y usa correctamente los path parameters de Next.js
