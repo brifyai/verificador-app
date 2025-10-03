@@ -208,12 +208,12 @@ const APIConfiguration = () => {
       apiKey: '',
       baseUrl: 'https://api.abacus.ai',
       model: 'whisper-large-v3',
-      enabled: true
+      enabled: false
     },
     groq: {
       apiKey: '',
       model: 'whisper-large-v3',
-      enabled: true
+      enabled: false
     },
     openai: {
       apiKey: '',
@@ -311,7 +311,28 @@ const APIConfiguration = () => {
       const response = await fetch('/api/config/ai-apis');
       if (response.ok) {
         const data = await response.json();
-        setConfig(data);
+        console.log('📥 Loaded configuration from API:', data);
+        
+        // Merge con la configuración actual para preservar campos que no vienen del backend
+        setConfig(prev => {
+          const merged = { ...prev };
+          
+          // Actualizar cada proveedor con los datos del backend
+          Object.keys(data).forEach(key => {
+            if (key !== 'settings' && data[key]) {
+              merged[key as keyof APIConfig] = {
+                ...merged[key as keyof APIConfig],
+                ...data[key],
+                // Si apiKey es '***', mantener el valor actual para no perderlo en el estado
+                apiKey: data[key].apiKey === '***' 
+                  ? (merged[key as keyof APIConfig] as any)?.apiKey || ''
+                  : data[key].apiKey || ''
+              } as any;
+            }
+          });
+          
+          return merged;
+        });
       }
     } catch (error) {
       console.error('Error loading configuration:', error);

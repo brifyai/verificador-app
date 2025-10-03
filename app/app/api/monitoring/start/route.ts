@@ -7,10 +7,14 @@ export const dynamic = 'force-dynamic';
 // Enviar señal al VPS con streamUrl real
 async function sendSignalToVPS(id: string, streamUrl: string) {
   try {
+    if (!process.env.VPS_HOST || !process.env.VPS_USER || !process.env.VPS_PASSWORD) {
+      throw new Error('Faltan variables de entorno necesarias para el VPS');
+    }
+
     const vpsData = {
-      ip: '173.249.26.38',
-      user: 'root',
-      password: 'Aintelligence2025$',
+      ip: process.env.VPS_HOST,
+      user: process.env.VPS_USER,
+      password: process.env.VPS_PASSWORD,
       action: 'start_recording',
       id,
       streamUrl,
@@ -18,7 +22,7 @@ async function sendSignalToVPS(id: string, streamUrl: string) {
       timestamp: new Date().toISOString()
     };
 
-    const vpsEndpoint = `http://${vpsData.ip}/api/recording`;
+    const vpsEndpoint = `http://${process.env.VPS_HOST}${process.env.VPS_API_ENDPOINT || '/api/recording'}`;
 
     console.log(`📡 Enviando señal al VPS para radio ${id}`);
 

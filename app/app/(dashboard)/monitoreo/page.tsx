@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Waves, TextSelect, Bot, Calculator, CalendarDays } from "lucide-react";
+import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // --- Interfaces para los datos que vienen de la API ---
@@ -44,16 +44,22 @@ export default function ConfigurarAnalisisPage() {
   const [selectedRadioIds, setSelectedRadioIds] = useState<Set<string>>(new Set());
   const [selectedPhraseId, setSelectedPhraseId] = useState<string>('');
   const [selectedAiModel, setSelectedAiModel] = useState<AiModelType>('estandar');
-  const [scheduleDays, setScheduleDays] = useState<string[]>([]); // Estado para los días
+  const [scheduleDays, setScheduleDays] = useState<string[]>([]);
+  const [recordingStartHour, setRecordingStartHour] = useState<number>(5);  // 5 AM por defecto
+  const [recordingEndHour, setRecordingEndHour] = useState<number>(2);      // 2 AM por defecto
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // ✅ NUEVOS ESTADOS PARA FILTROS
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRegion, setFilterRegion] = useState<string>('all');
 
-  // Carga de datos inicial (radios y frases)
+  // Carga de datos inicial (radios y frases) - SIN LÍMITE
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [radiosRes, phrasesRes] = await Promise.all([
-          fetch("/api/radios"),
+          fetch("/api/radios?limit=1000"), // ✅ Cargar todas las radios
           fetch("/api/phrases"),
         ]);
         if (!radiosRes.ok || !phrasesRes.ok) throw new Error("Error al cargar datos iniciales");
@@ -81,8 +87,37 @@ export default function ConfigurarAnalisisPage() {
       return newSet;
     });
   };
+  
   const selectAllRadios = () => setSelectedRadioIds(new Set(radios.map(r => r.id)));
   const deselectAllRadios = () => setSelectedRadioIds(new Set());
+
+  // ✅ NUEVA FUNCIÓN: Filtrar radios según criterios
+  const filteredRadios = useMemo(() => {
+    let result = radios;
+
+    // Filtrar por búsqueda
+    if (searchTerm) {
+      result = result.filter(radio =>
+        radio.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (radio.region && radio.region.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    // Filtrar por región
+    if (filterRegion !== 'all') {
+      result = result.filter(radio => radio.region === filterRegion);
+    }
+
+    return result;
+  }, [radios, searchTerm, filterRegion]);
+
+  // ✅ Obtener regiones únicas para el filtro
+  const uniqueRegions = useMemo(() => {
+    const regions = radios
+      .map(r => r.region)
+      .filter((region): region is string => region !== null);
+    return Array.from(new Set(regions)).sort();
+  }, [radios]);
 
   // Cálculo de costos
   const { radioCost, aiCost, totalCost } = useMemo(() => {
@@ -91,35 +126,74 @@ export default function ConfigurarAnalisisPage() {
     return { radioCost, aiCost, totalCost: radioCost + aiCost };
   }, [selectedRadioIds.size, selectedAiModel]);
 
-  // Función para enviar el formulario al hacer clic en "Iniciar Monitoreo"
+  // ✅ FUNCIÓN MEJORADA: Iniciar Monitoreo con mejor UX
   const handleStartMonitoring = async () => {
-    if (selectedRadioIds.size === 0 || !selectedPhraseId) {
-      toast.warning("Debes seleccionar al menos una radio y una frase.");
+    // ✅ Validaciones separadas para mejor feedback
+    if (selectedRadioIds.size === 0) {
+      toast.warning("⚠️ Debes seleccionar al menos una radio.");
+      return;
+    }
+
+    if (!selectedPhraseId) {
+      toast.warning("⚠️ Debes seleccionar una frase para monitorear.");
       return;
     }
 
     setIsSubmitting(true);
+    
     try {
-      const response = await fetch("/api/sessions", {
+      console.log('🚀 Iniciando monitoreo con:', {
+        radios: selectedRadioIds.size,
+        phraseId: selectedPhraseId,
+        aiModel: selectedAiModel,
+        scheduleDays
+      });
+
+      const response = await fetch("/api/monitoring/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          filterType: 'custom',
           radioIds: Array.from(selectedRadioIds),
-          configuration: {
-            phraseId: selectedPhraseId,
-            aiModel: selectedAiModel,
-            // Se incluyen los días seleccionados
-            scheduleDays: scheduleDays.length > 0 ? scheduleDays : undefined,
-          },
+          recordingStartHour,
+          recordingEndHour,
         }),
       });
 
-      if (!response.ok) throw new Error("La respuesta del servidor no fue exitosa.");
+      const data = await response.json();
+      console.log('📥 Respuesta recibida:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error al iniciar el monitoreo");
+      }
       
-      toast.success("¡Monitoreo iniciado correctamente!");
-      router.push("/dashboard/monitoreo");
-    } catch (error) {
-      toast.error("No se pudo iniciar el monitoreo. Inténtalo de nuevo.");
+      // ✅ Mensaje de éxito detallado
+      const radioCount = selectedRadioIds.size;
+      const scheduleInfo = scheduleDays.length > 0 
+        ? ` programado para ${scheduleDays.length} día${scheduleDays.length > 1 ? 's' : ''}` 
+        : ' (monitoreo 24/7)';
+      
+      toast.success(
+        `✅ ¡Monitoreo iniciado! ${radioCount} radio${radioCount > 1 ? 's' : ''} activa${radioCount > 1 ? 's' : ''}${scheduleInfo}`,
+        { duration: 5000 }
+      );
+
+      // ✅ Limpiar formulario después del éxito
+      setSelectedRadioIds(new Set());
+      setSelectedPhraseId('');
+      setScheduleDays([]);
+      
+      // ✅ Redirigir al dashboard principal
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+      
+    } catch (error: any) {
+      console.error('❌ Error al iniciar monitoreo:', error);
+      toast.error(
+        `❌ Error: ${error.message || 'No se pudo iniciar el monitoreo'}`,
+        { duration: 6000 }
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -138,123 +212,186 @@ export default function ConfigurarAnalisisPage() {
         </p>
       </div>
 
-      {/* --- Selección de Radios --- */}
+      {/* ✅ SELECCIÓN DE RADIOS CON FILTROS MEJORADOS */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
-          <div className="flex items-center">
-            <Waves className="h-6 w-6 mr-3 text-blue-400" />
-            <div>
-<<<<<<< HEAD
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-white font-medium">
-                  Radios Disponibles ({getFilteredRadios().length})
-                </h4>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleSelectAllRadios}
-                    variant="outline"
-                    size="sm"
-                    className="text-gray-400 border-gray-400 hover:bg-gray-400/10"
-                  >
-                    Seleccionar Todas
-                  </Button>
-                  <Button
-                    onClick={handleDeselectAllRadios}
-                    variant="outline"
-                    size="sm"
-                    className="text-red-400 border-red-400 hover:bg-red-400/10"
-                  >
-                    Deseleccionar Todas
-                  </Button>
-                </div>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center">
+              <Waves className="h-6 w-6 mr-3 text-blue-400" />
+              <div>
+                <CardTitle className="text-lg text-white">Selecciona las Radios</CardTitle>
+                <CardDescription className="text-slate-400">
+                  {radios.length} radios totales • {filteredRadios.length} mostradas • {selectedRadioIds.size} seleccionadas
+                </CardDescription>
               </div>
-
-              <div className="max-h-64 overflow-y-auto bg-slate-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {getFilteredRadios().map((radio) => (
-                    <div key={radio.id} className="flex items-center space-x-3 p-2 rounded hover:bg-slate-700/50">
-                      <Checkbox
-                        id={`radio-${radio.id}`}
-                        checked={selectedRadios.includes(radio.id)}
-                        onCheckedChange={(checked) => handleRadioSelection(radio.id, checked as boolean)}
-                      />
-                      <label 
-                        htmlFor={`radio-${radio.id}`} 
-                        className="flex-1 cursor-pointer text-sm text-white"
-                      >
-                        <div className="font-medium">{radio.name}</div>
-                        <div className="text-xs text-slate-400">{radio.region} • {radio.city}</div>
-                      </label>
-                    </div>
-                  ))}
-=======
-              <CardTitle className="text-lg text-white">Selecciona las Radios</CardTitle>
-              <CardDescription className="text-slate-400">Radios Disponibles ({radios.length})</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                onClick={() => setSelectedRadioIds(new Set(filteredRadios.map(r => r.id)))} 
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Seleccionar Mostradas
+              </Button>
+              <Button size="sm" variant="destructive" onClick={deselectAllRadios}>
+                Ninguna
+              </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-end gap-2 mb-4">
-            <Button size="sm" onClick={selectAllRadios} className="bg-green-600 hover:bg-green-700">Seleccionar Todas</Button>
-            <Button size="sm" variant="destructive" onClick={deselectAllRadios}>Deseleccionar Todas</Button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {radios.map(radio => (
-              <div
-                key={radio.id}
-                onClick={() => handleRadioToggle(radio.id)}
-                className={`p-4 rounded-lg border-2 transition-all cursor-pointer flex items-center gap-3 ${
-                  selectedRadioIds.has(radio.id)
-                    ? 'border-blue-500 bg-blue-500/10'
-                    : 'border-slate-700 hover:border-slate-500'
-                }`}
-              >
-                <Checkbox checked={selectedRadioIds.has(radio.id)} className="pointer-events-none" />
-                <div>
-                  <p className="font-semibold text-white">{radio.name}</p>
-                  <p className="text-sm text-slate-400">{radio.region || 'Región no especificada'}</p>
->>>>>>> origin/feature/mzurita
+          {/* ✅ BARRA DE FILTROS */}
+          <div className="mb-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Búsqueda */}
+              <div>
+                <label className="text-sm text-slate-400 mb-2 block">Buscar radio</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Nombre o región..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
               </div>
-            ))}
+
+              {/* Filtro por Región */}
+              <div>
+                <label className="text-sm text-slate-400 mb-2 block">Filtrar por región</label>
+                <Select value={filterRegion} onValueChange={setFilterRegion}>
+                  <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                    <SelectValue placeholder="Todas las regiones" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
+                    <SelectItem value="all" className="focus:bg-slate-600">
+                      Todas las regiones ({radios.length})
+                    </SelectItem>
+                    {uniqueRegions.map(region => {
+                      const count = radios.filter(r => r.region === region).length;
+                      return (
+                        <SelectItem key={region} value={region} className="focus:bg-slate-600">
+                          {region} ({count})
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Botón Limpiar Filtros */}
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setFilterRegion('all');
+                  }}
+                  className="w-full border-slate-600 text-slate-300 hover:bg-slate-700"
+                  disabled={searchTerm === '' && filterRegion === 'all'}
+                >
+                  Limpiar Filtros
+                </Button>
+              </div>
+            </div>
           </div>
+
+          {/* ✅ LISTA DE RADIOS FILTRADAS */}
+          {filteredRadios.length === 0 ? (
+            <div className="text-center py-12 bg-slate-700/30 rounded-lg">
+              <p className="text-slate-400 mb-2">No se encontraron radios con los filtros aplicados</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm('');
+                  setFilterRegion('all');
+                }}
+                className="border-slate-600 text-slate-300"
+              >
+                Limpiar filtros
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* Scroll container con altura máxima */}
+              <div className="max-h-[500px] overflow-y-auto pr-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {filteredRadios.map(radio => (
+                    <div
+                      key={radio.id}
+                      onClick={() => handleRadioToggle(radio.id)}
+                      className={`p-4 rounded-lg border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                        selectedRadioIds.has(radio.id)
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-slate-700 hover:border-slate-500'
+                      }`}
+                    >
+                      <Checkbox checked={selectedRadioIds.has(radio.id)} className="pointer-events-none" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-white truncate">{radio.name}</p>
+                        <p className="text-sm text-slate-400 truncate">{radio.region || 'Sin región'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contador de resultados */}
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <p className="text-sm text-slate-400 text-center">
+                  Mostrando {filteredRadios.length} de {radios.length} radios
+                  {selectedRadioIds.size > 0 && ` • ${selectedRadioIds.size} seleccionadas`}
+                </p>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
       
       {/* --- Selección de Frase --- */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
-             <div className="flex items-center">
+          <div className="flex items-center">
             <TextSelect className="h-6 w-6 mr-3 text-purple-400" />
             <div>
               <CardTitle className="text-lg text-white">Seleccionar Frase para Monitoreo</CardTitle>
+              <CardDescription className="text-slate-400">
+                {phrases.length} frases disponibles
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-           <Select value={selectedPhraseId} onValueChange={setSelectedPhraseId}>
-            <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-              <SelectValue placeholder="Selecciona una frase de tu lista..." />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-700 border-slate-600 text-white">
-              {phrases.map(phrase => (
-                <SelectItem key={phrase.id} value={phrase.id} className="focus:bg-slate-600">
-                  <span className="font-semibold">{phrase.marca}:</span> "{phrase.phrase}"
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {phrases.length === 0 ? (
+            <p className="text-slate-400">No hay frases configuradas. <a href="/frases" className="text-blue-400 underline">Crear una frase</a></p>
+          ) : (
+            <Select value={selectedPhraseId} onValueChange={setSelectedPhraseId}>
+              <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                <SelectValue placeholder="Selecciona una frase de tu lista..." />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-700 border-slate-600 text-white">
+                {phrases.map(phrase => (
+                  <SelectItem key={phrase.id} value={phrase.id} className="focus:bg-slate-600">
+                    <span className="font-semibold">{phrase.marca}:</span> "{phrase.phrase}"
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </CardContent>
       </Card>
 
       {/* --- Modelo de IA --- */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
-           <div className="flex items-center">
+          <div className="flex items-center">
             <Bot className="h-6 w-6 mr-3 text-emerald-400" />
             <div>
               <CardTitle className="text-lg text-white">Modelo de IA</CardTitle>
-               <CardDescription className="text-slate-400">Elige la precisión del análisis.</CardDescription>
+              <CardDescription className="text-slate-400">Elige la precisión del análisis.</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -277,7 +414,84 @@ export default function ConfigurarAnalisisPage() {
         </CardContent>
       </Card>
       
-      {/* --- Nueva Sección de Programación --- */}
+      {/* --- Nueva Sección de Horario de Grabación --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <div className="flex items-center">
+            <Clock className="h-6 w-6 mr-3 text-orange-400" />
+            <div>
+              <CardTitle className="text-lg text-white">Horario de Grabación</CardTitle>
+              <CardDescription className="text-slate-400">
+                Define el rango horario en el que se realizarán las grabaciones. Por defecto: 5 AM - 2 AM.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Hora de Inicio */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-white">Hora de Inicio</label>
+              <Select 
+                value={recordingStartHour.toString()} 
+                onValueChange={(value) => setRecordingStartHour(parseInt(value))}
+              >
+                <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <SelectItem key={i} value={i.toString()} className="focus:bg-slate-600">
+                      {i.toString().padStart(2, '0')}:00 {i < 12 ? 'AM' : 'PM'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-400">Comenzar grabaciones desde esta hora cada día</p>
+            </div>
+
+            {/* Hora de Fin */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-white">Hora de Fin</label>
+              <Select 
+                value={recordingEndHour.toString()} 
+                onValueChange={(value) => setRecordingEndHour(parseInt(value))}
+              >
+                <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <SelectItem key={i} value={i.toString()} className="focus:bg-slate-600">
+                      {i.toString().padStart(2, '0')}:00 {i < 12 ? 'AM' : 'PM'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-400">Detener grabaciones a esta hora cada día</p>
+            </div>
+          </div>
+
+          {/* Indicador de horas activas */}
+          <div className="mt-4 p-4 bg-slate-700/30 rounded-lg">
+            <p className="text-sm text-slate-300">
+              <span className="font-semibold">Rango activo:</span>{' '}
+              {recordingStartHour.toString().padStart(2, '0')}:00 - {recordingEndHour.toString().padStart(2, '0')}:00
+              {recordingStartHour > recordingEndHour && (
+                <span className="ml-2 text-yellow-400">(cruza medianoche)</span>
+              )}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              {recordingStartHour > recordingEndHour 
+                ? `Grabará desde las ${recordingStartHour}:00 hasta las ${recordingEndHour}:00 del día siguiente`
+                : `Grabará ${recordingEndHour - recordingStartHour} horas diarias`
+              }
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* --- Nueva Sección de Programación por Días --- */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
           <div className="flex items-center">
@@ -285,7 +499,7 @@ export default function ConfigurarAnalisisPage() {
             <div>
               <CardTitle className="text-lg text-white">Programación del Monitoreo (Opcional)</CardTitle>
               <CardDescription className="text-slate-400">
-                Selecciona días específicos para el monitoreo. Si no seleccionas ninguno, se monitoreará 24/7.
+                Selecciona días específicos para el monitoreo. Si no seleccionas ninguno, se monitoreará todos los días.
               </CardDescription>
             </div>
           </div>
@@ -311,8 +525,8 @@ export default function ConfigurarAnalisisPage() {
       
       {/* --- Calculadora y Acciones --- */}
       <Card className="bg-slate-800/50 border-slate-700">
-         <CardHeader>
-           <div className="flex items-center">
+        <CardHeader>
+          <div className="flex items-center">
             <Calculator className="h-6 w-6 mr-3 text-yellow-400" />
             <div>
               <CardTitle className="text-lg text-white">Calculadora de Precio</CardTitle>
@@ -325,7 +539,7 @@ export default function ConfigurarAnalisisPage() {
               <p>Radios seleccionadas ({selectedRadioIds.size})</p>
               <p>${radioCost.toFixed(2)}</p>
             </div>
-             <div className="flex justify-between text-slate-300">
+            <div className="flex justify-between text-slate-300">
               <p>Modelo de IA ({AI_MODELS[selectedAiModel].name})</p>
               <p>${aiCost.toFixed(2)}</p>
             </div>
@@ -338,193 +552,16 @@ export default function ConfigurarAnalisisPage() {
         </CardContent>
       </Card>
 
-<<<<<<< HEAD
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sesiones Activas */}
-        <div className="lg:col-span-2 space-y-4">
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center space-x-2 text-gray-500">
-                  <Users className="h-5 w-5" />
-                  <span>Monitoreo Activo</span>
-                </CardTitle>
-                <Badge variant="secondary">
-                  {filteredSessions.length} sesiones
-                </Badge>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                <Input
-                  type="text"
-                  placeholder="Buscar por radio o plataforma..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-slate-700/50 border-slate-600"
-                />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {filteredSessions.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">
-                  <RadioIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-white">No hay sesiones de monitoreo activas</p>
-                  <p className="text-sm mt-2 text-white">Ve a la sección de Radios para iniciar el monitoreo</p>
-                </div>
-              ) : (
-                filteredSessions.map((session) => (
-                  <Card key={session.id} className="bg-slate-700/30 border-slate-600">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                          <div>
-                            <h3 className="font-medium text-white">{session.radioName}</h3>
-                            <p className="text-xs text-slate-400">{session.platform}</p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => stopMonitoring(session.id)}
-                          disabled={loading}
-                        >
-                          <Square className="h-3 w-3 mr-1" />
-                          Detener
-                        </Button>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4 text-xs text-slate-400 mb-3">
-                        <div>
-                          <span className="font-medium">Inicio:</span>{' '}
-                          {new Date(session.startTime).toLocaleString('es-CL')}
-                        </div>
-                        <div>
-                          <span className="font-medium">Intervalo:</span> {session.captureInterval}s
-                        </div>
-                        <div>
-                          <span className="font-medium">Capturas:</span> {session.totalCaptures}
-                        </div>
-                        <div>
-                          <span className="font-medium">Publicidad:</span>{' '}
-                          <span className="text-green-400">{session.advertisementsFound}</span>
-                        </div>
-                      </div>
-
-                      {session.targetPhrases.length > 0 && (
-                        <div className="mb-3">
-                          <p className="text-xs text-slate-400 mb-2">Frases objetivo:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {session.targetPhrases.map((phrase, i) => (
-                              <Badge key={i} variant="outline" className="text-[10px]">
-                                {phrase}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {session.lastAdvertisement && (
-                        <div className="text-xs text-green-400">
-                          <Target className="h-3 w-3 inline mr-1" />
-                          Última detección: {new Date(session.lastAdvertisement).toLocaleString('es-CL')}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Panel Lateral */}
-        <div className="space-y-4">
-          {/* Estado de Herramientas */}
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-sm text-gray-500">Herramientas del Sistema</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {systemStatus && systemStatus.dependencies ? (
-                Object.entries(systemStatus.dependencies).map(([tool, available]) => (
-                  <div key={tool} className="flex items-center justify-between">
-                    <span className="text-sm">{tool}</span>
-                    {available ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-500" />
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="text-sm text-white">Verificando herramientas...</div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Detecciones Recientes */}
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center space-x-2">
-                <Zap className="h-4 w-4 text-gray-500" />
-                <span className="text-gray-500">Detecciones Recientes</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 max-h-80 overflow-y-auto">
-              {recentDetections.length === 0 ? (
-                <div className="text-center py-4 text-slate-400">
-                  <Target className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm text-white">No hay detecciones recientes</p>
-                </div>
-              ) : (
-                recentDetections.map((detection, index) => (
-                  <div key={index} className="border border-slate-600 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium text-sm text-white">
-                        {detection.radioName}
-                      </span>
-                      <Badge variant="secondary" className="text-xs">
-                        {Math.round(detection.confidence * 100)}%
-                      </Badge>
-                    </div>
-                    
-                    <div className="text-xs text-slate-400 mb-2">
-                      <Clock className="h-3 w-3 inline mr-1" />
-                      {new Date(detection.timestamp).toLocaleString('es-CL')}
-                    </div>
-
-                    <p className="text-xs text-slate-300 mb-2 line-clamp-2">
-                      {detection.analysis.summary}
-                    </p>
-
-                    {detection.analysis.brandMentions.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {detection.analysis.brandMentions.slice(0, 3).map((brand, i) => (
-                          <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">
-                            {brand}
-                          </Badge>
-                        ))}
-                        {detection.analysis.brandMentions.length > 3 && (
-                          <Badge variant="outline" className="text-[10px] px-1 py-0">
-                            +{detection.analysis.brandMentions.length - 3}
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-=======
       <div className="flex justify-end gap-4 pt-4">
         <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-slate-300 hover:bg-slate-700">Cancelar</Button>
-        <Button onClick={handleStartMonitoring} disabled={isSubmitting} size="lg" className="bg-blue-600 hover:bg-blue-700">
+        <Button 
+          onClick={handleStartMonitoring} 
+          disabled={isSubmitting || selectedRadioIds.size === 0 || !selectedPhraseId} 
+          size="lg" 
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+        >
           {isSubmitting ? 'Iniciando...' : 'Iniciar Monitoreo'}
         </Button>
->>>>>>> origin/feature/mzurita
       </div>
     </div>
   );
