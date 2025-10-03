@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db'; // CORRECTO: Usar la instancia centralizada
+import { prisma } from '@/lib/db';
 import { Platform, RadioStatus, Prisma } from '@prisma/client';
+import { RadioImportSchema } from '@/lib/schemas/radio.schema';
+import { logger } from '@/lib/logger';
+import { z } from 'zod';
 
 // --- Tipo de dato para una radio que viene del archivo de importación ---
 type RadioImportData = {
@@ -40,7 +43,7 @@ export async function GET() {
     return NextResponse.json({ success: true, stats });
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
+    logger.error('Error obteniendo estadísticas:', error);
     return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
   }
 }
@@ -50,21 +53,20 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const radios: RadioImportData[] = body.radios;
 
-    if (!Array.isArray(radios)) {
-      return NextResponse.json({ error: 'Se requiere un array de radios' }, { status: 400 });
+    // Validar con Zod
+    const validationResult = RadioImportSchema.safeParse(body);
+    
+    if (!validationResult.success) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Datos de importación inválidos', 
+        details: validationResult.error.errors 
+      }, { status: 400 });
     }
-
-    // --- ¡NUEVA VALIDACIÓN! ---
-    // Verificamos si la cantidad de radios excede el límite permitido.
-    if (radios.length > 500) {
-      return NextResponse.json(
-        { error: `El número máximo de radios por importación es 500. Has enviado ${radios.length}.` },
-        { status: 413 } // 413 Payload Too Large es un código de estado apropiado
-      );
-    }
-    // --- FIN DE LA VALIDACIÓN ---
+    
+    const radios = validationResult.data.radios;
+    logger.log(`📥 Importando ${radios.length} radios...`);
 
     const mapPlatform = (url: string | null): Platform => {
       if (!url) return Platform.OTHER;
@@ -113,14 +115,15 @@ export async function POST(request: NextRequest) {
 
     const results = await prisma.$transaction(operations);
 
-    console.log(`✅ Importación exitosa: ${results.length} radios procesadas.`);
+    logger.log(`Importación exitosa: ${results.length} radios procesadas.`);
     return NextResponse.json({
       success: true,
-      message: `Se procesaron ${results.length} radios.`
+      message: `Se procesaron ${results.length} radios.`,
+      count: results.length
     });
 
   } catch (error) {
-    console.error('Error en importación masiva:', error);
+    logger.error('Error en importación masiva:', error);
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
         return NextResponse.json({ error: 'Error de datos duplicados durante la transacción.', details: error.meta }, { status: 409 });

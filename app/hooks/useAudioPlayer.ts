@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Hls from 'hls.js';
 import { Radio } from '@/lib/mock-data';
 import { useEnhancedToast } from './use-enhanced-toast';
+import { logger } from '@/lib/logger';
 
 export function useAudioPlayer() {
   const [playingRadio, setPlayingRadio] = useState<string | null>(null);
@@ -29,7 +30,7 @@ export function useAudioPlayer() {
         audio.removeEventListener(event, () => {});
       });
     } catch (error) {
-      console.warn('Error limpiando audio:', error);
+      logger.warn('Error limpiando audio:', error);
     }
   };
 
@@ -42,7 +43,7 @@ export function useAudioPlayer() {
       }
       setPlayingRadio(null);
       setIsLoading(null);
-      console.log(`⏹️ Detenido: ${radio.name}`);
+      logger.log(`⏹️ Detenido: ${radio.name}`);
       return;
     }
 
@@ -59,18 +60,21 @@ export function useAudioPlayer() {
     }
 
     setIsLoading(radio.id);
-    console.log(`🎵 Intentando reproducir: ${radio.name}`);
-    console.log(`🔗 URL: ${radio.streamUrl}`);
+    logger.log(`🎵 Intentando reproducir: ${radio.name}`);
+    logger.log(`🔗 URL: ${radio.streamUrl}`);
 
     try {
       const url = radio.streamUrl?.trim();
       if (!url) throw new Error("URL de streaming vacía");
 
-      // Detectar tipo de stream
-      const isHls = url.endsWith(".m3u8");
+      // Detectar tipo de stream (mejorado)
+      const isHls = url.includes(".m3u8") || url.includes("/hls/");
+      const isDash = url.includes(".mpd");
       const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
       const isTwitch = url.includes("twitch.tv");
       const isFacebook = url.includes("facebook.com");
+      const isIcecast = url.includes(":8000") || url.includes("icecast");
+      const isShoutcast = url.includes(":8080") || url.includes("shoutcast");
 
       // Caso: YouTube / Twitch / Facebook
       if (isYouTube || isTwitch || isFacebook) {
@@ -95,12 +99,12 @@ export function useAudioPlayer() {
         video.addEventListener("playing", () => {
           setIsLoading(null);
           setPlayingRadio(radio.id);
-          console.log(`✅ Reproduciendo HLS: ${radio.name}`);
+          logger.log(`✅ Reproduciendo HLS: ${radio.name}`);
           toast.audioSuccess(`Reproduciendo: ${radio.name}`);
         });
 
         video.addEventListener("error", (err) => {
-          console.error("❌ Error HLS:", err);
+          logger.error("❌ Error HLS:", err);
           setIsLoading(null);
           setPlayingRadio(null);
           toast.audioError(`Error HLS: No se pudo reproducir ${radio.name}`);
@@ -110,11 +114,21 @@ export function useAudioPlayer() {
         return;
       }
 
-      // Caso: streams normales (MP3/AAC/OGG)
+      // Caso: streams normales (MP3/AAC/OGG/Icecast/Shoutcast)
       const audio = new Audio();
-      audio.crossOrigin = "anonymous";
-      audio.preload = "auto";
+      audio.preload = "metadata";
       audio.volume = 0.7;
+      
+      // Usar proxy para streams Icecast/Shoutcast o problemáticos
+      let finalUrl = url;
+      if (isIcecast || isShoutcast || url.startsWith('http://')) {
+        // Usar proxy para resolver CORS y otros problemas
+        finalUrl = `/api/proxy-stream?url=${encodeURIComponent(url)}`;
+        logger.log(`🎙️ Usando proxy para stream: ${radio.name}`);
+      } else {
+        // Para HTTPS, intentar directo primero
+        audio.crossOrigin = "anonymous";
+      }
 
       const timeout = setTimeout(() => {
         toast.error(`⏰ Tiempo agotado cargando ${radio.name}`);
@@ -128,11 +142,11 @@ export function useAudioPlayer() {
         setPlayingRadio(radio.id);
         audio.play()
           .then(() => {
-            console.log(`✅ Reproduciendo: ${radio.name}`);
+            logger.log(`✅ Reproduciendo: ${radio.name}`);
             toast.audioSuccess(`Reproduciendo: ${radio.name}`);
           })
           .catch(error => {
-            console.error("❌ Error reproduciendo:", error);
+            logger.error("❌ Error reproduciendo:", error);
             toast.audioError(`No se pudo reproducir ${radio.name}`);
             setPlayingRadio(null);
           });
@@ -140,35 +154,64 @@ export function useAudioPlayer() {
 
       const onError = (event: any) => {
         clearTimeout(timeout);
-        console.error(`❌ Error cargando ${radio.name}:`, event);
+        logger.error(`❌ Error cargando ${radio.name}:`, event);
+        
+        // Intentar con método alternativo si falla
+        logger.log(`🔄 Intentando método alternativo para ${radio.name}`);
+        tryAlternativeMethod(audio, url, radio);
+        
         setIsLoading(null);
         setPlayingRadio(null);
         cleanupAudio(audio);
         setAudioElement(null);
-        toast.audioError(`Error: No se pudo cargar ${radio.name}`);
+        toast.audioError(`Error: No se pudo cargar ${radio.name}. Intenta de nuevo.`);
       };
 
       const onEnded = () => {
         setPlayingRadio(null);
         cleanupAudio(audio);
         setAudioElement(null);
-        console.log(`🔚 Stream finalizado: ${radio.name}`);
+        logger.log(`🔚 Stream finalizado: ${radio.name}`);
       };
 
       audio.addEventListener("canplay", onCanPlay, { once: true });
       audio.addEventListener("error", onError, { once: true });
       audio.addEventListener("ended", onEnded, { once: true });
 
-      audio.src = url;
+      audio.src = finalUrl; // Usar finalUrl (puede ser proxy o directo)
       audio.load();
 
       setAudioElement(audio);
 
     } catch (error) {
-      console.error("❌ Error configurando audio:", error);
+      logger.error("❌ Error configurando audio:", error);
       toast.audioError(`Error configurando reproductor para ${radio.name}`);
       setIsLoading(null);
       setPlayingRadio(null);
+    }
+  };
+
+  // Método alternativo para streams problemáticos
+  const tryAlternativeMethod = (audio: HTMLAudioElement, url: string, radio: Radio) => {
+    try {
+      // Intentar sin crossOrigin
+      audio.removeAttribute('crossOrigin');
+      audio.src = url;
+      audio.load();
+      
+      audio.addEventListener('canplay', () => {
+        audio.play()
+          .then(() => {
+            logger.log(`✅ Reproduciendo con método alternativo: ${radio.name}`);
+            toast.audioSuccess(`Reproduciendo: ${radio.name}`);
+            setPlayingRadio(radio.id);
+          })
+          .catch(err => {
+            logger.error('Error en método alternativo:', err);
+          });
+      }, { once: true });
+    } catch (err) {
+      logger.error('Error en método alternativo:', err);
     }
   };
 

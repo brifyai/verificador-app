@@ -59,6 +59,8 @@ model Radio {
   pricingRules RadioPricingRule[]
   invoiceLineItems InvoiceLineItem[]
 
+  // Índice único compuesto para evitar duplicados
+  @@unique([name, region], name: "name_region")
   @@map("radios")
 }
 
@@ -136,6 +138,8 @@ model MonitoringSession {
   totalDetections  Int            @default(0)
   lastCaptureAt    DateTime?
   lastDetectionAt  DateTime?
+  recordingStartHour Int?         @default(5)     // Hora de inicio de grabación (0-23) - Default 5 AM
+  recordingEndHour   Int?         @default(2)     // Hora de fin de grabación (0-23) - Default 2 AM
   configuration    Json?          // Configuración específica de la sesión
   metadata         Json?          // Metadatos adicionales
   
