@@ -281,7 +281,6 @@ export default function ConfigurarAnalisisPage() {
                 </Select>
               </div>
 
-<<<<<<< HEAD
               {/* Botón Limpiar Filtros */}
               <div className="flex items-end">
                 <Button
@@ -295,81 +294,6 @@ export default function ConfigurarAnalisisPage() {
                 >
                   Limpiar Filtros
                 </Button>
-=======
-              {filterType === 'region' && (
-                <>
-                  <div>
-                    <label className="text-sm font-medium text-white mb-2 block">Región:</label>
-                    <Select value={selectedRegion} onValueChange={(value) => {
-                      setSelectedRegion(value);
-                      setSelectedCity('');
-                      setSelectedRadios([]);
-                    }}>
-                      <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                        <SelectValue placeholder="Seleccionar región..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-700 border-slate-600">
-                        {getUniqueRegions().map((region) => (
-                          <SelectItem key={region} value={region} className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                            {region}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedRegion && (
-                    <div>
-                      <label className="text-sm font-medium text-white mb-2 block">Ciudad (Opcional):</label>
-                      <Select value={selectedCity} onValueChange={(value) => {
-                        setSelectedCity(value);
-                        setSelectedRadios([]);
-                      }}>
-                        <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                          <SelectValue placeholder="Todas las ciudades..." />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-700 border-slate-600">
-                          <SelectItem value="" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                            Todas las ciudades
-                          </SelectItem>
-                          {getCitiesByRegion(selectedRegion).map((city) => (
-                            <SelectItem key={city} value={city} className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                              {city}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Lista de Radios */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-white font-medium">
-                  Radios Disponibles ({getFilteredRadios().length})
-                </h4>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleSelectAllRadios}
-                    variant="outline"
-                    size="sm"
-                    className="text-gray-400 border-gray-400 hover:bg-gray-400/10"
-                  >
-                    Seleccionar Todas
-                  </Button>
-                  <Button
-                    onClick={handleDeselectAllRadios}
-                    variant="outline"
-                    size="sm"
-                    className="text-red-400 border-red-400 hover:bg-red-400/10"
-                  >
-                    Deseleccionar Todas
-                  </Button>
-                </div>
->>>>>>> origin/feature/mcandia
               </div>
             </div>
           </div>
@@ -526,7 +450,6 @@ export default function ConfigurarAnalisisPage() {
               <p className="text-xs text-slate-400">Comenzar grabaciones desde esta hora cada día</p>
             </div>
 
-<<<<<<< HEAD
             {/* Hora de Fin */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-white">Hora de Fin</label>
@@ -548,79 +471,6 @@ export default function ConfigurarAnalisisPage() {
               <p className="text-xs text-slate-400">Detener grabaciones a esta hora cada día</p>
             </div>
           </div>
-=======
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sesiones Activas */}
-        <div className="lg:col-span-2 space-y-4">
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center space-x-2 text-gray-500">
-                  <Users className="h-5 w-5" />
-                  <span>Monitoreo Activo</span>
-                </CardTitle>
-                <Badge variant="secondary">
-                  {filteredSessions.length} sesiones
-                </Badge>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                <Input
-                  type="text"
-                  placeholder="Buscar por radio o plataforma..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-slate-700/50 border-slate-600"
-                />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {filteredSessions.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">
-                  <RadioIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-white">No hay sesiones de monitoreo activas</p>
-                  <p className="text-sm mt-2 text-white">Ve a la sección de Radios para iniciar el monitoreo</p>
-                </div>
-              ) : (
-                filteredSessions.map((session) => (
-                  <Card key={session.id} className="bg-slate-700/30 border-slate-600">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                          <div>
-                            <h3 className="font-medium text-white">{session.radioName}</h3>
-                            <p className="text-xs text-slate-400">{session.platform}</p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => stopMonitoring(session.id)}
-                          disabled={loading}
-                        >
-                          <Square className="h-3 w-3 mr-1" />
-                          Detener
-                        </Button>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4 text-xs text-slate-400 mb-3">
-                        <div>
-                          <span className="font-medium">Inicio:</span>{' '}
-                          {new Date(session.startTime).toLocaleString('es-CL')}
-                        </div>
-                        <div>
-                          <span className="font-medium">Intervalo:</span> {session.captureInterval}s
-                        </div>
-                        <div>
-                          <span className="font-medium">Capturas:</span> {session.totalCaptures}
-                        </div>
-                        <div>
-                          <span className="font-medium">Publicidad:</span>{' '}
-                          <span className="text-green-400">{session.advertisementsFound}</span>
-                        </div>
-                      </div>
->>>>>>> origin/feature/mcandia
 
           {/* Indicador de horas activas */}
           <div className="mt-4 p-4 bg-slate-700/30 rounded-lg">
@@ -702,7 +552,6 @@ export default function ConfigurarAnalisisPage() {
         </CardContent>
       </Card>
 
-<<<<<<< HEAD
       <div className="flex justify-end gap-4 pt-4">
         <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-slate-300 hover:bg-slate-700">Cancelar</Button>
         <Button 
@@ -713,88 +562,6 @@ export default function ConfigurarAnalisisPage() {
         >
           {isSubmitting ? 'Iniciando...' : 'Iniciar Monitoreo'}
         </Button>
-=======
-        {/* Panel Lateral */}
-        <div className="space-y-4">
-          {/* Estado de Herramientas */}
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-sm text-gray-500">Herramientas del Sistema</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {systemStatus && systemStatus.dependencies ? (
-                Object.entries(systemStatus.dependencies).map(([tool, available]) => (
-                  <div key={tool} className="flex items-center justify-between">
-                    <span className="text-sm">{tool}</span>
-                    {available ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-500" />
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="text-sm text-white">Verificando herramientas...</div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Detecciones Recientes */}
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center space-x-2">
-                <Zap className="h-4 w-4 text-gray-500" />
-                <span className="text-gray-500">Detecciones Recientes</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 max-h-80 overflow-y-auto">
-              {recentDetections.length === 0 ? (
-                <div className="text-center py-4 text-slate-400">
-                  <Target className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm text-white">No hay detecciones recientes</p>
-                </div>
-              ) : (
-                recentDetections.map((detection, index) => (
-                  <div key={index} className="border border-slate-600 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium text-sm text-white">
-                        {detection.radioName}
-                      </span>
-                      <Badge variant="secondary" className="text-xs">
-                        {Math.round(detection.confidence * 100)}%
-                      </Badge>
-                    </div>
-                    
-                    <div className="text-xs text-slate-400 mb-2">
-                      <Clock className="h-3 w-3 inline mr-1" />
-                      {new Date(detection.timestamp).toLocaleString('es-CL')}
-                    </div>
-
-                    <p className="text-xs text-slate-300 mb-2 line-clamp-2">
-                      {detection.analysis.summary}
-                    </p>
-
-                    {detection.analysis.brandMentions.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {detection.analysis.brandMentions.slice(0, 3).map((brand, i) => (
-                          <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">
-                            {brand}
-                          </Badge>
-                        ))}
-                        {detection.analysis.brandMentions.length > 3 && (
-                          <Badge variant="outline" className="text-[10px] px-1 py-0">
-                            +{detection.analysis.brandMentions.length - 3}
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
->>>>>>> origin/feature/mcandia
       </div>
     </div>
   );
