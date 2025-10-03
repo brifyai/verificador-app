@@ -240,36 +240,31 @@ export default function AudioPlayer({
           <div className="flex items-center justify-center gap-4">
             <Button
               onClick={() => skipTime(-10)}
-              variant="outline"
               size="sm"
-              className="text-slate-300 border-slate-600 hover:bg-slate-700"
+              className="bg-blue-500 hover:bg-blue-600 text-white"
               disabled={isLoading}
             >
               <SkipBack className="h-4 w-4" />
               <span className="ml-1 text-xs">10s</span>
             </Button>
-
             <Button
               onClick={togglePlay}
-              variant="outline"
               size="lg"
-              className="text-white border-slate-600 hover:bg-slate-700 w-12 h-12"
-              disabled={isLoading || !!error}
+              className="bg-green-500 hover:bg-green-600 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-lg"
+              disabled={isLoading || error !== null}
             >
               {isLoading ? (
-                <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" />
+                <div className="animate-spin w-6 h-6 border-2 border-white border-t-transparent rounded-full" />
               ) : isPlaying ? (
-                <Pause className="h-6 w-6" />
+                <Pause className="h-8 w-8 text-white" />
               ) : (
-                <Play className="h-6 w-6 ml-0.5" />
+                <Play className="h-8 w-8 text-white" />
               )}
             </Button>
-
             <Button
               onClick={() => skipTime(10)}
-              variant="outline"
               size="sm"
-              className="text-slate-300 border-slate-600 hover:bg-slate-700"
+              className="bg-blue-500 hover:bg-blue-600 text-white"
               disabled={isLoading}
             >
               <span className="mr-1 text-xs">10s</span>
@@ -298,7 +293,8 @@ export default function AudioPlayer({
               step="0.1"
               value={isMuted ? 0 : volume}
               onChange={handleVolumeChange}
-              className="flex-1 h-2 bg-slate-700 rounded-full appearance-none cursor-pointer slider"
+              className="flex-1 volume-slider"
+              style={{ '--volume-percentage': `${(isMuted ? 0 : volume) * 100}%` } as React.CSSProperties}
             />
             <span className="text-xs text-slate-400 w-8">
               {Math.round((isMuted ? 0 : volume) * 100)}%

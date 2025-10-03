@@ -277,8 +277,7 @@ export default function AudiosPage() {
         <div className="flex gap-2">
           <Button 
             onClick={loadAudios}
-            variant="outline"
-            className="text-slate-300 border-slate-600 hover:bg-slate-700"
+            className="bg-green-500 hover:bg-green-600 text-white"
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar
@@ -479,17 +478,15 @@ export default function AudiosPage() {
                             setSelectedAudio(audio);
                             setActiveTab('player');
                           }}
-                          variant="outline"
                           size="sm"
-                          className="text-slate-300 border-slate-600 hover:bg-slate-700"
+                          className="bg-green-500 hover:bg-green-600 text-white"
                         >
-                          <Play className="h-4 w-4" />
+                          <Play className="h-3 w-3 text-white" />
                         </Button>
                         <Button
                           onClick={() => handleDownload(audio)}
-                          variant="outline"
                           size="sm"
-                          className="text-slate-300 border-slate-600 hover:bg-slate-700"
+                          className="bg-blue-500 hover:bg-blue-600 text-white"
                         >
                           <Download className="h-4 w-4" />
                         </Button>
