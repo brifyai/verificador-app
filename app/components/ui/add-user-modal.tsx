@@ -222,11 +222,9 @@ export function AddUserModal({ isOpen, onClose, onUserAdded }: AddUserModalProps
                 onChange={(e) => handleInputChange('role', e.target.value as DatabaseRole)}
                 className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {Object.entries(ROLE_MAPPING).map(([dbRole, displayRole]) => (
-                  <option key={dbRole} value={dbRole}>
-                    {displayRole}
-                  </option>
-                ))}
+                {/* Solo permitir crear usuarios analistas y verificadores */}
+                <option value="USER">Analista</option>
+                <option value="MODERATOR">Verificador</option>
               </select>
             </div>
           </div>

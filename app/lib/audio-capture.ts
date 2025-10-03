@@ -5,7 +5,7 @@ import { writeFileSync, existsSync, mkdirSync, createWriteStream, statSync } fro
 import { pipeline } from 'stream';
 import path from 'path';
 import fetch from 'node-fetch';
-import { prisma } from './prisma';
+import { prisma } from './db';
 
 const execAsync = promisify(exec);
 const pipelineAsync = promisify(pipeline);

@@ -14,19 +14,20 @@ export const ROLE_PERMISSIONS = {
   '/dashboard': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
   '/perfil': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
   
-  // Páginas de usuario y moderador
+  // Páginas para usuario verificador
+  '/verificacion': ['USER', 'ADMIN'] as UserRole[],
+  '/frases': ['USER', 'ADMIN'] as UserRole[],
   '/reportes': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
-  '/frases': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
-  '/radios': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
-  '/audios': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
-  '/monitoreo': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
-  '/verificacion': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
+  '/audios': ['USER', 'ADMIN'] as UserRole[],
   
-  // Páginas de moderador y admin
+  // Páginas para analista (moderador)
   '/inteligencia': ['MODERATOR', 'ADMIN'] as UserRole[],
-  '/equipo': ['MODERATOR', 'ADMIN'] as UserRole[],
+  '/reportes': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
   
-  // Páginas solo para admin
+  // Páginas solo para administrador
+  '/radios': ['ADMIN'] as UserRole[],
+  '/monitoreo': ['ADMIN'] as UserRole[],
+  '/equipo': ['ADMIN'] as UserRole[],
   '/configuracion': ['ADMIN'] as UserRole[],
 };
 

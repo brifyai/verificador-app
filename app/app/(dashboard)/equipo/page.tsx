@@ -5,21 +5,29 @@ import { useState, useEffect } from 'react';
 import { UserPlus, Mail, Shield, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddUserModal } from '@/components/ui/add-user-modal';
-import { mockTeamMembers, TeamMember } from '@/lib/mock-data';
+import { TeamMember } from '@/lib/types';
 import { getDisplayRole, DatabaseRole } from '@/lib/types';
+import { useSession } from 'next-auth/react';
+import { isAdmin } from '@/lib/permissions';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
+import { ConfirmationDialog, useConfirmationDialog } from '@/components/ui/confirmation-dialog';
 
 export default function Equipo() {
-  const [members, setMembers] = useState<TeamMember[]>(mockTeamMembers);
+  const { data: session } = useSession();
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const toast = useEnhancedToast();
+  const { confirm, ConfirmationDialog: ConfirmDialog } = useConfirmationDialog();
 
   // Función para cargar usuarios desde la API
   const loadUsers = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/users');
+      const response = await fetch('/api/usuarios');
       if (response.ok) {
-        const users = await response.json();
+        const result = await response.json();
+        const users = result.data || [];
         // Convertir usuarios de la API al formato TeamMember
         const teamMembers: TeamMember[] = users.map((user: any) => ({
           id: user.id,
@@ -36,6 +44,85 @@ export default function Equipo() {
       // Mantener datos mock en caso de error
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Función para abrir Gmail con el email del usuario
+  const handleSendEmail = (email: string, name: string) => {
+    const subject = encodeURIComponent(`Contacto desde OndaVerificada - ${name}`);
+    const body = encodeURIComponent(`Hola ${name},\n\nEspero que te encuentres bien.\n\n\n\nSaludos,\n${session?.user?.name || 'Equipo OndaVerificada'}`);
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${subject}&body=${body}`;
+    
+    window.open(gmailUrl, '_blank');
+    toast.success('Abriendo Gmail para enviar correo', {
+      title: '📧 Correo',
+      duration: 3000
+    });
+  };
+
+  // Función para bloquear/desbloquear usuario
+  const handleToggleUserStatus = async (userId: string, currentStatus: string, userName: string, userRole: string) => {
+    // Verificar permisos de administrador
+    if (!isAdmin(session?.user?.role)) {
+      toast.error('No tienes permisos para realizar esta acción', {
+        title: '🚫 Acceso Denegado',
+        duration: 4000
+      });
+      return;
+    }
+    
+    // No permitir bloquear a administradores
+    if (userRole === 'Administrador') {
+      toast.error('No es posible bloquear a un administrador', {
+        title: '🚫 Operación no permitida',
+        duration: 4000
+      });
+      return;
+    }
+
+    const action = currentStatus === 'Activo' ? 'bloquear' : 'desbloquear';
+    const actionPast = currentStatus === 'Activo' ? 'bloqueado' : 'desbloqueado';
+    
+    const confirmed = await confirm({
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} Usuario`,
+      description: `¿Estás seguro de que deseas ${action} a ${userName}? Esta acción ${currentStatus === 'Activo' ? 'impedirá que el usuario acceda al sistema' : 'permitirá que el usuario acceda nuevamente al sistema'}.`,
+      confirmText: action.charAt(0).toUpperCase() + action.slice(1),
+      cancelText: 'Cancelar',
+      variant: currentStatus === 'Activo' ? 'destructive' : 'success',
+      onConfirm: () => {},
+      onCancel: () => {}
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/usuarios/${userId}/toggle-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        // Recargar la lista de usuarios
+        await loadUsers();
+        toast.success(`Usuario ${actionPast} exitosamente`, {
+          title: currentStatus === 'Activo' ? '🔒 Usuario Bloqueado' : '🔓 Usuario Desbloqueado',
+          duration: 4000
+        });
+      } else {
+        const error = await response.json();
+        toast.error(error.message || `Error al ${action} usuario`, {
+          title: '❌ Error',
+          duration: 5000
+        });
+      }
+    } catch (error) {
+      console.error(`Error al ${action} usuario:`, error);
+      toast.error(`Error de conexión al ${action} usuario`, {
+        title: '🌐 Error de Conexión',
+        duration: 5000
+      });
     }
   };
 
@@ -131,21 +218,25 @@ export default function Equipo() {
             </thead>
             <tbody className="divide-y divide-slate-600">
               {members.map((member) => (
-                <tr key={member.id} className="hover:bg-slate-700/30 transition-colors">
+                <tr key={member.id} className="hover:bg-slate-700/30">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="w-10 h-10 bg-slate-600 rounded-full flex items-center justify-center mr-3">
-                        <span className="text-white font-medium text-sm">
-                          {member.name.split(' ').map(n => n[0]).join('')}
-                        </span>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${
+                        member.role === 'Administrador' 
+                          ? 'bg-gradient-to-br from-purple-500 to-indigo-600 ring-2 ring-purple-400' 
+                          : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                      }`}>
+                        {member.name.charAt(0).toUpperCase()}
                       </div>
-                      <div>
-                        <div className="text-sm font-medium text-white">{member.name}</div>
+                      <div className="ml-4">
+                        <div className={`text-sm font-medium ${
+                          member.role === 'Administrador' ? 'text-purple-300' : 'text-white'
+                        }`}>{member.name}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-slate-300">{member.email}</div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
+                    {member.email}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${getRoleColor(member.role)}`}>
@@ -172,10 +263,39 @@ export default function Equipo() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center space-x-2">
-                      <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="text-blue-400 hover:text-blue-300"
+                        onClick={() => handleSendEmail(member.email, member.name)}
+                        title="Enviar correo electrónico"
+                      >
                         <Mail className="w-4 h-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" className="text-slate-400 hover:text-slate-300">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className={`${
+                          isAdmin(session?.user?.role) 
+                            ? member.status === 'Activo' 
+                              ? member.role === 'Administrador'
+                                ? 'text-slate-600 cursor-not-allowed'
+                                : 'text-red-400 hover:text-red-300' 
+                              : 'text-green-400 hover:text-green-300'
+                            : 'text-slate-600 cursor-not-allowed'
+                        }`}
+                        onClick={() => handleToggleUserStatus(member.id, member.status, member.name, member.role)}
+                        disabled={!isAdmin(session?.user?.role) || member.role === 'Administrador'}
+                        title={
+                          !isAdmin(session?.user?.role) 
+                            ? 'Solo administradores pueden bloquear usuarios' 
+                            : member.role === 'Administrador'
+                              ? 'No es posible bloquear administradores'
+                              : member.status === 'Activo' 
+                                ? 'Bloquear usuario' 
+                                : 'Desbloquear usuario'
+                        }
+                      >
                         <Shield className="w-4 h-4" />
                       </Button>
                     </div>
@@ -235,6 +355,9 @@ export default function Equipo() {
         onClose={() => setIsModalOpen(false)}
         onUserAdded={handleUserAdded}
       />
+
+      {/* Componente de diálogo de confirmación */}
+      <ConfirmDialog />
     </div>
   );
 }

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Audio</title>
+</head>
+<body>
+    <h1>Test de Audio</h1>
+    <audio controls>
+        <source src="/captures/test_capture.wav" type="audio/wav">
+        Tu navegador no soporta el elemento audio.
+    </audio>
+    
+    <br><br>
+    
+    <button onclick="testAudio()">Test con JavaScript</button>
+    
+    <script>
+        function testAudio() {
+            console.log('🎵 Probando audio...');
+            const audio = new Audio('/captures/test_capture.wav');
+            
+            audio.onloadstart = () => console.log('🎵 loadstart');
+            audio.onloadeddata = () => console.log('🎵 loadeddata');
+            audio.oncanplay = () => console.log('🎵 canplay');
+            audio.oncanplaythrough = () => console.log('🎵 canplaythrough');
+            audio.onerror = (e) => console.error('🎵 ERROR:', e);
+            
+            audio.play().then(() => {
+                console.log('🎵 Reproducción iniciada exitosamente');
+            }).catch((error) => {
+                console.error('🎵 Error al reproducir:', error);
+            });
+        }
+    </script>
+</body>
+</html>

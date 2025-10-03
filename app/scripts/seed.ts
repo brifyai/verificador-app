@@ -395,6 +395,126 @@ async function main() {
 
   console.log('✅ Notifications created');
 
+  // 8. Crear perfiles de facturación de ejemplo
+  const billingProfiles = await Promise.all([
+    prisma.billingProfile.create({
+      data: {
+        userId: adminUser.id,
+        companyName: 'Empresa Demo S.A.',
+        legalName: 'Empresa Demo Sociedad Anónima',
+        taxId: '12.345.678-9',
+        billingEmail: 'facturacion@empresademo.cl',
+        address: 'Av. Providencia 1234, Santiago',
+        city: 'Santiago',
+        region: 'Región Metropolitana',
+        postalCode: '7500000'
+      }
+    }),
+    prisma.billingProfile.create({
+      data: {
+        userId: regularUser.id,
+        companyName: 'Monitor Pro Ltda.',
+        legalName: 'Monitor Pro Limitada',
+        taxId: '98.765.432-1',
+        billingEmail: 'admin@monitorpro.cl',
+        address: 'Las Condes 5678, Santiago',
+        city: 'Santiago',
+        region: 'Región Metropolitana',
+        postalCode: '7550000'
+      }
+    })
+  ]);
+
+  console.log('✅ Billing profiles created');
+
+  // 9. Crear suscripciones de ejemplo
+  const subscriptions = await Promise.all([
+    prisma.subscription.create({
+      data: {
+        billingProfileId: billingProfiles[0].id,
+        planId: "plan_pro_mensual",
+        status: "ACTIVE",
+        currentPeriodStart: new Date("2024-01-01T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2024-10-01T00:00:00.000Z")
+      }
+    }),
+    prisma.subscription.create({
+      data: {
+        billingProfileId: billingProfiles[1].id,
+        planId: "plan_enterprise_mensual",
+        status: "ACTIVE",
+        currentPeriodStart: new Date("2024-02-01T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2024-11-01T00:00:00.000Z")
+      }
+    })
+  ]);
+
+  console.log('✅ Subscriptions created');
+
+  // 10. Crear facturas de ejemplo
+  const invoices = await Promise.all([
+    prisma.invoice.create({
+      data: {
+        billingProfileId: billingProfiles[0].id,
+        invoiceNumber: 'INV-2024-001',
+        issueDate: new Date('2024-09-01'),
+        dueDate: new Date('2024-09-30'),
+        status: 'PAID',
+        subtotal: 76262,
+        tax: 14498,
+        total: 89990,
+        currency: 'CLP',
+        paymentDate: new Date('2024-09-05'),
+        paymentMethod: 'Visa **** 4532',
+        notes: 'Pago procesado automáticamente'
+      }
+    }),
+    prisma.invoice.create({
+      data: {
+        billingProfileId: billingProfiles[1].id,
+        invoiceNumber: 'INV-2024-002',
+        issueDate: new Date('2024-09-15'),
+        dueDate: new Date('2024-10-15'),
+        status: 'PENDING',
+        subtotal: 25412,
+        tax: 4831,
+        total: 29990,
+        currency: 'CLP',
+        notes: 'Pendiente de pago por transferencia bancaria'
+      }
+    })
+  ]);
+
+  console.log('✅ Invoices created');
+
+  // 11. Crear líneas de factura de ejemplo
+  const invoiceLineItems = await Promise.all([
+    // Líneas para la primera factura
+    prisma.invoiceLineItem.create({
+      data: {
+        invoiceId: invoices[0].id,
+        description: 'Plan Profesional - Septiembre 2024',
+        quantity: 1,
+        unitPrice: 89990,
+        total: 89990,
+        radioId: radios[0].id
+      }
+    }),
+    // Líneas para la segunda factura
+    prisma.invoiceLineItem.create({
+      data: {
+        invoiceId: invoices[1].id,
+        description: 'Plan Básico - Septiembre 2024',
+        quantity: 1,
+        unitPrice: 29990,
+        total: 29990,
+        radioId: radios[1].id
+      }
+    })
+  ]);
+
+  console.log('✅ Invoice line items created');
+
   console.log('\n🎉 Database seed completed successfully!');
   console.log('\n📊 Summary:');
   console.log(`- Users: 2`);
@@ -404,6 +524,10 @@ async function main() {
   console.log(`- API Configurations: ${apiConfigs.length}`);
   console.log(`- Pricing Rules: ${pricingRules.length}`);
   console.log(`- Notifications: ${notifications.length}`);
+  console.log(`- Billing Profiles: ${billingProfiles.length}`);
+  console.log(`- Subscriptions: ${subscriptions.length}`);
+  console.log(`- Invoices: ${invoices.length}`);
+  console.log(`- Invoice Line Items: ${invoiceLineItems.length}`);
   
   console.log('\n🔑 Default login credentials:');
   console.log('Email: admin@radiomonitor.cl');

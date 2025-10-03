@@ -47,3 +47,13 @@ export const getDatabaseRole = (displayRole: DisplayRole): DatabaseRole => {
   const entry = Object.entries(ROLE_MAPPING).find(([_, value]) => value === displayRole)
   return entry ? entry[0] as DatabaseRole : 'USER'
 }
+
+// Tipo para miembros del equipo
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  lastLogin: string;
+  status: string;
+}
