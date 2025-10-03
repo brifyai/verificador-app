@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search } from "lucide-react";
+import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // --- Interfaces para los datos que vienen de la API ---
@@ -45,6 +45,8 @@ export default function ConfigurarAnalisisPage() {
   const [selectedPhraseId, setSelectedPhraseId] = useState<string>('');
   const [selectedAiModel, setSelectedAiModel] = useState<AiModelType>('estandar');
   const [scheduleDays, setScheduleDays] = useState<string[]>([]);
+  const [recordingStartHour, setRecordingStartHour] = useState<number>(5);  // 5 AM por defecto
+  const [recordingEndHour, setRecordingEndHour] = useState<number>(2);      // 2 AM por defecto
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -153,6 +155,8 @@ export default function ConfigurarAnalisisPage() {
         body: JSON.stringify({
           filterType: 'custom',
           radioIds: Array.from(selectedRadioIds),
+          recordingStartHour,
+          recordingEndHour,
         }),
       });
 
@@ -410,7 +414,84 @@ export default function ConfigurarAnalisisPage() {
         </CardContent>
       </Card>
       
-      {/* --- Nueva Sección de Programación --- */}
+      {/* --- Nueva Sección de Horario de Grabación --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <div className="flex items-center">
+            <Clock className="h-6 w-6 mr-3 text-orange-400" />
+            <div>
+              <CardTitle className="text-lg text-white">Horario de Grabación</CardTitle>
+              <CardDescription className="text-slate-400">
+                Define el rango horario en el que se realizarán las grabaciones. Por defecto: 5 AM - 2 AM.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Hora de Inicio */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-white">Hora de Inicio</label>
+              <Select 
+                value={recordingStartHour.toString()} 
+                onValueChange={(value) => setRecordingStartHour(parseInt(value))}
+              >
+                <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <SelectItem key={i} value={i.toString()} className="focus:bg-slate-600">
+                      {i.toString().padStart(2, '0')}:00 {i < 12 ? 'AM' : 'PM'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-400">Comenzar grabaciones desde esta hora cada día</p>
+            </div>
+
+            {/* Hora de Fin */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-white">Hora de Fin</label>
+              <Select 
+                value={recordingEndHour.toString()} 
+                onValueChange={(value) => setRecordingEndHour(parseInt(value))}
+              >
+                <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <SelectItem key={i} value={i.toString()} className="focus:bg-slate-600">
+                      {i.toString().padStart(2, '0')}:00 {i < 12 ? 'AM' : 'PM'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-400">Detener grabaciones a esta hora cada día</p>
+            </div>
+          </div>
+
+          {/* Indicador de horas activas */}
+          <div className="mt-4 p-4 bg-slate-700/30 rounded-lg">
+            <p className="text-sm text-slate-300">
+              <span className="font-semibold">Rango activo:</span>{' '}
+              {recordingStartHour.toString().padStart(2, '0')}:00 - {recordingEndHour.toString().padStart(2, '0')}:00
+              {recordingStartHour > recordingEndHour && (
+                <span className="ml-2 text-yellow-400">(cruza medianoche)</span>
+              )}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              {recordingStartHour > recordingEndHour 
+                ? `Grabará desde las ${recordingStartHour}:00 hasta las ${recordingEndHour}:00 del día siguiente`
+                : `Grabará ${recordingEndHour - recordingStartHour} horas diarias`
+              }
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* --- Nueva Sección de Programación por Días --- */}
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
           <div className="flex items-center">
@@ -418,7 +499,7 @@ export default function ConfigurarAnalisisPage() {
             <div>
               <CardTitle className="text-lg text-white">Programación del Monitoreo (Opcional)</CardTitle>
               <CardDescription className="text-slate-400">
-                Selecciona días específicos para el monitoreo. Si no seleccionas ninguno, se monitoreará 24/7.
+                Selecciona días específicos para el monitoreo. Si no seleccionas ninguno, se monitoreará todos los días.
               </CardDescription>
             </div>
           </div>
