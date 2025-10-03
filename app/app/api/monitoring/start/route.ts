@@ -51,8 +51,13 @@ export async function POST(request: NextRequest) {
     // Detectar si es una solicitud individual o masiva
     const isIndividualRequest = body.radioId && !body.radioIds;
     
+    // Extraer horarios de grabación (por defecto 5 AM - 2 AM)
+    const recordingStartHour = body.recordingStartHour ?? 5;
+    const recordingEndHour = body.recordingEndHour ?? 2;
+    
     console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
     console.log('🔍 Tipo de solicitud:', isIndividualRequest ? 'Individual' : 'Masiva');
+    console.log(`⏰ Horarios de grabación: ${recordingStartHour}:00 - ${recordingEndHour}:00`);
 
     // Determinar qué radios procesar
     let radiosToProcess = [];
@@ -113,8 +118,13 @@ export async function POST(request: NextRequest) {
 
     console.log(`📻 Procesando ${radiosToProcess.length} radios`);
 
-    // Enviar señal al VPS para cada radio
+    // TODO: Obtener userId desde sesión (por ahora hardcoded)
+    const userId = 'system_user'; // Deberías obtener esto desde la sesión del usuario autenticado
+
+    // Enviar señal al VPS y crear sesiones para cada radio
     const results = [];
+    const createdSessions = [];
+    
     for (const radio of radiosToProcess) {
       try {
         console.log(`🚀 Iniciando grabación para ${radio.name} (${radio.id})`);
@@ -144,13 +154,39 @@ export async function POST(request: NextRequest) {
           throw new Error('No se encontró URL de stream válida');
         }
         
+        // Crear sesión de monitoreo en la base de datos con horarios
+        const session = await prisma.monitoringSession.create({
+          data: {
+            radioId: radio.id,
+            userId: userId,
+            status: 'ACTIVE',
+            captureInterval: 30,
+            captureDuration: 600, // 10 minutos
+            recordingStartHour: recordingStartHour,
+            recordingEndHour: recordingEndHour,
+            configuration: {
+              streamUrl: actualStreamUrl,
+              language: 'es',
+              autoTranscription: true,
+              phraseDetection: true
+            }
+          }
+        });
+        
+        console.log(`✅ Sesión de monitoreo creada: ${session.id}`);
+        createdSessions.push(session);
+        
+        // Enviar señal al VPS
         await sendSignalToVPS(radio.id, actualStreamUrl);
+        
         results.push({
           radioId: radio.id,
           radioName: radio.name,
+          sessionId: session.id,
           success: true,
           message: 'Grabación iniciada exitosamente',
-          streamUrl: actualStreamUrl
+          streamUrl: actualStreamUrl,
+          recordingHours: `${recordingStartHour}:00 - ${recordingEndHour}:00`
         });
       } catch (error: any) {
         console.error(`❌ Error con radio ${radio.name}:`, error.message);

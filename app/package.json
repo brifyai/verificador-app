@@ -5,7 +5,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "init:apis": "tsx scripts/init-api-providers.ts"
   },
   "devDependencies": {
     "@next/swc-wasm-nodejs": "13.5.1",
