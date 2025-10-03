@@ -491,9 +491,9 @@ export default function MonitoringControl({ radio, onStatusChange }: MonitoringC
                     {new Date(detection.timestamp).toLocaleString('es-CL')}
                   </div>
                   <div className="text-[10px]">
-                    {detection.analysis.summary.slice(0, 100)}...
+                    {detection.analysis?.summary?.slice(0, 100) || 'Sin resumen disponible'}...
                   </div>
-                  {detection.analysis.brandMentions.length > 0 && (
+                  {detection.analysis?.brandMentions && detection.analysis.brandMentions.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {detection.analysis.brandMentions.map((brand, i) => (
                         <Badge 

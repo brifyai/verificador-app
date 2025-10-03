@@ -1,342 +1,150 @@
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { mockRadios } from '@/lib/mock-data';
-import { 
-  Activity, 
-  Radio as RadioIcon, 
-  Volume2, 
-  Zap, 
-  AlertTriangle, 
-  CheckCircle, 
-  TrendingUp,
-  Clock,
-  Users,
-  Target,
-  PlayCircle,
-  Square,
-  Search,
-  RefreshCw,
-  Settings,
-  Filter,
-  MapPin,
-  Building
-} from 'lucide-react';
+import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Waves, TextSelect, Bot, Calculator, CalendarDays } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface MonitoringSession {
+// --- Interfaces para los datos que vienen de la API ---
+interface Radio {
   id: string;
-  radioId: string;
-  radioName: string;
-  streamUrl: string;
-  platform: string;
-  targetPhrases: string[];
-  isActive: boolean;
-  startTime: string;
-  captureInterval: number;
-  captureDuration: number;
-  totalCaptures: number;
-  advertisementsFound: number;
-  lastCapture?: string;
-  lastAdvertisement?: string;
+  name: string;
+  region: string | null;
 }
 
-interface DetectionEvent {
-  sessionId: string;
-  radioName: string;
-  timestamp: string;
-  transcription: string;
-  analysis: {
-    isAdvertisement: boolean;
-    confidence: number;
-    advertisementType: string;
-    detectedPhrases: string[];
-    brandMentions: string[];
-    summary: string;
-  };
-  confidence: number;
+interface Phrase {
+  id: string;
+  phrase: string;
+  marca: string;
 }
 
-interface SystemStatus {
-  dependencies: { [tool: string]: boolean };
-  activeCaptures: number;
-  activeSessions: number;
-  totalEvents: number;
-  systemReady: boolean;
-}
+type AiModelType = 'estandar' | 'premium' | 'empresarial';
 
-export default function MonitoreoPage() {
-  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [activeSessions, setActiveSessions] = useState<MonitoringSession[]>([]);
-  const [recentDetections, setRecentDetections] = useState<DetectionEvent[]>([]);
-  const [overallStats, setOverallStats] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  // Estados para el inicio de análisis
-  const [showStartDialog, setShowStartDialog] = useState(false);
-  const [selectedRadios, setSelectedRadios] = useState<string[]>([]);
-  const [filterType, setFilterType] = useState<'all' | 'region' | 'custom'>('all');
-  const [selectedRegion, setSelectedRegion] = useState<string>('');
-  const [selectedCity, setSelectedCity] = useState<string>('');
+// --- Constantes de configuración ---
+const AI_MODELS = {
+  estandar: { name: 'Estándar', description: 'Precisión básica', price: 10 },
+  premium: { name: 'Premium', description: 'Alta precisión', price: 25 },
+  empresarial: { name: 'Empresarial', description: 'Máxima precisión', price: 50 },
+};
+const PRICE_PER_RADIO = 0;
 
-  // Cargar datos iniciales
+export default function ConfigurarAnalisisPage() {
+  const router = useRouter();
+
+  // --- Estados del componente ---
+  const [radios, setRadios] = useState<Radio[]>([]);
+  const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [selectedRadioIds, setSelectedRadioIds] = useState<Set<string>>(new Set());
+  const [selectedPhraseId, setSelectedPhraseId] = useState<string>('');
+  const [selectedAiModel, setSelectedAiModel] = useState<AiModelType>('estandar');
+  const [scheduleDays, setScheduleDays] = useState<string[]>([]); // Estado para los días
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Carga de datos inicial (radios y frases)
   useEffect(() => {
-    loadMonitoringData();
-    const interval = setInterval(loadMonitoringData, 10000); // Cada 10 segundos
-    return () => clearInterval(interval);
+    const fetchData = async () => {
+      try {
+        const [radiosRes, phrasesRes] = await Promise.all([
+          fetch("/api/radios"),
+          fetch("/api/phrases"),
+        ]);
+        if (!radiosRes.ok || !phrasesRes.ok) throw new Error("Error al cargar datos iniciales");
+        
+        const radiosData = await radiosRes.json();
+        const phrasesData = await phrasesRes.json();
+        
+        setRadios(radiosData.data || []);
+        setPhrases(phrasesData.phrases || []);
+
+      } catch (error) {
+        toast.error("Error al cargar los datos necesarios para la configuración.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
   }, []);
 
-  const loadMonitoringData = async () => {
-    try {
-      const response = await fetch('/api/monitoring/status');
-      if (response.ok) {
-        const data = await response.json();
-        setSystemStatus(data.systemStatus);
-        setActiveSessions(data.activeSessions);
-        setRecentDetections(data.recentDetections);
-        setOverallStats(data.overallStats);
-      }
-    } catch (error) {
-      console.error('Error cargando datos de monitoreo:', error);
-    }
+  // Funciones para manejar la selección de radios
+  const handleRadioToggle = (radioId: string) => {
+    setSelectedRadioIds(prev => {
+      const newSet = new Set(prev);
+      newSet.has(radioId) ? newSet.delete(radioId) : newSet.add(radioId);
+      return newSet;
+    });
   };
+  const selectAllRadios = () => setSelectedRadioIds(new Set(radios.map(r => r.id)));
+  const deselectAllRadios = () => setSelectedRadioIds(new Set());
 
-  const stopMonitoring = async (sessionId: string) => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/monitoring/stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
+  // Cálculo de costos
+  const { radioCost, aiCost, totalCost } = useMemo(() => {
+    const radioCost = selectedRadioIds.size * PRICE_PER_RADIO;
+    const aiCost = AI_MODELS[selectedAiModel].price;
+    return { radioCost, aiCost, totalCost: radioCost + aiCost };
+  }, [selectedRadioIds.size, selectedAiModel]);
 
-      if (response.ok) {
-        loadMonitoringData(); // Recargar datos
-      }
-    } catch (error) {
-      console.error('Error deteniendo monitoreo:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredSessions = activeSessions.filter(session =>
-    session.radioName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    session.platform.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const isSystemReady = systemStatus?.systemReady ?? false;
-
-  // Funciones auxiliares para filtros
-  const getUniqueRegions = () => {
-    return [...new Set(mockRadios.map(radio => radio.region))];
-  };
-
-  const getCitiesByRegion = (region: string) => {
-    return [...new Set(mockRadios.filter(radio => radio.region === region).map(radio => radio.city))];
-  };
-
-  const getFilteredRadios = () => {
-    let filtered = mockRadios.filter(radio => radio.isActive);
-    
-    if (filterType === 'region' && selectedRegion) {
-      filtered = filtered.filter(radio => radio.region === selectedRegion);
-      if (selectedCity) {
-        filtered = filtered.filter(radio => radio.city === selectedCity);
-      }
-    }
-    
-    return filtered;
-  };
-
-  const handleRadioSelection = (radioId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedRadios([...selectedRadios, radioId]);
-    } else {
-      setSelectedRadios(selectedRadios.filter(id => id !== radioId));
-    }
-  };
-
-  const handleSelectAllRadios = () => {
-    const filteredRadios = getFilteredRadios();
-    setSelectedRadios(filteredRadios.map(radio => radio.id));
-  };
-
-  const handleDeselectAllRadios = () => {
-    setSelectedRadios([]);
-  };
-
-  const startMonitoring = async () => {
-    if (selectedRadios.length === 0) {
-      alert('Por favor selecciona al menos una radio para monitorear');
+  // Función para enviar el formulario al hacer clic en "Iniciar Monitoreo"
+  const handleStartMonitoring = async () => {
+    if (selectedRadioIds.size === 0 || !selectedPhraseId) {
+      toast.warning("Debes seleccionar al menos una radio y una frase.");
       return;
     }
 
-    setLoading(true);
+    setIsSubmitting(true);
     try {
-      const response = await fetch('/api/monitoring/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          radioIds: selectedRadios,
-          filterType,
-          selectedRegion,
-          selectedCity 
+      const response = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          radioIds: Array.from(selectedRadioIds),
+          configuration: {
+            phraseId: selectedPhraseId,
+            aiModel: selectedAiModel,
+            // Se incluyen los días seleccionados
+            scheduleDays: scheduleDays.length > 0 ? scheduleDays : undefined,
+          },
         }),
       });
 
-      if (response.ok) {
-        setShowStartDialog(false);
-        setSelectedRadios([]);
-        setFilterType('all');
-        setSelectedRegion('');
-        setSelectedCity('');
-        loadMonitoringData(); // Recargar datos
-      } else {
-        const error = await response.text();
-        alert(`Error iniciando monitoreo: ${error}`);
-      }
+      if (!response.ok) throw new Error("La respuesta del servidor no fue exitosa.");
+      
+      toast.success("¡Monitoreo iniciado correctamente!");
+      router.push("/dashboard/monitoreo");
     } catch (error) {
-      console.error('Error iniciando monitoreo:', error);
-      alert('Error de conexión al iniciar el monitoreo');
+      toast.error("No se pudo iniciar el monitoreo. Inténtalo de nuevo.");
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
+  if (isLoading) {
+    return <LoadingSkeleton />;
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Monitoreo en Tiempo Real</h1>
-          <p className="text-white mt-1">Captura y análisis automático de publicidad</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <Button 
-            onClick={() => setShowStartDialog(true)} 
-            variant="default" 
-            className="bg-green-600 hover:bg-green-700"
-            disabled={!isSystemReady}
-          >
-            <PlayCircle className="h-4 w-4 mr-2" />
-            Iniciar Análisis
-          </Button>
-          <Button onClick={loadMonitoringData} variant="outline" disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Actualizar
-          </Button>
-        </div>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-white">Configurar Nuevo Análisis</h1>
+        <p className="text-slate-400 mt-1">
+          Selecciona las radios y frases que deseas monitorear para detectar publicidad automáticamente.
+        </p>
       </div>
 
-      {/* Panel de Inicio de Análisis */}
-      {showStartDialog && (
-        <Card className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border-green-700/50">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Settings className="h-5 w-5 text-green-400" />
-              🚀 Configurar Nuevo Análisis
-            </CardTitle>
-            <p className="text-slate-300 text-sm">
-              Selecciona las radios y regiones que deseas monitorear para detectar publicidad automáticamente
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Filtros de Selección */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm font-medium text-white mb-2 block">Tipo de Selección:</label>
-                <Select value={filterType} onValueChange={(value: 'all' | 'region' | 'custom') => {
-                  setFilterType(value);
-                  setSelectedRegion('');
-                  setSelectedCity('');
-                  setSelectedRadios([]);
-                }}>
-                  <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-700 border-slate-600">
-                    <SelectItem value="all" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                      <div className="flex items-center gap-2">
-                        <RadioIcon className="h-4 w-4" />
-                        Todas las Radios Activas
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="region" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4" />
-                        Filtrar por Región/Ciudad
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="custom" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                      <div className="flex items-center gap-2">
-                        <Filter className="h-4 w-4" />
-                        Selección Personalizada
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {filterType === 'region' && (
-                <>
-                  <div>
-                    <label className="text-sm font-medium text-white mb-2 block">Región:</label>
-                    <Select value={selectedRegion} onValueChange={(value) => {
-                      setSelectedRegion(value);
-                      setSelectedCity('');
-                      setSelectedRadios([]);
-                    }}>
-                      <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                        <SelectValue placeholder="Seleccionar región..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-700 border-slate-600">
-                        {getUniqueRegions().map((region) => (
-                          <SelectItem key={region} value={region} className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                            {region}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedRegion && (
-                    <div>
-                      <label className="text-sm font-medium text-white mb-2 block">Ciudad (Opcional):</label>
-                      <Select value={selectedCity} onValueChange={(value) => {
-                        setSelectedCity(value);
-                        setSelectedRadios([]);
-                      }}>
-                        <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                          <SelectValue placeholder="Todas las ciudades..." />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-700 border-slate-600">
-                          <SelectItem value="" className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                            Todas las ciudades
-                          </SelectItem>
-                          {getCitiesByRegion(selectedRegion).map((city) => (
-                            <SelectItem key={city} value={city} className="text-white hover:bg-slate-600 focus:bg-slate-600">
-                              {city}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Lista de Radios */}
+      {/* --- Selección de Radios --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <div className="flex items-center">
+            <Waves className="h-6 w-6 mr-3 text-blue-400" />
             <div>
+<<<<<<< HEAD
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-white font-medium">
                   Radios Disponibles ({getFilteredRadios().length})
@@ -379,105 +187,158 @@ export default function MonitoreoPage() {
                       </label>
                     </div>
                   ))}
+=======
+              <CardTitle className="text-lg text-white">Selecciona las Radios</CardTitle>
+              <CardDescription className="text-slate-400">Radios Disponibles ({radios.length})</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex justify-end gap-2 mb-4">
+            <Button size="sm" onClick={selectAllRadios} className="bg-green-600 hover:bg-green-700">Seleccionar Todas</Button>
+            <Button size="sm" variant="destructive" onClick={deselectAllRadios}>Deseleccionar Todas</Button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {radios.map(radio => (
+              <div
+                key={radio.id}
+                onClick={() => handleRadioToggle(radio.id)}
+                className={`p-4 rounded-lg border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                  selectedRadioIds.has(radio.id)
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : 'border-slate-700 hover:border-slate-500'
+                }`}
+              >
+                <Checkbox checked={selectedRadioIds.has(radio.id)} className="pointer-events-none" />
+                <div>
+                  <p className="font-semibold text-white">{radio.name}</p>
+                  <p className="text-sm text-slate-400">{radio.region || 'Región no especificada'}</p>
+>>>>>>> origin/feature/mzurita
                 </div>
               </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* --- Selección de Frase --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+             <div className="flex items-center">
+            <TextSelect className="h-6 w-6 mr-3 text-purple-400" />
+            <div>
+              <CardTitle className="text-lg text-white">Seleccionar Frase para Monitoreo</CardTitle>
             </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+           <Select value={selectedPhraseId} onValueChange={setSelectedPhraseId}>
+            <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+              <SelectValue placeholder="Selecciona una frase de tu lista..." />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-700 border-slate-600 text-white">
+              {phrases.map(phrase => (
+                <SelectItem key={phrase.id} value={phrase.id} className="focus:bg-slate-600">
+                  <span className="font-semibold">{phrase.marca}:</span> "{phrase.phrase}"
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
-            {/* Resumen y Acciones */}
-            <div className="flex items-center justify-between bg-slate-800/50 p-4 rounded-lg">
-              <div className="text-sm text-slate-300">
-                <strong className="text-white">{selectedRadios.length}</strong> radios seleccionadas
-                {filterType === 'region' && selectedRegion && (
-                  <span> • Región: <strong className="text-white">{selectedRegion}</strong></span>
-                )}
-                {selectedCity && (
-                  <span> • Ciudad: <strong className="text-white">{selectedCity}</strong></span>
-                )}
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowStartDialog(false)}
-                  variant="outline"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={startMonitoring}
-                  disabled={selectedRadios.length === 0 || loading}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <PlayCircle className="h-4 w-4 mr-2" />
-                  {loading ? 'Iniciando...' : 'Iniciar Monitoreo'}
-                </Button>
-              </div>
+      {/* --- Modelo de IA --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+           <div className="flex items-center">
+            <Bot className="h-6 w-6 mr-3 text-emerald-400" />
+            <div>
+              <CardTitle className="text-lg text-white">Modelo de IA</CardTitle>
+               <CardDescription className="text-slate-400">Elige la precisión del análisis.</CardDescription>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Estado del Sistema */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-slate-800/50 border-slate-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Estado del Sistema</p>
-                <p className={`text-2xl font-bold mt-2 ${isSystemReady ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {isSystemReady ? 'Operativo' : 'Parcial'}
-                </p>
-              </div>
-              {isSystemReady ? (
-                <CheckCircle className="h-8 w-8 text-green-400" />
-              ) : (
-                <AlertTriangle className="h-8 w-8 text-yellow-400" />
-              )}
+          </div>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {(Object.keys(AI_MODELS) as AiModelType[]).map(modelKey => (
+            <div
+              key={modelKey}
+              onClick={() => setSelectedAiModel(modelKey)}
+              className={`p-6 rounded-lg border-2 transition-all cursor-pointer ${
+                selectedAiModel === modelKey
+                  ? 'border-blue-500 bg-blue-500/10'
+                  : 'border-slate-700 hover:border-slate-500'
+              }`}
+            >
+              <h3 className="text-xl font-bold text-white">{AI_MODELS[modelKey].name}</h3>
+              <p className="text-slate-400 mt-1">{AI_MODELS[modelKey].description}</p>
+              <p className="text-2xl font-bold text-white mt-4">${AI_MODELS[modelKey].price}<span className="text-sm font-normal text-slate-400">/mes</span></p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-800/50 border-slate-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Radios Monitoreando</p>
-                <p className="text-2xl font-bold text-blue-400 mt-2">
-                  {systemStatus?.activeSessions || 0}
-                </p>
-              </div>
-              <Activity className="h-8 w-8 text-blue-400" />
+          ))}
+        </CardContent>
+      </Card>
+      
+      {/* --- Nueva Sección de Programación --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <div className="flex items-center">
+            <CalendarDays className="h-6 w-6 mr-3 text-cyan-400" />
+            <div>
+              <CardTitle className="text-lg text-white">Programación del Monitoreo (Opcional)</CardTitle>
+              <CardDescription className="text-slate-400">
+                Selecciona días específicos para el monitoreo. Si no seleccionas ninguno, se monitoreará 24/7.
+              </CardDescription>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-800/50 border-slate-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Detecciones Hoy</p>
-                <p className="text-2xl font-bold text-green-400 mt-2">
-                  {overallStats?.detectionsToday || 0}
-                </p>
-              </div>
-              <Target className="h-8 w-8 text-green-400" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ToggleGroup
+            type="multiple"
+            variant="outline"
+            value={scheduleDays}
+            onValueChange={(value) => setScheduleDays(value)}
+            className="grid grid-cols-4 sm:grid-cols-7 gap-2"
+          >
+            <ToggleGroupItem value="monday" aria-label="Lunes" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Lun</ToggleGroupItem>
+            <ToggleGroupItem value="tuesday" aria-label="Martes" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Mar</ToggleGroupItem>
+            <ToggleGroupItem value="wednesday" aria-label="Miércoles" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Mié</ToggleGroupItem>
+            <ToggleGroupItem value="thursday" aria-label="Jueves" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Jue</ToggleGroupItem>
+            <ToggleGroupItem value="friday" aria-label="Viernes" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Vie</ToggleGroupItem>
+            <ToggleGroupItem value="saturday" aria-label="Sábado" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Sáb</ToggleGroupItem>
+            <ToggleGroupItem value="sunday" aria-label="Domingo" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700">Dom</ToggleGroupItem>
+          </ToggleGroup>
+        </CardContent>
+      </Card>
+      
+      {/* --- Calculadora y Acciones --- */}
+      <Card className="bg-slate-800/50 border-slate-700">
+         <CardHeader>
+           <div className="flex items-center">
+            <Calculator className="h-6 w-6 mr-3 text-yellow-400" />
+            <div>
+              <CardTitle className="text-lg text-white">Calculadora de Precio</CardTitle>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-800/50 border-slate-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Total Detecciones</p>
-                <p className="text-2xl font-bold text-purple-400 mt-2">
-                  {overallStats?.totalDetections || 0}
-                </p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-purple-400" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex justify-between text-slate-300">
+              <p>Radios seleccionadas ({selectedRadioIds.size})</p>
+              <p>${radioCost.toFixed(2)}</p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+             <div className="flex justify-between text-slate-300">
+              <p>Modelo de IA ({AI_MODELS[selectedAiModel].name})</p>
+              <p>${aiCost.toFixed(2)}</p>
+            </div>
+            <Separator className="bg-slate-700 my-4" />
+            <div className="flex justify-between items-center text-xl font-bold text-white">
+              <p>Precio mensual estimado</p>
+              <p className="text-2xl text-emerald-400">${totalCost.toFixed(2)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
+<<<<<<< HEAD
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sesiones Activas */}
         <div className="lg:col-span-2 space-y-4">
@@ -657,7 +518,34 @@ export default function MonitoreoPage() {
             </CardContent>
           </Card>
         </div>
+=======
+      <div className="flex justify-end gap-4 pt-4">
+        <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-slate-300 hover:bg-slate-700">Cancelar</Button>
+        <Button onClick={handleStartMonitoring} disabled={isSubmitting} size="lg" className="bg-blue-600 hover:bg-blue-700">
+          {isSubmitting ? 'Iniciando...' : 'Iniciar Monitoreo'}
+        </Button>
+>>>>>>> origin/feature/mzurita
       </div>
     </div>
   );
 }
+
+// Componente de esqueleto de carga para mejorar la UX inicial
+const LoadingSkeleton = () => (
+  <div className="space-y-8">
+    <div>
+      <Skeleton className="h-10 w-3/4" />
+      <Skeleton className="h-4 w-1/2 mt-2" />
+    </div>
+    <Card className="bg-slate-800/50 border-slate-700">
+      <CardHeader><Skeleton className="h-8 w-1/4" /></CardHeader>
+      <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-20" />)}
+      </CardContent>
+    </Card>
+    <Card className="bg-slate-800/50 border-slate-700">
+      <CardHeader><Skeleton className="h-8 w-1/4" /></CardHeader>
+      <CardContent><Skeleton className="h-12 w-full" /></CardContent>
+    </Card>
+  </div>
+);

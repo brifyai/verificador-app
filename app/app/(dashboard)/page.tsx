@@ -74,15 +74,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Simulador de costos */}
-      <div className="p-6 rounded-lg border" style={{
-        backgroundColor: 'rgba(15, 23, 42, 0.6)',
-        borderColor: 'rgba(51, 65, 85, 0.3)'
-      }}>
-        <h2 className="text-xl font-bold text-white mb-4">Simulador de Costos</h2>
-        <CostSimulator />
-      </div>
     </div>
   );
 }

@@ -1,99 +1,337 @@
 
 'use client';
 
-import { useState } from 'react';
-import { Play, MessageCircle, Filter, Download, DollarSign, BarChart3, CheckCircle, Clock } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Play, MessageCircle, Filter, Download, DollarSign, BarChart3, CheckCircle, Clock, X, Volume2, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { mockRadioDetections, getStatusColor, RadioDetection, mockRadios } from '@/lib/mock-data';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
+
+interface Detection {
+  id: string;
+  date: string;
+  time: string;
+  programadora: string;
+  radio: string;
+  region: string;
+  comuna: string;
+  marca: string;
+  campaña: string;
+  status: string;
+  detectedText: string;
+  confidence: number;
+  similarity: number;
+  cost: number;
+  timestamp: string;
+  audioPath?: string;
+  verified: boolean;
+  falsePositive: boolean;
+}
+
+interface DetectionStats {
+  totalDetections: number;
+  totalValue: number;
+  averageConfidence: number;
+  completedDetections: number;
+  pendingDetections: number;
+}
+
+interface DetectionResponse {
+  detections: Detection[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+  stats: DetectionStats;
+  filters: {
+    regions: string[];
+  };
+}
 
 export default function Reportes() {
-  const [detections, setDetections] = useState<RadioDetection[]>(mockRadioDetections);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [regionFilter, setRegionFilter] = useState('all');
-
-  const filteredDetections = detections.filter(detection => {
-    const matchesStatus = statusFilter === 'all' || detection.status === statusFilter;
-    const matchesSearch = searchTerm === '' || 
-      Object.values(detection).some(value => 
-        value.toString().toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    const matchesRegion = regionFilter === 'all' || detection.region === regionFilter;
-    return matchesStatus && matchesSearch && matchesRegion;
+  const toast = useEnhancedToast();
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [stats, setStats] = useState<DetectionStats>({
+    totalDetections: 0,
+    totalValue: 0,
+    averageConfidence: 0,
+    completedDetections: 0,
+    pendingDetections: 0
   });
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
+  
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalDetections, setTotalDetections] = useState(0);
+  
+  // Estados para las acciones
+  const [selectedDetection, setSelectedDetection] = useState<Detection | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const uniqueStatuses = [...new Set(detections.map(d => d.status))];
-  const uniqueRegions = [...new Set(detections.map(d => d.region))];
-
-  // Calcular KPIs
-  const calculateDetectionValue = (detection: RadioDetection) => {
-    const radio = mockRadios.find(r => r.name === detection.radio);
-    return radio?.pricePerDetection || 0;
+  // Función para cargar datos
+  const loadDetections = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: '50'
+      });
+      
+      // Agregar filtros solo si tienen valores
+      if (searchTerm) params.append('search', searchTerm);
+      if (regionFilter && regionFilter !== 'all') params.append('region', regionFilter);
+      if (statusFilter && statusFilter !== 'all') {
+        if (statusFilter === 'Verificado') params.append('verified', 'true');
+        else if (statusFilter === 'Falso Positivo') params.append('falsePositive', 'true');
+        else if (statusFilter === 'Pendiente') {
+          params.append('verified', 'false');
+          params.append('falsePositive', 'false');
+        }
+      }
+      if (dateRange.start) params.append('dateFrom', dateRange.start);
+      if (dateRange.end) params.append('dateTo', dateRange.end);
+      
+      const response = await fetch(`/api/detecciones?${params}`);
+      
+      if (!response.ok) {
+        throw new Error('Error al cargar las detecciones');
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Error al cargar detecciones');
+      }
+      
+      // Adaptar los datos al formato esperado por el componente
+      setDetections(data.data);
+      
+      // Calcular estadísticas desde los datos
+      const totalDetections = data.pagination.total;
+      const completedDetections = data.data.filter((d: Detection) => d.verified).length;
+      const pendingDetections = data.data.filter((d: Detection) => !d.verified && !d.falsePositive).length;
+      const totalValue = data.data.reduce((sum: number, d: Detection) => sum + (d.cost || 0), 0);
+      const averageConfidence = data.data.length > 0 
+        ? data.data.reduce((sum: number, d: Detection) => sum + d.confidence, 0) / data.data.length 
+        : 0;
+      
+      setStats({
+        totalDetections,
+        completedDetections,
+        pendingDetections,
+        totalValue,
+        averageConfidence
+      });
+      
+      // Extraer regiones únicas de los datos
+      const regions = [...new Set(data.data.map((d: Detection) => d.region).filter(Boolean))];
+      setAvailableRegions(regions);
+      
+      setTotalPages(data.pagination.pages);
+      setTotalDetections(data.pagination.total);
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido');
+      console.error('Error loading detections:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const totalValue = filteredDetections.reduce((sum, detection) => {
-    return sum + calculateDetectionValue(detection);
-  }, 0);
+  // Cargar datos al montar el componente y cuando cambien los filtros
+  useEffect(() => {
+    loadDetections();
+  }, [currentPage, searchTerm, statusFilter, regionFilter, dateRange]);
 
-  const completedDetections = filteredDetections.filter(d => 
-    d.status === 'Finalizada' || d.status === 'Solucionado'
-  ).length;
+  const filteredDetections = detections;
+  const uniqueStatuses = ['Verificado', 'Pendiente', 'Falso Positivo'];
+  const uniqueRegions = availableRegions;
 
-  const pendingDetections = filteredDetections.filter(d => 
-    d.status === 'Pendiente'
-  ).length;
+  // Calcular KPIs
+  const calculateDetectionValue = (detection: Detection) => {
+    return detection.cost || 0;
+  };
+
+  const totalValue = stats.totalValue;
+  const completedDetections = stats.completedDetections;
+  const pendingDetections = stats.pendingDetections;
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Verificado':
+        return 'bg-green-600';
+      case 'Pendiente':
+        return 'bg-yellow-600';
+      case 'Falso Positivo':
+        return 'bg-red-600';
+      default:
+        return 'bg-gray-600';
+    }
+  };
+
+  if (loading && detections.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-white text-lg">Cargando reportes...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-red-400 text-lg">Error: {error}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Función para exportar datos
-  const handleExport = () => {
-    try {
-      // Verificar que estemos en el cliente
-      if (typeof window === 'undefined') return;
-      
-      const csvContent = [
-        ['Fecha', 'Hora', 'Programadora', 'Radio', 'Región', 'Comuna', 'Marca', 'Campaña', 'Estado', 'Valor (CLP)'],
-        ...filteredDetections.map(detection => [
-          detection.date,
-          detection.time,
-          detection.programadora,
-          detection.radio,
-          detection.region,
-          detection.comuna,
-          detection.marca,
-          detection.campaña,
-          detection.status,
-          `$${calculateDetectionValue(detection).toLocaleString()}`
-        ])
-      ].map(row => row.join(',')).join('\n');
+  const exportToCSV = () => {
+    const headers = [
+      'Fecha',
+      'Hora', 
+      'Programadora',
+      'Radio',
+      'Región',
+      'Comuna',
+      'Marca',
+      'Campaña',
+      'Estado',
+      'Texto Detectado',
+      'Confianza',
+      'Valor (CLP)'
+    ];
+    
+    const csvData = detections.map(detection => [
+      detection.date,
+      detection.time,
+      detection.programadora,
+      detection.radio,
+      detection.region,
+      detection.comuna,
+      detection.marca,
+      detection.campaña,
+      detection.status,
+      `"${detection.detectedText}"`,
+      (detection.confidence * 100).toFixed(1) + '%',
+      detection.cost.toLocaleString()
+    ]);
+    
+    const csvContent = [headers, ...csvData]
+      .map(row => row.join(','))
+      .join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `reportes_detecciones_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
+  // Función para reproducir audio
+  const handlePlayAudio = (detectionId: string) => {
+    if (currentlyPlaying === detectionId) {
+      // Si ya está reproduciendo, pausar
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setCurrentlyPlaying(null);
+        toast.info('Audio pausado');
+      }
+    } else {
+      // Pausar cualquier audio anterior
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
       
-      link.setAttribute('href', url);
-      const today = new Date();
-      const dateString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      link.setAttribute('download', `reportes_detecciones_${dateString}.csv`);
-      link.style.visibility = 'hidden';
+      // Buscar la detección específica para obtener su audioPath
+      const detection = detections.find(d => d.id === detectionId);
       
-      document.body.appendChild(link);
-      link.click();
+      if (!detection?.audioPath) {
+        toast.audioError('No hay archivo de audio disponible para esta detección.');
+        return;
+      }
       
-      // Cleanup
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // Construir la URL del archivo de audio para Next.js static files
+      // Los archivos en public/ se sirven desde la raíz
+      let audioUrl = detection.audioPath;
       
-      console.log('Exportación completada exitosamente');
-    } catch (error) {
-      console.error('Error al exportar:', error);
-      alert('Error al exportar el archivo. Intenta nuevamente.');
+      // Si la ruta no empieza con /, agregarla
+      if (!audioUrl.startsWith('/')) {
+        audioUrl = `/${audioUrl}`;
+      }
+      
+      // Si la ruta apunta a captures/ pero no está en public/, corregirla
+      if (audioUrl.startsWith('/captures/')) {
+        // Ya está correcta para archivos estáticos de Next.js
+      } else if (audioUrl.includes('captures/')) {
+        // Extraer solo la parte de captures/ hacia adelante
+        const capturesIndex = audioUrl.indexOf('captures/');
+        audioUrl = `/${audioUrl.substring(capturesIndex)}`;
+      }
+      
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      
+      audio.onplay = () => {
+        setCurrentlyPlaying(detectionId);
+        toast.success('Reproduciendo audio de detección');
+      };
+      
+      audio.onended = () => {
+        setCurrentlyPlaying(null);
+        toast.info('Reproducción finalizada');
+      };
+      
+      audio.onerror = (error) => {
+        setCurrentlyPlaying(null);
+        console.error('Error playing audio:', error);
+        toast.audioError(`No se pudo reproducir el archivo de audio: ${audioUrl}. Verifique que el archivo existe.`);
+      };
+      
+      audio.play().catch((error) => {
+        setCurrentlyPlaying(null);
+        console.error('Error playing audio:', error);
+        toast.audioError('Error al iniciar la reproducción. Verifique los permisos del navegador.');
+      });
     }
+  };
+
+  // Función para mostrar detalles
+  const handleShowDetails = (detection: Detection) => {
+    setSelectedDetection(detection);
+    setIsDetailsModalOpen(true);
   };
 
   return (
@@ -106,7 +344,7 @@ export default function Reportes() {
             Gestión y seguimiento de detecciones publicitarias
           </p>
         </div>
-        <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleExport}>
+        <Button className="bg-blue-600 hover:bg-blue-700" onClick={exportToCSV} disabled={loading}>
           <Download className="w-4 h-4 mr-2" />
           Exportar
         </Button>
@@ -120,7 +358,7 @@ export default function Reportes() {
             <BarChart3 className="h-4 w-4 text-blue-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-white">{filteredDetections.length}</div>
+            <div className="text-2xl font-bold text-white">{stats.totalDetections}</div>
             <p className="text-xs text-slate-400">detecciones filtradas</p>
           </CardContent>
         </Card>
@@ -131,7 +369,7 @@ export default function Reportes() {
             <DollarSign className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-400">${totalValue.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-green-400">${stats.totalValue.toLocaleString()}</div>
             <p className="text-xs text-slate-400">CLP en detecciones</p>
           </CardContent>
         </Card>
@@ -142,7 +380,7 @@ export default function Reportes() {
             <CheckCircle className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-white">{completedDetections}</div>
+            <div className="text-2xl font-bold text-white">{stats.completedDetections}</div>
             <p className="text-xs text-slate-400">finalizadas/solucionadas</p>
           </CardContent>
         </Card>
@@ -153,7 +391,7 @@ export default function Reportes() {
             <Clock className="h-4 w-4 text-yellow-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-400">{pendingDetections}</div>
+            <div className="text-2xl font-bold text-yellow-400">{stats.pendingDetections}</div>
             <p className="text-xs text-slate-400">por procesar</p>
           </CardContent>
         </Card>
@@ -320,14 +558,30 @@ export default function Reportes() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-green-400 font-medium">
-                    ${calculateDetectionValue(detection).toLocaleString()} CLP
+                    ${detection.cost.toLocaleString()} CLP
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center space-x-2">
-                      <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300">
-                        <Play className="w-4 h-4" />
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className={`${detection.audioPath ? 'text-blue-400 hover:text-blue-300' : 'text-gray-500 cursor-not-allowed'}`}
+                        onClick={() => detection.audioPath && handlePlayAudio(detection.id)}
+                        disabled={!detection.audioPath}
+                        title={detection.audioPath ? 'Reproducir audio' : 'Audio no disponible'}
+                      >
+                        {currentlyPlaying === detection.id ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
                       </Button>
-                      <Button size="sm" variant="ghost" className="text-slate-400 hover:text-slate-300">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="text-slate-400 hover:text-slate-300"
+                        onClick={() => handleShowDetails(detection)}
+                      >
                         <MessageCircle className="w-4 h-4" />
                       </Button>
                     </div>
@@ -345,10 +599,134 @@ export default function Reportes() {
         )}
       </div>
 
-      {/* Summary */}
-      <div className="text-sm text-slate-400">
-        Mostrando {filteredDetections.length} de {detections.length} detecciones
+      {/* Summary and Pagination */}
+      <div className="flex justify-between items-center text-sm text-slate-400">
+        <div>
+          Mostrando {detections.length} de {totalDetections} detecciones
+        </div>
+        
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1 || loading}
+              className="bg-slate-800 border-slate-600 text-white hover:bg-slate-700"
+            >
+              Anterior
+            </Button>
+            
+            <span className="text-white">
+              Página {currentPage} de {totalPages}
+            </span>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || loading}
+              className="bg-slate-800 border-slate-600 text-white hover:bg-slate-700"
+            >
+              Siguiente
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* Modal de detalles */}
+      <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
+        <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-white">Detalles de la Detección</DialogTitle>
+          </DialogHeader>
+          {selectedDetection && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-slate-300">Fecha y Hora</Label>
+                  <p className="text-white">{selectedDetection.date} {selectedDetection.time}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Estado</Label>
+                  <p className={`inline-flex px-2 py-1 text-xs font-medium rounded-full text-white ${getStatusColor(selectedDetection.status)}`}>
+                    {selectedDetection.status}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Programadora</Label>
+                  <p className="text-white">{selectedDetection.programadora}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Radio</Label>
+                  <p className="text-white">{selectedDetection.radio}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Región</Label>
+                  <p className="text-white">{selectedDetection.region}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Comuna</Label>
+                  <p className="text-white">{selectedDetection.comuna}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Marca</Label>
+                  <p className="text-white font-medium">{selectedDetection.marca}</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Campaña</Label>
+                  <p className="text-white">{selectedDetection.campaña}</p>
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300">Texto Detectado</Label>
+                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.detectedText}</p>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300">Texto Original</Label>
+                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.originalText}</p>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-slate-300">Confianza</Label>
+                  <p className="text-white">{(selectedDetection.confidence * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Similitud</Label>
+                  <p className="text-white">{(selectedDetection.similarity * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Valor</Label>
+                  <p className="text-green-400 font-medium">${selectedDetection.cost.toLocaleString()} CLP</p>
+                </div>
+              </div>
+              
+              <div className="flex justify-between items-center pt-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => selectedDetection.audioPath && handlePlayAudio(selectedDetection.id)}
+                  disabled={!selectedDetection.audioPath}
+                  className={`${selectedDetection.audioPath ? 'bg-slate-800 border-slate-600 text-white hover:bg-slate-700' : 'bg-gray-600 border-gray-500 text-gray-400 cursor-not-allowed'}`}
+                  title={selectedDetection.audioPath ? 'Reproducir audio' : 'Audio no disponible'}
+                >
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  {selectedDetection.audioPath 
+                    ? (currentlyPlaying === selectedDetection.id ? 'Pausar Audio' : 'Reproducir Audio')
+                    : 'Audio no disponible'
+                  }
+                </Button>
+                <Button onClick={() => setIsDetailsModalOpen(false)}>
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

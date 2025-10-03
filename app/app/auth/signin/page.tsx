@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Lock, Shield } from 'lucide-react';
 import Link from 'next/link';
 
 // Schema de validación
@@ -173,8 +173,8 @@ export default function SignInPage() {
       {/* Logo/Brand section */}
       <div className="absolute top-8 left-8">
         <div className="flex items-center">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
-            <Eye className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mr-3 shadow-lg">
+            <Shield className="w-5 h-5 text-white" />
           </div>
           <span className="text-xl font-bold text-white">OndaVerificada</span>
         </div>
@@ -194,20 +194,26 @@ export default function SignInPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-slate-300">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="tu@email.com"
-                value={formData.email}
-                onChange={handleInputChange}
-                onBlur={(e) => validateField('email', e.target.value)}
-                className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 ${errors.email ? 'border-red-500' : ''}`}
-                disabled={isLoading}
-                autoComplete="email"
-                required
-              />
+              <Label htmlFor="email" className="text-slate-300 flex items-center gap-2">
+                <Mail className="w-4 h-4" />
+                Email
+              </Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="tu@email.com"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  onBlur={(e) => validateField('email', e.target.value)}
+                  className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 pl-10 ${errors.email ? 'border-red-500' : ''}`}
+                  disabled={isLoading}
+                  autoComplete="email"
+                  required
+                />
+              </div>
               {errors.email && (
                 <p className="text-sm text-red-400">{errors.email}</p>
               )}
@@ -215,8 +221,12 @@ export default function SignInPage() {
 
             {/* Password */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-slate-300">Contraseña</Label>
+              <Label htmlFor="password" className="text-slate-300 flex items-center gap-2">
+                <Lock className="w-4 h-4" />
+                Contraseña
+              </Label>
               <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   id="password"
                   name="password"
@@ -225,7 +235,7 @@ export default function SignInPage() {
                   value={formData.password}
                   onChange={handleInputChange}
                   onBlur={(e) => validateField('password', e.target.value)}
-                  className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 pr-10 ${errors.password ? 'border-red-500' : ''}`}
+                  className={`bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500 pl-10 pr-10 ${errors.password ? 'border-red-500' : ''}`}
                   disabled={isLoading}
                   autoComplete="current-password"
                   required
@@ -268,15 +278,15 @@ export default function SignInPage() {
             </Button>
           </form>
 
-          {/* Link to register */}
+          {/* Link to forgot password */}
           <div className="mt-6 text-center">
             <p className="text-sm text-slate-400">
-              ¿No tienes una cuenta?{' '}
+              ¿Olvidaste tu contraseña?{' '}
               <Link 
-                href="/auth/signup" 
+                href="/auth/forgot-password" 
                 className="font-medium text-blue-400 hover:text-blue-300 transition-colors"
               >
-                Regístrate aquí
+                Recuperar contraseña
               </Link>
             </p>
           </div>

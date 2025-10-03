@@ -24,8 +24,10 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relaciones
-  sessions  MonitoringSession[]
-  reports   Report[]
+  sessions       MonitoringSession[]
+  reports        Report[]
+  billingProfile BillingProfile?
+  paymentMethods PaymentMethod[]
 
   @@map("users")
 }
@@ -55,6 +57,7 @@ model Radio {
   sessions    MonitoringSession[]
   detections  Detection[]
   pricingRules RadioPricingRule[]
+  invoiceLineItems InvoiceLineItem[]
 
   @@map("radios")
 }
@@ -141,6 +144,7 @@ model MonitoringSession {
   user        User       @relation(fields: [userId], references: [id])
   captures    Capture[]
   detections  Detection[]
+  invoiceLineItems InvoiceLineItem[]
 
   @@map("monitoring_sessions")
 }
@@ -176,6 +180,7 @@ model Capture {
   // Relaciones
   session    MonitoringSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   detections Detection[]
+  invoiceLineItems InvoiceLineItem[]
 
   @@map("captures")
 }
@@ -211,6 +216,7 @@ model Detection {
   capture Capture           @relation(fields: [captureId], references: [id])
   radio   Radio             @relation(fields: [radioId], references: [id])
   phrase  Phrase            @relation(fields: [phraseId], references: [id])
+  invoiceLineItems InvoiceLineItem[]
 
   @@map("detections")
 }
@@ -381,4 +387,140 @@ enum LogLevel {
   WARNING
   ERROR
   CRITICAL
+}
+
+// === SISTEMA DE FACTURACIÓN ===
+
+// Perfil de facturación por usuario
+model BillingProfile {
+  id           String    @id @default(cuid())
+  userId       String    @unique // Vincula este perfil a un único usuario (el dueño)
+  
+  // --- Datos de la Empresa (de la pestaña "Perfil") ---
+  companyName  String?   // "Empresa" en tu UI
+
+  // --- Datos de Facturación (de la pestaña "Facturación") ---
+  legalName    String?   // Razón Social
+  taxId        String?   // RUT
+  billingEmail String?   // Email de Facturación
+  address      String?   // Dirección
+  city         String?
+  region       String?
+  postalCode   String?
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relaciones
+  user         User          @relation(fields: [userId], references: [id])
+  invoices     Invoice[]
+  subscription Subscription?
+
+  @@map("billing_profiles")
+}
+
+// Historial de Pagos y Facturas
+model Invoice {
+  id                String        @id @default(cuid())
+  billingProfileId  String
+  invoiceNumber     String        @unique
+  issueDate         DateTime      @default(now())
+  dueDate           DateTime
+  status            InvoiceStatus @default(PENDING)
+  subtotal          Decimal       @db.Decimal(10, 2)
+  tax               Decimal       @db.Decimal(10, 2)
+  total             Decimal       @db.Decimal(10, 2)
+  currency          String        @default("CLP")
+  paymentDate       DateTime?
+  paymentMethod     String?
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relaciones
+  billingProfile    BillingProfile @relation(fields: [billingProfileId], references: [id], onDelete: Cascade)
+  lineItems         InvoiceLineItem[]
+
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  total       Decimal @db.Decimal(10, 2)
+  radioId     String?
+  sessionId   String?
+  captureId   String?
+  detectionId String?
+  createdAt   DateTime @default(now())
+
+  // Relaciones
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  radio       Radio?  @relation(fields: [radioId], references: [id])
+  session     MonitoringSession? @relation(fields: [sessionId], references: [id])
+  capture     Capture? @relation(fields: [captureId], references: [id])
+  detection   Detection? @relation(fields: [detectionId], references: [id])
+
+  @@map("invoice_line_items")
+}
+
+enum InvoiceStatus {
+  PAID
+  FAILED
+  PENDING
+  VOID
+}
+
+// Gestión de la Suscripción del Cliente
+model Subscription {
+  id                 String             @id @default(cuid())
+  billingProfileId   String             @unique
+  planId             String             // ej: "plan_pro_mensual"
+  status             SubscriptionStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime           // Fecha de próxima facturación
+  canceledAt         DateTime?
+  
+  billingProfile BillingProfile @relation(fields: [billingProfileId], references: [id])
+
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  TRIALING
+  PAST_DUE
+}
+
+model PaymentMethod {
+  id          String            @id @default(cuid())
+  userId      String
+  type        PaymentMethodType
+  name        String
+  lastDigits  String?
+  expiryDate  String?
+  isDefault   Boolean           @default(false)
+  status      PaymentMethodStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payment_methods")
+}
+
+enum PaymentMethodType {
+  CREDIT_CARD
+  BANK_TRANSFER
+  MERCADO_PAGO
+}
+
+enum PaymentMethodStatus {
+  ACTIVE
+  EXPIRED
+  PENDING
 }

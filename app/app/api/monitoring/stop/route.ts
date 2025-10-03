@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { monitoringService } from '@/lib/monitoring-service';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
