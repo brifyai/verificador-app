@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Radio as RadioIcon, Plus, Upload, FileSpreadsheet, Loader, CheckCircle, AlertTriangle, Edit } from 'lucide-react';
+import { Radio as RadioIcon, Plus, Upload, FileSpreadsheet, Loader, CheckCircle, AlertTriangle, Edit, RefreshCw } from 'lucide-react';
 import { useConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 import { Radio } from '@/lib/mock-data';
@@ -43,6 +43,10 @@ export default function RadiosPage() {
   const [dragActive, setDragActive] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Estados de verificación
+  const [verifyingRadioId, setVerifyingRadioId] = useState<string | null>(null);
+  const [bulkVerifying, setBulkVerifying] = useState(false);
 
   // Cargar radios al montar
   useEffect(() => {
@@ -74,6 +78,13 @@ export default function RadiosPage() {
     const uniqueRegions = Array.from(new Set(radios.map(radio => radio.region)));
     return uniqueRegions.sort();
   }, [radios]);
+
+  // Auto-seleccionar la primera región cuando se cargan las radios
+  useEffect(() => {
+    if (radios.length > 0 && regions.length > 0 && selectedRegion === '') {
+      setSelectedRegion(regions[0]);
+    }
+  }, [radios, regions]);
   
   const genres = useMemo(() => {
     const uniqueGenres = Array.from(new Set(radios.flatMap(radio => radio.genre ? [radio.genre] : [])));
@@ -458,6 +469,87 @@ export default function RadiosPage() {
     setImportDialogOpen(false);
   };
 
+  // Handler para verificar una radio individual
+  const handleVerifyRadio = async (radioId: string) => {
+    try {
+      setVerifyingRadioId(radioId);
+      
+      const response = await fetch(`/api/radios/${radioId}/verify`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al verificar la radio');
+      }
+
+      const result = await response.json();
+      
+      // Actualizar la radio en el estado con los nuevos datos de verificación
+      setRadios(prev => prev.map(radio => {
+        if (radio.id === radioId) {
+          return {
+            ...radio,
+            lastVerificationStatus: result.data.status,
+            lastVerifiedAt: result.data.verifiedAt,
+          };
+        }
+        return radio;
+      }));
+
+      toast.success(
+        `Stream verificado: ${result.data.status === 'ONLINE' ? '✅ Online' : '❌ Offline'}`
+      );
+    } catch (error) {
+      console.error('Error verificando radio:', error);
+      toast.error('Error al verificar el stream');
+    } finally {
+      setVerifyingRadioId(null);
+    }
+  };
+
+  // Handler para verificación masiva
+  const handleBulkVerify = async () => {
+    try {
+      setBulkVerifying(true);
+      toast.info('Iniciando verificación masiva...');
+      
+      const response = await fetch('/api/radios/verify-bulk', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al verificar las radios');
+      }
+
+      const result = await response.json();
+      
+      // Actualizar todas las radios con los resultados
+      setRadios(prev => prev.map(radio => {
+        const verificationResult = result.data.results.find(
+          (r: any) => r.radioId === radio.id
+        );
+        
+        if (verificationResult) {
+          return {
+            ...radio,
+            lastVerificationStatus: verificationResult.status,
+            lastVerifiedAt: new Date().toISOString(),
+          };
+        }
+        return radio;
+      }));
+
+      toast.success(
+        `✅ Verificación completada: ${result.data.online} online, ${result.data.offline} offline`
+      );
+    } catch (error) {
+      console.error('Error en verificación masiva:', error);
+      toast.error('Error al verificar las radios');
+    } finally {
+      setBulkVerifying(false);
+    }
+  };
+
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
       {/* Header */}
@@ -469,6 +561,25 @@ export default function RadiosPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Botón Verificar Todas */}
+          <Button 
+            onClick={handleBulkVerify}
+            disabled={bulkVerifying || radios.length === 0}
+            className="bg-purple-600 hover:bg-purple-700"
+          >
+            {bulkVerifying ? (
+              <>
+                <Loader className="h-4 w-4 mr-2 animate-spin" />
+                Verificando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Verificar Todas
+              </>
+            )}
+          </Button>
+          
           {/* Botón Importar */}
           <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
             <DialogTrigger asChild>
@@ -716,16 +827,29 @@ export default function RadiosPage() {
               ))}
             </div>
           </div>
-        ) : selectedRegion === '' ? (
+        ) : radios.length === 0 ? (
           <div className="text-center py-12">
             <RadioIcon className="mx-auto h-16 w-16 mb-4" style={{ color: '#6b7280' }} />
-            <h3 className="text-xl font-semibold text-white mb-2">Selecciona una región</h3>
-            <p style={{ color: '#9ca3af' }}>
-              Para ver las radios disponibles, por favor selecciona una región del filtro de arriba.
+            <h3 className="text-xl font-semibold text-white mb-2">No hay radios registradas</h3>
+            <p style={{ color: '#9ca3af' }} className="mb-4">
+              Comienza agregando radios al sistema usando el botón "Agregar Radio" o importa un archivo masivo.
             </p>
-            <p style={{ color: '#9ca3af' }} className="text-sm mt-2">
-              Esto permite cargar hasta 500 radios de manera más eficiente.
-            </p>
+            <div className="flex gap-3 justify-center">
+              <Button 
+                onClick={() => setIsAddDialogOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Agregar Radio
+              </Button>
+              <Button 
+                onClick={() => setImportDialogOpen(true)}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Importar Radios
+              </Button>
+            </div>
           </div>
         ) : (
           Object.entries(groupedRadios).map(([region, regionRadios]) => (
@@ -755,6 +879,8 @@ export default function RadiosPage() {
                     onPlay={() => handlePlay(radio)}
                     onEdit={() => setEditingRadio(radio)}
                     onDelete={() => handleDelete(radio.id)}
+                    onVerify={handleVerifyRadio}
+                    isVerifying={verifyingRadioId === radio.id}
                     getPlatformIcon={getPlatformIcon}
                     getPlatformName={getPlatformName}
                   />
