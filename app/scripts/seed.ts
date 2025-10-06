@@ -7,13 +7,15 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Starting database seed...');
 
-  // Limpiar datos existentes si es necesario (opcional)
-  // await prisma.detection.deleteMany();
-  // await prisma.capture.deleteMany();
-  // await prisma.monitoringSession.deleteMany();
-  // await prisma.phrase.deleteMany();
-  // await prisma.radio.deleteMany();
-  // await prisma.user.deleteMany();
+  // Limpiar datos relacionados para evitar conflictos en upserts
+  console.log('🧹 Cleaning related data...');
+  await prisma.invoiceLineItem.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.subscription.deleteMany();
+  await prisma.phraseVariant.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.radioPricingRule.deleteMany();
+  console.log('✅ Related data cleaned');
 
   // 1. Crear usuarios de ejemplo
   const hashedPassword = await bcrypt.hash('admin123', 10);
@@ -396,94 +398,109 @@ async function main() {
   console.log('✅ Notifications created');
 
   // 8. Crear perfiles de facturación de ejemplo
-  const billingProfiles = await Promise.all([
-    prisma.billingProfile.create({
-      data: {
-        userId: adminUser.id,
-        companyName: 'Empresa Demo S.A.',
-        legalName: 'Empresa Demo Sociedad Anónima',
-        taxId: '12.345.678-9',
-        billingEmail: 'facturacion@empresademo.cl',
-        address: 'Av. Providencia 1234, Santiago',
-        city: 'Santiago',
-        region: 'Región Metropolitana',
-        postalCode: '7500000'
-      }
-    }),
-    prisma.billingProfile.create({
-      data: {
-        userId: regularUser.id,
-        companyName: 'Monitor Pro Ltda.',
-        legalName: 'Monitor Pro Limitada',
-        taxId: '98.765.432-1',
-        billingEmail: 'admin@monitorpro.cl',
-        address: 'Las Condes 5678, Santiago',
-        city: 'Santiago',
-        region: 'Región Metropolitana',
-        postalCode: '7550000'
-      }
-    })
-  ]);
+  const billingProfile1 = await prisma.billingProfile.upsert({
+    where: { userId: adminUser.id },
+    update: {},
+    create: {
+      userId: adminUser.id,
+      companyName: 'Empresa Demo S.A.',
+      legalName: 'Empresa Demo Sociedad Anónima',
+      taxId: '12.345.678-9',
+      billingEmail: 'facturacion@empresademo.cl',
+      address: 'Av. Providencia 1234, Santiago',
+      city: 'Santiago',
+      region: 'Región Metropolitana',
+      postalCode: '7500000'
+    }
+  });
+
+  const billingProfile2 = await prisma.billingProfile.upsert({
+    where: { userId: regularUser.id },
+    update: {},
+    create: {
+      userId: regularUser.id,
+      companyName: 'Monitor Pro Ltda.',
+      legalName: 'Monitor Pro Limitada',
+      taxId: '98.765.432-1',
+      billingEmail: 'admin@monitorpro.cl',
+      address: 'Las Condes 5678, Santiago',
+      city: 'Santiago',
+      region: 'Región Metropolitana',
+      postalCode: '7550000'
+    }
+  });
+
+  const billingProfiles = [billingProfile1, billingProfile2];
 
   console.log('✅ Billing profiles created');
 
   // 9. Crear suscripciones de ejemplo
-  const subscriptions = await Promise.all([
-    prisma.subscription.create({
-      data: {
-        billingProfileId: billingProfiles[0].id,
-        planId: "plan_pro_mensual",
-        status: "ACTIVE",
-        currentPeriodStart: new Date("2024-01-01T00:00:00.000Z"),
-        currentPeriodEnd: new Date("2024-10-01T00:00:00.000Z")
-      }
-    }),
-    prisma.subscription.create({
-      data: {
-        billingProfileId: billingProfiles[1].id,
-        planId: "plan_enterprise_mensual",
-        status: "ACTIVE",
-        currentPeriodStart: new Date("2024-02-01T00:00:00.000Z"),
-        currentPeriodEnd: new Date("2024-11-01T00:00:00.000Z")
-      }
-    })
-  ]);
+  const subscription1 = await prisma.subscription.upsert({
+    where: { billingProfileId: billingProfiles[0].id },
+    update: {},
+    create: {
+      billingProfileId: billingProfiles[0].id,
+      planId: "plan_pro_mensual",
+      status: "ACTIVE",
+      currentPeriodStart: new Date("2024-01-01T00:00:00.000Z"),
+      currentPeriodEnd: new Date("2024-10-01T00:00:00.000Z")
+    }
+  });
+
+  const subscription2 = await prisma.subscription.upsert({
+    where: { billingProfileId: billingProfiles[1].id },
+    update: {},
+    create: {
+      billingProfileId: billingProfiles[1].id,
+      planId: "plan_enterprise_mensual",
+      status: "ACTIVE",
+      currentPeriodStart: new Date("2024-02-01T00:00:00.000Z"),
+      currentPeriodEnd: new Date("2024-11-01T00:00:00.000Z")
+    }
+  });
+
+  const subscriptions = [subscription1, subscription2];
 
   console.log('✅ Subscriptions created');
 
   // 10. Crear facturas de ejemplo
-  const invoices = await Promise.all([
-    prisma.invoice.create({
-      data: {
-        billingProfileId: billingProfiles[0].id,
-        invoiceNumber: 'INV-2024-001',
-        issueDate: new Date('2024-09-01'),
-        dueDate: new Date('2024-09-30'),
-        status: 'PAID',
-        subtotal: 76262,
-        tax: 14498,
-        total: 89990,
-        currency: 'CLP',
-        paymentDate: new Date('2024-09-05'),
-        paymentMethod: 'Visa **** 4532',
-        notes: 'Pago procesado automáticamente'
-      }
-    }),
-    prisma.invoice.create({
-      data: {
-        billingProfileId: billingProfiles[1].id,
-        invoiceNumber: 'INV-2024-002',
-        issueDate: new Date('2024-09-15'),
-        dueDate: new Date('2024-10-15'),
-        status: 'PENDING',
-        subtotal: 25412,
-        tax: 4831,
-        total: 29990,
-        currency: 'CLP',
-        notes: 'Pendiente de pago por transferencia bancaria'
-      }
-    })
-  ]);
+  const invoice1 = await prisma.invoice.upsert({
+    where: { invoiceNumber: 'INV-2024-001' },
+    update: {},
+    create: {
+      billingProfileId: billingProfiles[0].id,
+      invoiceNumber: 'INV-2024-001',
+      issueDate: new Date('2024-09-01'),
+      dueDate: new Date('2024-09-30'),
+      status: 'PAID',
+      subtotal: 76262,
+      tax: 14498,
+      total: 89990,
+      currency: 'CLP',
+      paymentDate: new Date('2024-09-05'),
+      paymentMethod: 'Visa **** 4532',
+      notes: 'Pago procesado automáticamente'
+    }
+  });
+
+  const invoice2 = await prisma.invoice.upsert({
+    where: { invoiceNumber: 'INV-2024-002' },
+    update: {},
+    create: {
+      billingProfileId: billingProfiles[1].id,
+      invoiceNumber: 'INV-2024-002',
+      issueDate: new Date('2024-09-15'),
+      dueDate: new Date('2024-10-15'),
+      status: 'PENDING',
+      subtotal: 25412,
+      tax: 4831,
+      total: 29990,
+      currency: 'CLP',
+      notes: 'Pendiente de pago por transferencia bancaria'
+    }
+  });
+
+  const invoices = [invoice1, invoice2];
 
   console.log('✅ Invoices created');
 

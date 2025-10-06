@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { Platform, RadioStatus } from '@prisma/client';
 import { RadioCreateSchema } from '@/lib/schemas/radio.schema';
 import { z } from 'zod';
+import { verifyStreamStatus } from '@/lib/stream-verifier';
 
 // Función de utilidad (sin cambios)
 const mapPlatformToEnum = (platform: string): Platform => {
@@ -80,6 +81,8 @@ export async function GET(request: NextRequest) {
         isActive: radio.status === RadioStatus.ACTIVE,
         genre: radio.description || 'Música',
         lastMonitored: metadata.lastMonitored || 'Nunca',
+        lastVerificationStatus: (radio as any).lastVerificationStatus || null,
+        lastVerifiedAt: (radio as any).lastVerifiedAt || null,
       };
     });
 
@@ -119,6 +122,10 @@ export async function POST(request: NextRequest) {
     
     const validated = validationResult.data;
 
+    // Verificar el stream antes de crear la radio
+    const verification = await verifyStreamStatus(validated.streamUrl);
+    logger.info(`Stream verification for ${validated.name}: ${verification.status} - ${verification.details}`);
+
     const newRadio = await prisma.radio.create({
       data: {
         name: validated.name,
@@ -127,6 +134,8 @@ export async function POST(request: NextRequest) {
         region: validated.region,
         status: validated.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
         description: validated.genre || 'Música',
+        lastVerificationStatus: verification.status,
+        lastVerifiedAt: new Date(),
         metadata: {
           programadora: validated.programadora || validated.name,
           frequency: validated.frequency || '',
@@ -152,6 +161,8 @@ export async function POST(request: NextRequest) {
       isActive: newRadio.status === RadioStatus.ACTIVE,
       genre: newRadio.description || 'Música',
       lastMonitored: metadata.lastMonitored || 'Nunca',
+      lastVerificationStatus: newRadio.lastVerificationStatus,
+      lastVerifiedAt: newRadio.lastVerifiedAt,
     };
 
     return NextResponse.json({ success: true, data: transformedRadio }, { status: 201 });

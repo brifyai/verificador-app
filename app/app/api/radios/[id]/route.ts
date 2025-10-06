@@ -6,6 +6,7 @@ import { Platform, RadioStatus } from '@prisma/client';
 import { logger } from '@/lib/logger';
 import { RadioUpdateSchema } from '@/lib/schemas/radio.schema';
 import { z } from 'zod';
+import { verifyStreamStatus } from '@/lib/stream-verifier';
 
 // Función auxiliar (sin cambios, solo la movemos arriba por convención)
 const mapPlatformToEnum = (platform: string): Platform => {
@@ -60,7 +61,18 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Radio no encontrada' }, { status: 404 });
     }
 
-    // 2. Actualizar radio con datos validados
+    // 2. Verificar el stream SOLO si la URL cambió
+    let verificationData = {};
+    if (validated.streamUrl && validated.streamUrl !== existingRadio.streamUrl) {
+      const verification = await verifyStreamStatus(validated.streamUrl);
+      logger.info(`Stream verification for ${validated.name || existingRadio.name}: ${verification.status} - ${verification.details}`);
+      verificationData = {
+        lastVerificationStatus: verification.status,
+        lastVerifiedAt: new Date(),
+      };
+    }
+
+    // 3. Actualizar radio con datos validados
     const existingMetadata = existingRadio.metadata as Record<string, any> || {};
     
     const updatedRadio = await prisma.radio.update({
@@ -74,6 +86,7 @@ export async function PUT(
           status: validated.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE 
         }),
         ...(validated.genre && { description: validated.genre }),
+        ...verificationData,
         metadata: {
           programadora: validated.programadora || existingMetadata.programadora || '',
           frequency: validated.frequency || existingMetadata.frequency || '',
@@ -85,7 +98,7 @@ export async function PUT(
       },
     });
 
-    // 3. DEVOLVEMOS EL OBJETO REAL DE LA BASE DE DATOS
+    // 4. DEVOLVEMOS EL OBJETO REAL DE LA BASE DE DATOS
     // Es más consistente y predecible. El frontend puede adaptarlo si es necesario.
     const metadata = updatedRadio.metadata as Record<string, any> || {};
     const transformedRadio = {
@@ -101,6 +114,8 @@ export async function PUT(
       isActive: updatedRadio.status === RadioStatus.ACTIVE,
       genre: updatedRadio.description || 'Música',
       lastMonitored: metadata.lastMonitored || 'Nunca',
+      lastVerificationStatus: updatedRadio.lastVerificationStatus,
+      lastVerifiedAt: updatedRadio.lastVerifiedAt,
     };
     
     return NextResponse.json({ 
