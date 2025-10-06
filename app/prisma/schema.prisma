@@ -53,7 +53,7 @@ model Radio {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // Relaciones
+
   sessions    MonitoringSession[]
   detections  Detection[]
   pricingRules RadioPricingRule[]
