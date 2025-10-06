@@ -10,6 +10,7 @@ import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 import { Radio } from '@/lib/mock-data';
 import { getPlatformIcon, getPlatformName } from '@/lib/platform-utils';
 import { RadioCard } from '@/components/radios/RadioCard';
+import { RadioCardSkeleton } from '@/components/radios/RadioCardSkeleton';
 import { RadioMetrics } from '@/components/radios/RadioMetrics';
 import { RadioFilters } from '@/components/radios/RadioFilters';
 import RadioForm from '@/components/radios/RadioForm';
@@ -702,7 +703,20 @@ export default function RadiosPage() {
 
       {/* Lista de Radios */}
       <div className="space-y-6">
-        {selectedRegion === '' ? (
+        {loading ? (
+          // Skeleton loaders mientras carga
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <div className="h-7 w-40 bg-gray-700 rounded animate-pulse"></div>
+              <div className="h-6 w-20 bg-gray-700 rounded animate-pulse"></div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[...Array(6)].map((_, index) => (
+                <RadioCardSkeleton key={index} />
+              ))}
+            </div>
+          </div>
+        ) : selectedRegion === '' ? (
           <div className="text-center py-12">
             <RadioIcon className="mx-auto h-16 w-16 mb-4" style={{ color: '#6b7280' }} />
             <h3 className="text-xl font-semibold text-white mb-2">Selecciona una región</h3>

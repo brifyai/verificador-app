@@ -36,6 +36,9 @@ async function sendSignalToVPS(id: string, streamUrl: string) {
     });
 
     if (!response.ok) {
+      const errorBody = await response.text(); 
+      console.error(`❌ El VPS respondió con un error: ${response.status} ${response.statusText}`);
+      console.error(`❌ Cuerpo de la respuesta del VPS:`, errorBody);
       throw new Error(`Error al enviar señal al VPS: ${response.statusText}`);
     }
 
@@ -54,9 +57,13 @@ export async function POST(request: NextRequest) {
     
     // Detectar si es una solicitud individual o masiva
     const isIndividualRequest = body.radioId && !body.radioIds;
+    // Extraer horarios de grabación (por defecto 5 AM - 2 AM)
+    const recordingStartHour = body.recordingStartHour ?? 5;
+    const recordingEndHour = body.recordingEndHour ?? 2;
     
     console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
     console.log('🔍 Tipo de solicitud:', isIndividualRequest ? 'Individual' : 'Masiva');
+    console.log(`⏰ Horarios de grabación: ${recordingStartHour}:00 - ${recordingEndHour}:00`);
 
     // Determinar qué radios procesar
     let radiosToProcess = [];
@@ -117,8 +124,25 @@ export async function POST(request: NextRequest) {
 
     console.log(`📻 Procesando ${radiosToProcess.length} radios`);
 
-    // Enviar señal al VPS para cada radio
-    const results = [];
+    // Intentar obtener userId válido (sesión aún no integrada: usar primer usuario como fallback)
+    let userId: string | null = null;
+    try {
+      const firstUser = await prisma.user.findFirst({ select: { id: true } });
+      if (firstUser) userId = firstUser.id;
+    } catch (e) {
+      console.warn('⚠️ No se pudo obtener un usuario por defecto.');
+    }
+
+    if (!userId) {
+      // Si no hay usuario, abortar para evitar violar el esquema (MonitoringSession.userId es requerido)
+      return NextResponse.json({
+        success: false,
+        error: 'No existe un usuario en la base de datos para asociar la sesión. Crea al menos un usuario o configura autenticación.'
+      }, { status: 400 });
+    }
+
+    // Enviar señal al VPS y crear sesión por cada radio
+    const results = [] as Array<{ radioId: string; radioName: string; sessionId?: string; success: boolean; message?: string; error?: string; streamUrl?: string; recordingHours?: string }>;
     for (const radio of radiosToProcess) {
       try {
         console.log(`🚀 Iniciando grabación para ${radio.name} (${radio.id})`);
@@ -148,13 +172,39 @@ export async function POST(request: NextRequest) {
           throw new Error('No se encontró URL de stream válida');
         }
         
+        // 1) Crear sesión de monitoreo en la base de datos con horarios
+        const session = await prisma.monitoringSession.create({
+          data: {
+            radioId: radio.id,
+            userId: userId,
+            status: 'ACTIVE',
+            captureInterval: 30,
+            captureDuration: 600, // 10 minutos
+            recordingStartHour: recordingStartHour,
+            recordingEndHour: recordingEndHour,
+            configuration: {
+              streamUrl: actualStreamUrl,
+              language: 'es',
+              autoTranscription: true,
+              phraseDetection: true
+            }
+          }
+        });
+
+        console.log(`✅ Sesión de monitoreo creada: ${session.id}`);
+
+        // 2) Enviar señal al VPS
         await sendSignalToVPS(radio.id, actualStreamUrl);
+
+        // 3) Resumen
         results.push({
           radioId: radio.id,
           radioName: radio.name,
+          sessionId: session.id,
           success: true,
           message: 'Grabación iniciada exitosamente',
-          streamUrl: actualStreamUrl
+          streamUrl: actualStreamUrl,
+          recordingHours: `${recordingStartHour}:00 - ${recordingEndHour}:00`
         });
       } catch (error: any) {
         console.error(`❌ Error con radio ${radio.name}:`, error.message);
@@ -176,10 +226,11 @@ export async function POST(request: NextRequest) {
       if (result.success) {
         return NextResponse.json({
           success: true,
-          sessionId: `session_${result.radioId}_${Date.now()}`,
+          sessionId: result.sessionId,
           message: result.message,
           radioName: result.radioName,
-          streamUrl: result.streamUrl
+          streamUrl: result.streamUrl,
+          recordingHours: result.recordingHours
         });
       } else {
         return NextResponse.json({
