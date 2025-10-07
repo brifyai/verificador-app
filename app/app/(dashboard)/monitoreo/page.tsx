@@ -149,15 +149,36 @@ export default function ConfigurarAnalisisPage() {
         scheduleDays
       });
 
+      // Convertir horas a formato HH:MM
+      const startTime = `${recordingStartHour.toString().padStart(2, '0')}:00`;
+      const endTime = `${recordingEndHour.toString().padStart(2, '0')}:00`;
+      
+      // Convertir días de string a números (0=Domingo, 1=Lunes, etc.)
+      const daysAsNumbers = scheduleDays.map(day => {
+        const dayMap: { [key: string]: number } = {
+          'lunes': 1, 'martes': 2, 'miercoles': 3, 'jueves': 4, 
+          'viernes': 5, 'sabado': 6, 'domingo': 0
+        };
+        return dayMap[day.toLowerCase()] ?? parseInt(day);
+      });
+
+      const requestData = {
+        userId: 'user123', // TODO: Obtener del contexto de autenticación
+        radioIds: Array.from(selectedRadioIds),
+        phraseId: selectedPhraseId,
+        days: daysAsNumbers.length > 0 ? daysAsNumbers : [1, 2, 3, 4, 5, 6, 0], // Si no hay días, usar todos
+        startTime: startTime,
+        endTime: endTime,
+        aiModel: selectedAiModel,
+        description: `Monitoreo programado desde dashboard - ${new Date().toLocaleDateString()}`
+      };
+
+      console.log('📤 Enviando datos:', requestData);
+
       const response = await fetch("/api/monitoring/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filterType: 'custom',
-          radioIds: Array.from(selectedRadioIds),
-          recordingStartHour,
-          recordingEndHour,
-        }),
+        body: JSON.stringify(requestData),
       });
 
       const data = await response.json();
@@ -167,16 +188,26 @@ export default function ConfigurarAnalisisPage() {
         throw new Error(data.error || "Error al iniciar el monitoreo");
       }
       
-      // ✅ Mensaje de éxito detallado
-      const radioCount = selectedRadioIds.size;
-      const scheduleInfo = scheduleDays.length > 0 
-        ? ` programado para ${scheduleDays.length} día${scheduleDays.length > 1 ? 's' : ''}` 
-        : ' (monitoreo 24/7)';
-      
-      toast.success(
-        `✅ ¡Monitoreo iniciado! ${radioCount} radio${radioCount > 1 ? 's' : ''} activa${radioCount > 1 ? 's' : ''}${scheduleInfo}`,
-        { duration: 5000 }
-      );
+      // ✅ Mensaje de éxito detallado con información de la respuesta
+      if (data.success && data.data) {
+        const { scheduledRadios, phrase, timeRange, duration, estimatedCost } = data.data;
+        
+        toast.success(
+          `✅ ¡Monitoreo programado exitosamente!
+          
+📻 ${scheduledRadios} radio${scheduledRadios > 1 ? 's' : ''}
+🔍 Frase: "${phrase.text}" (${phrase.brand})
+⏰ Horario: ${timeRange}
+⏱️ Duración: ${duration}
+💰 Costo estimado: $${estimatedCost}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.success(
+          `✅ ¡Monitoreo iniciado correctamente!`,
+          { duration: 5000 }
+        );
+      }
 
       // ✅ Limpiar formulario después del éxito
       setSelectedRadioIds(new Set());
