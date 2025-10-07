@@ -78,7 +78,7 @@ export class LocalAudioService {
     if (this.isVpsMode()) {
       return `http://${this.vpsIp}:${this.vpsPort}`;
     }
-    return `http://localhost:3000`;
+    return `http://localhost:3001`;
   }
 
   // Extraer información del nombre del archivo
