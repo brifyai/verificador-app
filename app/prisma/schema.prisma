@@ -57,7 +57,7 @@ model Radio {
   lastVerificationStatus VerificationStatus?
   lastVerifiedAt         DateTime?
 
-  // Relaciones
+
   sessions    MonitoringSession[]
   detections  Detection[]
   pricingRules RadioPricingRule[]

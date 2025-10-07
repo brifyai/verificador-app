@@ -28,7 +28,7 @@ export default function Dashboard() {
         }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-400">Radios Activas</p>
+              <p className="text-sm font-medium text-slate-400">Monitoreos Activos</p>
               <p className="text-2xl font-bold text-white">24</p>
             </div>
             <Radio className="h-8 w-8 text-blue-400" />
