@@ -122,9 +122,9 @@ export async function POST(request: NextRequest) {
     
     const validated = validationResult.data;
 
-    // Verificar el stream antes de crear la radio
+    // Verificar el stream antes de crear la radio (heurística unificada)
     const verification = await verifyStreamStatus(validated.streamUrl);
-    logger.info(`Stream verification for ${validated.name}: ${verification.status} - ${verification.details}`);
+    logger.info(`Stream verification for ${validated.name}: ${verification.status} (${verification.streamType}) - ${verification.details}`);
 
     const newRadio = await prisma.radio.create({
       data: {
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
         region: validated.region,
         status: validated.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
         description: validated.genre || 'Música',
-        lastVerificationStatus: verification.status,
+        lastVerificationStatus: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
         lastVerifiedAt: new Date(),
         metadata: {
           programadora: validated.programadora || validated.name,
@@ -142,6 +142,15 @@ export async function POST(request: NextRequest) {
           city: validated.city || validated.region,
           website: validated.website || '',
           streamPlatform: validated.streamPlatform || 'direct',
+          verification: {
+            status: verification.status,
+            streamType: verification.streamType,
+            httpStatus: verification.httpStatus ?? null,
+            contentType: verification.contentType ?? null,
+            usedProxy: verification.usedProxy,
+            method: verification.method,
+            details: verification.details,
+          }
         },
       },
     });
