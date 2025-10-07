@@ -1,52 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import fetch from 'node-fetch';
 
 export const dynamic = 'force-dynamic';
 
-// Enviar señal al VPS con streamUrl real
-async function sendSignalToVPS(id: string, streamUrl: string) {
+// Configuración de la VPS
+const VPS_CONFIG = {
+  host: process.env.VPS_HOST || '173.249.26.38',
+  port: process.env.VPS_PORT || '3000',
+  endpoint: '/api/schedule'
+};
+
+// Función para verificar si la VPS está disponible
+async function checkVPSHealth() {
   try {
-    if (!process.env.VPS_HOST || !process.env.VPS_USER || !process.env.VPS_PASSWORD) {
-      throw new Error('Faltan variables de entorno necesarias para el VPS');
-    }
+    const healthUrl = `http://${VPS_CONFIG.host}:${VPS_CONFIG.port}/`;
+    const response = await fetch(healthUrl, { 
+      method: 'GET',
+      signal: AbortSignal.timeout(5000) // 5 segundos timeout
+    });
+    return response.ok;
+  } catch (error: any) {
+    console.error('❌ VPS no disponible:', error.message);
+    return false;
+  }
+}
 
-    const vpsData = {
-      ip: process.env.VPS_HOST,
-      user: process.env.VPS_USER,
-      password: process.env.VPS_PASSWORD,
-      action: 'start_recording',
-      id,
-      streamUrl,
-      captureDuration: 600, // 10 minutos fijos
-      timestamp: new Date().toISOString()
-    };
+// Enviar programación de grabación al VPS
+async function sendScheduleToVPS(scheduleData: any) {
+  try {
+    const vpsUrl = `http://${VPS_CONFIG.host}:${VPS_CONFIG.port}${VPS_CONFIG.endpoint}`;
+    
+    console.log('📡 Enviando programación a VPS:', vpsUrl);
+    console.log('📋 Datos:', JSON.stringify(scheduleData, null, 2));
 
-    const vpsEndpoint = `http://${process.env.VPS_HOST}${process.env.VPS_API_ENDPOINT || '/api/recording'}`;
-
-    console.log(`📡 Enviando señal al VPS para radio ${id}`);
-
-    const response = await fetch(vpsEndpoint, {
+    const response = await fetch(vpsUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Basic ${Buffer.from(`${vpsData.user}:${vpsData.password}`).toString('base64')}`
       },
-      body: JSON.stringify(vpsData)
+      body: JSON.stringify(scheduleData),
+      signal: AbortSignal.timeout(10000) // 10 segundos timeout
     });
 
     if (!response.ok) {
-      const errorBody = await response.text(); 
-      console.error(`❌ El VPS respondió con un error: ${response.status} ${response.statusText}`);
-      console.error(`❌ Cuerpo de la respuesta del VPS:`, errorBody);
-      throw new Error(`Error al enviar señal al VPS: ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`VPS respondió con error ${response.status}: ${errorText}`);
     }
 
     const result = await response.json();
-    console.log(`✅ VPS respondió correctamente: ${JSON.stringify(result)}`);
+    console.log('✅ VPS respondió correctamente:', result);
     return result;
+
   } catch (error: any) {
-    console.error(`❌ Error enviando señal al VPS: ${error.message}`);
+    console.error('❌ Error enviando a VPS:', error.message);
     throw error;
   }
 }
@@ -55,209 +61,225 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    // Detectar si es una solicitud individual o masiva
-    const isIndividualRequest = body.radioId && !body.radioIds;
-    // Extraer horarios de grabación (por defecto 5 AM - 2 AM)
-    const recordingStartHour = body.recordingStartHour ?? 5;
-    const recordingEndHour = body.recordingEndHour ?? 2;
-    
     console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
-    console.log('🔍 Tipo de solicitud:', isIndividualRequest ? 'Individual' : 'Masiva');
-    console.log(`⏰ Horarios de grabación: ${recordingStartHour}:00 - ${recordingEndHour}:00`);
 
-    // Determinar qué radios procesar
-    let radiosToProcess = [];
-
-    if (isIndividualRequest) {
-      // Solicitud individual desde el componente MonitoringControl
-      const { radioId } = body;
-      
-      const radio = await prisma.radio.findUnique({
-        where: { id: radioId },
-        select: { id: true, name: true, streamUrl: true, metadata: true }
-      });
-      
-      if (!radio) {
-        return NextResponse.json({ error: 'Radio no encontrada' }, { status: 404 });
-      }
-      
-      radiosToProcess = [radio];
-    } else {
-      // Solicitud masiva desde la página de monitoreo
-      const { radioIds, filterType, selectedRegion, selectedCity } = body;
-
-      if (filterType === 'all') {
-        // Obtener todas las radios activas
-        const allRadios = await prisma.radio.findMany({
-          where: { status: 'ACTIVE' },
-          select: { id: true, name: true, streamUrl: true, metadata: true }
-        });
-        radiosToProcess = allRadios;
-      } else if (filterType === 'region' && selectedRegion) {
-        // Obtener radios por región
-        const regionRadios = await prisma.radio.findMany({
-          where: { 
-            status: 'ACTIVE',
-            region: selectedRegion
-          },
-          select: { id: true, name: true, streamUrl: true, metadata: true }
-        });
-        radiosToProcess = regionRadios;
-      } else if (filterType === 'custom' && radioIds && radioIds.length > 0) {
-        // Obtener radios específicas seleccionadas
-        const customRadios = await prisma.radio.findMany({
-          where: { 
-            id: { in: radioIds },
-            status: 'ACTIVE'
-          },
-          select: { id: true, name: true, streamUrl: true, metadata: true }
-        });
-        radiosToProcess = customRadios;
-      } else {
-        return NextResponse.json({ error: 'Configuración de filtro inválida' }, { status: 400 });
-      }
-    }
-
-    if (radiosToProcess.length === 0) {
-      return NextResponse.json({ error: 'No se encontraron radios para procesar' }, { status: 400 });
-    }
-
-    console.log(`📻 Procesando ${radiosToProcess.length} radios`);
-
-    // Intentar obtener userId válido (sesión aún no integrada: usar primer usuario como fallback)
-    let userId: string | null = null;
-    try {
-      const firstUser = await prisma.user.findFirst({ select: { id: true } });
-      if (firstUser) userId = firstUser.id;
-    } catch (e) {
-      console.warn('⚠️ No se pudo obtener un usuario por defecto.');
-    }
+    // Validar datos requeridos para programación
+    const { 
+      userId, 
+      radioIds, 
+      phraseId, 
+      days, 
+      startTime, 
+      endTime, 
+      aiModel,
+      description 
+    } = body;
 
     if (!userId) {
-      // Si no hay usuario, abortar para evitar violar el esquema (MonitoringSession.userId es requerido)
+      return NextResponse.json({ error: 'userId es requerido' }, { status: 400 });
+    }
+
+    if (!radioIds || !Array.isArray(radioIds) || radioIds.length === 0) {
+      return NextResponse.json({ error: 'Debe seleccionar al menos una radio' }, { status: 400 });
+    }
+
+    if (!phraseId) {
+      return NextResponse.json({ error: 'Debe seleccionar una frase a detectar' }, { status: 400 });
+    }
+
+    if (!days || !Array.isArray(days) || days.length === 0) {
+      return NextResponse.json({ error: 'Debe seleccionar al menos un día' }, { status: 400 });
+    }
+
+    if (!startTime || !endTime) {
+      return NextResponse.json({ error: 'Horario de inicio y fin son requeridos' }, { status: 400 });
+    }
+
+    // Obtener datos de las radios y la frase desde la base de datos
+    const [radios, phrase] = await Promise.all([
+      prisma.radio.findMany({
+        where: {
+          id: { in: radioIds },
+          status: 'ACTIVE'
+        },
+        select: {
+          id: true,
+          name: true,
+          streamUrl: true,
+          region: true,
+          metadata: true
+        }
+      }),
+      prisma.phrase.findUnique({
+        where: { id: phraseId },
+        select: {
+          id: true,
+          phrase: true,
+          brand: true,
+          campaign: true,
+          category: true,
+          description: true,
+          active: true
+        }
+      })
+    ]);
+
+    if (radios.length === 0) {
+      return NextResponse.json({ error: 'No se encontraron radios válidas' }, { status: 404 });
+    }
+
+    if (!phrase || !phrase.active) {
+      return NextResponse.json({ error: 'Frase no encontrada o inactiva' }, { status: 404 });
+    }
+
+    console.log(`📻 Procesando ${radios.length} radios para programación`);
+    console.log(`🔍 Frase a detectar: "${phrase.phrase}" de ${phrase.brand}`);
+
+    // Preparar datos de las radios para la VPS
+    const radiosForVPS = radios.map(radio => {
+      // Extraer streamUrl desde platformData o usar el campo directo como fallback
+      let actualStreamUrl = radio.streamUrl;
+      
+      if (radio.metadata && typeof radio.metadata === 'object') {
+        const metadata = radio.metadata as any;
+        if (metadata.platformData && metadata.platformData.url) {
+          actualStreamUrl = metadata.platformData.url.replace(/`/g, '').trim();
+        }
+      }
+      
+      return {
+        id: radio.id,
+        name: radio.name,
+        streamUrl: actualStreamUrl,
+        region: radio.region || 'No especificada',
+        metadata: radio.metadata
+      };
+    });
+
+    // Calcular duración en segundos
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+    let durationMinutes = endMinutes - startMinutes;
+    
+    // Manejar horarios que cruzan medianoche (ej: 22:00 - 02:00)
+    if (durationMinutes <= 0) {
+      durationMinutes = (24 * 60) + durationMinutes;
+    }
+    
+    const durationSeconds = durationMinutes * 60;
+
+    // Preparar datos completos para enviar a la VPS
+    const scheduleData = {
+      userId: userId,
+      radios: radiosForVPS,
+      days: days,
+      schedule: {
+        startTime: startTime,
+        endTime: endTime,
+        duration: durationSeconds
+      },
+      phrase: {
+        id: phrase.id,
+        text: phrase.phrase,
+        brand: phrase.brand,
+        campaign: phrase.campaign || 'Sin campaña',
+        category: phrase.category,
+        description: phrase.description || ''
+      },
+      detection: {
+        aiModel: aiModel || 'estandar',
+        language: 'es',
+        autoTranscription: true,
+        phraseDetection: true
+      },
+      metadata: {
+        description: description || `Monitoreo de "${phrase.phrase}" en ${radios.length} radio(s)`,
+        createdAt: new Date().toISOString(),
+        totalRadios: radios.length,
+        source: 'monitoring_start',
+        estimatedCost: calculateEstimatedCost(radios.length, durationMinutes, aiModel || 'estandar')
+      }
+    };
+
+    // Función para calcular costo estimado
+    function calculateEstimatedCost(radioCount: number, minutes: number, model: string) {
+      const modelPrices = { estandar: 10, premium: 25, empresarial: 50 };
+      const basePrice = modelPrices[model as keyof typeof modelPrices] || 10;
+      return radioCount * Math.ceil(minutes / 60) * basePrice;
+    }
+
+    // Verificar que la VPS esté disponible antes de enviar
+    console.log('🔍 Verificando estado de la VPS...');
+    const vpsHealthy = await checkVPSHealth();
+    
+    if (!vpsHealthy) {
+      console.error('❌ VPS no está disponible');
       return NextResponse.json({
         success: false,
-        error: 'No existe un usuario en la base de datos para asociar la sesión. Crea al menos un usuario o configura autenticación.'
-      }, { status: 400 });
+        error: 'VPS no disponible',
+        details: `No se puede conectar con la VPS en ${VPS_CONFIG.host}:${VPS_CONFIG.port}. Verifique que el servidor esté corriendo.`,
+        vpsConfig: {
+          host: VPS_CONFIG.host,
+          port: VPS_CONFIG.port,
+          endpoint: VPS_CONFIG.endpoint
+        }
+      }, { status: 503 });
     }
 
-    // Enviar señal al VPS y crear sesión por cada radio
-    const results = [] as Array<{ radioId: string; radioName: string; sessionId?: string; success: boolean; message?: string; error?: string; streamUrl?: string; recordingHours?: string }>;
-    for (const radio of radiosToProcess) {
-      try {
-        console.log(`🚀 Iniciando grabación para ${radio.name} (${radio.id})`);
-        console.log(`📊 Datos completos de la radio:`, JSON.stringify(radio, null, 2));
-        
-        // Extraer streamUrl desde platformData o usar el campo directo como fallback
-        let actualStreamUrl = radio.streamUrl;
-        console.log(`🔗 streamUrl directo:`, actualStreamUrl);
-        
-        if (radio.metadata && typeof radio.metadata === 'object') {
-          const metadata = radio.metadata as any;
-          console.log(`📋 Metadata completo:`, JSON.stringify(metadata, null, 2));
-          
-          if (metadata.platformData && metadata.platformData.url) {
-            actualStreamUrl = metadata.platformData.url.replace(/`/g, '').trim();
-            console.log(`📡 Usando URL desde platformData: ${actualStreamUrl}`);
-          } else {
-            console.log(`⚠️ No se encontró platformData.url en metadata`);
-          }
-        } else {
-          console.log(`⚠️ No hay metadata o no es un objeto`);
-        }
-        
-        console.log(`✅ URL final a usar: ${actualStreamUrl}`);
-        
-        if (!actualStreamUrl) {
-          throw new Error('No se encontró URL de stream válida');
-        }
-        
-        // 1) Crear sesión de monitoreo en la base de datos con horarios
-        const session = await prisma.monitoringSession.create({
-          data: {
-            radioId: radio.id,
-            userId: userId,
-            status: 'ACTIVE',
-            captureInterval: 30,
-            captureDuration: 600, // 10 minutos
-            recordingStartHour: recordingStartHour,
-            recordingEndHour: recordingEndHour,
-            configuration: {
-              streamUrl: actualStreamUrl,
-              language: 'es',
-              autoTranscription: true,
-              phraseDetection: true
-            }
-          }
-        });
+    // Enviar programación a la VPS
+    try {
+      console.log('✅ VPS disponible, enviando programación...');
+      const vpsResponse = await sendScheduleToVPS(scheduleData);
 
-        console.log(`✅ Sesión de monitoreo creada: ${session.id}`);
-
-        // 2) Enviar señal al VPS
-        await sendSignalToVPS(radio.id, actualStreamUrl);
-
-        // 3) Resumen
-        results.push({
-          radioId: radio.id,
-          radioName: radio.name,
-          sessionId: session.id,
-          success: true,
-          message: 'Grabación iniciada exitosamente',
-          streamUrl: actualStreamUrl,
-          recordingHours: `${recordingStartHour}:00 - ${recordingEndHour}:00`
-        });
-      } catch (error: any) {
-        console.error(`❌ Error con radio ${radio.name}:`, error.message);
-        results.push({
-          radioId: radio.id,
-          radioName: radio.name,
-          success: false,
-          error: error.message
-        });
-      }
-    }
-
-    const successCount = results.filter(r => r.success).length;
-    const failureCount = results.filter(r => !r.success).length;
-
-    // Respuesta diferente para solicitudes individuales vs masivas
-    if (isIndividualRequest) {
-      const result = results[0];
-      if (result.success) {
-        return NextResponse.json({
-          success: true,
-          sessionId: result.sessionId,
-          message: result.message,
-          radioName: result.radioName,
-          streamUrl: result.streamUrl,
-          recordingHours: result.recordingHours
-        });
-      } else {
-        return NextResponse.json({
-          success: false,
-          error: result.error
-        }, { status: 400 });
-      }
-    } else {
-      // Respuesta para solicitudes masivas
       return NextResponse.json({
         success: true,
-        message: `Monitoreo iniciado: ${successCount} exitosas, ${failureCount} fallidas`,
-        startTime: new Date().toISOString(),
-        results,
-        summary: {
-          total: radiosToProcess.length,
-          successful: successCount,
-          failed: failureCount
+        message: 'Programación de monitoreo enviada correctamente a la VPS',
+        data: {
+          // Información de programación
+          scheduledRadios: radios.length,
+          days: days,
+          timeRange: `${startTime} - ${endTime}`,
+          duration: `${durationMinutes} minutos`,
+          
+          // Información de la frase a detectar
+          phrase: {
+            text: phrase.phrase,
+            brand: phrase.brand,
+            campaign: phrase.campaign || 'Sin campaña'
+          },
+          
+          // Información de las radios
+          radios: radiosForVPS.map(r => ({ 
+            id: r.id, 
+            name: r.name, 
+            region: r.region,
+            hasValidUrl: !!r.streamUrl
+          })),
+          
+          // Configuración de detección
+          detection: {
+            aiModel: aiModel || 'estandar',
+            language: 'es'
+          },
+          
+          // Costos estimados
+          estimatedCost: scheduleData.metadata.estimatedCost,
+          
+          // Respuesta de la VPS
+          vpsResponse
         },
-        settings: {
-          captureDuration: 600,
-          autoTranscription: true,
-          phraseDetection: true,
-          language: 'es',
-          vpsRecording: true
-        }
+        timestamp: new Date().toISOString()
       });
+
+    } catch (error: any) {
+      console.error('❌ Error enviando programación a VPS:', error);
+      return NextResponse.json({
+        success: false,
+        error: 'Error al enviar programación a la VPS',
+        details: error.message
+      }, { status: 500 });
     }
 
   } catch (error: any) {
