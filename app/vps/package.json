@@ -1,19 +1,28 @@
 {
   "name": "vps-radio-recording",
-  "version": "1.0.0",
-  "description": "VPS API para grabación automática de radios",
-  "main": "server.js",
+  "version": "3.0.0",
+  "description": "VPS API para grabación automática de radios con scheduler Avanzado",
+  "main": "enhanced-server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "install-deps": "npm install express node-cron",
-    "setup": "mkdir -p config recordings && npm run install-deps"
+    "start": "node enhanced-server.js",
+    "dev": "node enhanced-server.js",
+    "test": "node test-complete-transcription-system.js",
+    "status": "systemctl status radio-recording-enhanced",
+    "logs": "journalctl -u radio-recording-enhanced -f",
+    "restart": "systemctl restart radio-recording-enhanced"
   },
   "dependencies": {
     "express": "^4.18.2",
+    "cors": "^2.8.5",
     "node-cron": "^3.0.3"
   },
-  "keywords": ["radio", "recording", "vps", "automation"],
-  "author": "OndaVerificada",
+  "keywords": [
+    "radio",
+    "recording",
+    "scheduler",
+    "vps",
+    "automation"
+  ],
+  "author": "Radio Monitoring System",
   "license": "MIT"
 }

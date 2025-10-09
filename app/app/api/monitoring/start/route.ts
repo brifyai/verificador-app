@@ -87,74 +87,122 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Debe seleccionar una frase a detectar' }, { status: 400 });
     }
 
-    if (!days || !Array.isArray(days) || days.length === 0) {
-      return NextResponse.json({ error: 'Debe seleccionar al menos un día' }, { status: 400 });
+    if (!days || !Array.isArray(days)) {
+      return NextResponse.json({ error: 'El parámetro days debe ser un array' }, { status: 400 });
     }
 
     if (!startTime || !endTime) {
       return NextResponse.json({ error: 'Horario de inicio y fin son requeridos' }, { status: 400 });
     }
 
-    // Obtener datos de las radios y la frase desde la base de datos
-    const [radios, phrase] = await Promise.all([
-      prisma.radio.findMany({
-        where: {
-          id: { in: radioIds },
-          status: 'ACTIVE'
+    // Obtener datos completos de las radios seleccionadas desde la base de datos
+    console.log(`🔍 Buscando radios con IDs: ${radioIds.join(', ')}`);
+    
+    const radios = await prisma.radio.findMany({
+      where: {
+        id: {
+          in: radioIds
         },
-        select: {
-          id: true,
-          name: true,
-          streamUrl: true,
-          region: true,
-          metadata: true
-        }
-      }),
-      prisma.phrase.findUnique({
-        where: { id: phraseId },
-        select: {
-          id: true,
-          phrase: true,
-          brand: true,
-          campaign: true,
-          category: true,
-          description: true,
-          active: true
-        }
-      })
-    ]);
+        status: 'ACTIVE' // Solo radios activas
+      },
+      select: {
+        id: true,
+        name: true,
+        streamUrl: true,
+        region: true,
+        metadata: true,
+        status: true,
+        platform: true
+      }
+    });
+
+    console.log(`📻 Encontradas ${radios.length} radios activas de ${radioIds.length} solicitadas`);
 
     if (radios.length === 0) {
-      return NextResponse.json({ error: 'No se encontraron radios válidas' }, { status: 404 });
+      return NextResponse.json({ 
+        error: 'No se encontraron radios válidas o activas',
+        details: `Se buscaron las radios con IDs: ${radioIds.join(', ')}. Verifica que existan y estén activas.`
+      }, { status: 404 });
     }
 
-    if (!phrase || !phrase.active) {
-      return NextResponse.json({ error: 'Frase no encontrada o inactiva' }, { status: 404 });
+    // Obtener datos de la frase desde la base de datos
+    console.log(`🔍 Buscando frase con ID: ${phraseId}`);
+    
+    const phrase = await prisma.phrase.findUnique({
+      where: { 
+        id: phraseId,
+        active: true // Solo frases activas
+      },
+      select: {
+        id: true,
+        phrase: true,
+        brand: true,
+        campaign: true,
+        category: true,
+        description: true,
+        active: true,
+        confidence: true,
+        priority: true
+      }
+    });
+
+    if (!phrase) {
+      return NextResponse.json({ 
+        error: 'Frase no encontrada o inactiva',
+        details: `Se buscó la frase con ID: ${phraseId}. Verifica que exista y esté activa.`
+      }, { status: 404 });
     }
+
+    console.log(`🔍 Frase encontrada: "${phrase.phrase}" de ${phrase.brand}`);
 
     console.log(`📻 Procesando ${radios.length} radios para programación`);
     console.log(`🔍 Frase a detectar: "${phrase.phrase}" de ${phrase.brand}`);
 
     // Preparar datos de las radios para la VPS
-    const radiosForVPS = radios.map(radio => {
-      // Extraer streamUrl desde platformData o usar el campo directo como fallback
+    const radiosForVPS = radios.map((radio: any) => {
+      // Extraer streamUrl desde diferentes fuentes posibles
       let actualStreamUrl = radio.streamUrl;
       
-      if (radio.metadata && typeof radio.metadata === 'object') {
+      // Si no hay streamUrl directo, buscar en metadata
+      if (!actualStreamUrl && radio.metadata && typeof radio.metadata === 'object') {
         const metadata = radio.metadata as any;
+        
+        // Buscar en platformData
         if (metadata.platformData && metadata.platformData.url) {
           actualStreamUrl = metadata.platformData.url.replace(/`/g, '').trim();
         }
+        // Buscar en otros campos posibles
+        else if (metadata.url) {
+          actualStreamUrl = metadata.url.replace(/`/g, '').trim();
+        }
+        else if (metadata.stream_url) {
+          actualStreamUrl = metadata.stream_url.replace(/`/g, '').trim();
+        }
       }
+      
+      // Log para debugging
+      console.log(`📻 Radio ${radio.name}:`);
+      console.log(`   🔗 Stream URL: ${actualStreamUrl}`);
+      console.log(`   📍 Región: ${radio.region}`);
       
       return {
         id: radio.id,
         name: radio.name,
         streamUrl: actualStreamUrl,
         region: radio.region || 'No especificada',
-        metadata: radio.metadata
+        hasValidUrl: !!actualStreamUrl
       };
     });
+
+    // Verificar que todas las radios tengan URLs válidas
+    const radiosWithoutUrl = radiosForVPS.filter(radio => !radio.streamUrl);
+    if (radiosWithoutUrl.length > 0) {
+      console.warn('⚠️ Radios sin URL de stream:', radiosWithoutUrl.map(r => r.name));
+      return NextResponse.json({ 
+        error: `Las siguientes radios no tienen URL de stream configurada: ${radiosWithoutUrl.map(r => r.name).join(', ')}`,
+        details: 'Verifique la configuración de las radios en la base de datos'
+      }, { status: 400 });
+    }
 
     // Calcular duración en segundos
     const [startHour, startMin] = startTime.split(':').map(Number);
@@ -170,11 +218,23 @@ export async function POST(request: NextRequest) {
     
     const durationSeconds = durationMinutes * 60;
 
+    // Procesar días: si está vacío o contiene nulls, usar todos los días
+    const processedDays = days.length === 0 || days.some(day => day === null) 
+      ? [1, 2, 3, 4, 5, 6, 0] // Todos los días (Lun-Dom)
+      : days.filter(day => day !== null && typeof day === 'number'); // Filtrar días válidos
+
+    console.log(`📅 Días originales: ${JSON.stringify(days)}`);
+    console.log(`📅 Días procesados: ${JSON.stringify(processedDays)}`);
+    
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const selectedDayNames = processedDays.map(day => dayNames[day]).join(', ');
+    console.log(`📅 Días seleccionados: ${selectedDayNames}`);
+
     // Preparar datos completos para enviar a la VPS
     const scheduleData = {
       userId: userId,
       radios: radiosForVPS,
-      days: days,
+      days: processedDays,
       schedule: {
         startTime: startTime,
         endTime: endTime,
@@ -239,7 +299,7 @@ export async function POST(request: NextRequest) {
         data: {
           // Información de programación
           scheduledRadios: radios.length,
-          days: days,
+          days: processedDays,
           timeRange: `${startTime} - ${endTime}`,
           duration: `${durationMinutes} minutos`,
           
@@ -251,7 +311,7 @@ export async function POST(request: NextRequest) {
           },
           
           // Información de las radios
-          radios: radiosForVPS.map(r => ({ 
+          radios: radiosForVPS.map((r: any) => ({ 
             id: r.id, 
             name: r.name, 
             region: r.region,

@@ -1,0 +1,421 @@
+// Scheduler mejorado con sistema de transcripciones automáticas
+const fs = require('fs');
+const path = require('path');
+const cron = require('node-cron');
+const { spawn } = require('child_process');
+const TranscriptionManager = require('./transcription-manager');
+
+class EnhancedRadioScheduler {
+  constructor(configDir = './config', recordingsDir = './recordings') {
+    this.configDir = configDir;
+    this.recordingsDir = recordingsDir;
+    this.transcriptionManager = new TranscriptionManager(recordingsDir);
+    this.activeRecordings = new Map();
+    this.scheduledJobs = new Map();
+    
+    console.log('🚀 Enhanced Radio Scheduler iniciado');
+    console.log(`📁 Configuraciones: ${this.configDir}`);
+    console.log(`🎵 Grabaciones: ${this.recordingsDir}`);
+    console.log(`🎙️ Sistema de transcripciones: ACTIVO`);
+    
+    this.init();
+  }
+
+  init() {
+    // Crear directorios si no existen
+    if (!fs.existsSync(this.configDir)) {
+      fs.mkdirSync(this.configDir, { recursive: true });
+    }
+    if (!fs.existsSync(this.recordingsDir)) {
+      fs.mkdirSync(this.recordingsDir, { recursive: true });
+    }
+
+    // Cargar programaciones existentes
+    this.loadExistingSchedules();
+  }
+
+  // Cargar programaciones existentes al iniciar
+  loadExistingSchedules() {
+    try {
+      const configFiles = fs.readdirSync(this.configDir)
+        .filter(file => file.startsWith('schedule_') && file.endsWith('.json'));
+
+      console.log(`📋 Cargando ${configFiles.length} programaciones existentes...`);
+
+      for (const configFile of configFiles) {
+        const configPath = path.join(this.configDir, configFile);
+        this.loadScheduleFile(configPath);
+      }
+
+      console.log(`✅ ${this.scheduledJobs.size} programaciones cargadas`);
+    } catch (error) {
+      console.error('❌ Error cargando programaciones:', error);
+    }
+  }
+
+  // Cargar un archivo de programación específico
+  loadScheduleFile(configPath) {
+    try {
+      const scheduleData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      
+      if (scheduleData.status !== 'active') {
+        console.log(`⏸️ Programación inactiva: ${scheduleData.scheduleId}`);
+        return;
+      }
+
+      this.createCronJobs(scheduleData);
+      console.log(`✅ Programación cargada: ${scheduleData.scheduleId}`);
+      
+    } catch (error) {
+      console.error(`❌ Error cargando ${configPath}:`, error.message);
+    }
+  }
+
+  // Crear trabajos cron para una programación
+  createCronJobs(scheduleData) {
+    const { scheduleId, days, schedule, radios } = scheduleData;
+    
+    // Validar datos requeridos
+    if (!scheduleId) {
+      console.error('❌ Error: scheduleId no definido en scheduleData:', scheduleData);
+      return;
+    }
+    
+    if (!schedule || !schedule.startTime) {
+      console.error('❌ Error: schedule.startTime no definido para', scheduleId);
+      return;
+    }
+    
+    if (!radios || radios.length === 0) {
+      console.error('❌ Error: No hay radios definidas para', scheduleId);
+      return;
+    }
+    
+    // Parsear hora de inicio
+    const [startHour, startMinute] = schedule.startTime.split(':').map(Number);
+    
+    // Crear un cron job para cada día
+    days.forEach(dayOfWeek => {
+      const cronPattern = `${startMinute} ${startHour} * * ${dayOfWeek}`;
+      const jobId = `${scheduleId}_day_${dayOfWeek}`;
+      
+      console.log(`⏰ Programando: ${cronPattern} para ${scheduleId} (${radios.length} radios)`);
+      
+      const job = cron.schedule(cronPattern, () => {
+        console.log(`🚀 Ejecutando grabaciones programadas: ${scheduleId}`);
+        this.executeScheduledRecordings(scheduleData);
+      }, {
+        scheduled: true,
+        timezone: "America/Santiago"
+      });
+      
+      this.scheduledJobs.set(jobId, {
+        job: job,
+        scheduleId: scheduleId,
+        cronPattern: cronPattern,
+        dayOfWeek: dayOfWeek,
+        scheduleData: scheduleData
+      });
+    });
+  }
+
+  // Ejecutar grabaciones programadas
+  async executeScheduledRecordings(scheduleData) {
+    const { radios, schedule, phrase, scheduleId } = scheduleData;
+    
+    console.log(`🎙️ Iniciando grabaciones para: ${scheduleId}`);
+    console.log(`📻 ${radios.length} radios - Duración: ${schedule.duration}s`);
+    
+    // Iniciar todas las grabaciones en PARALELO (no secuencial)
+    const recordingPromises = radios.map(async (radio, index) => {
+      try {
+        // Pequeño delay para evitar conflictos de timestamp
+        await new Promise(resolve => setTimeout(resolve, index * 100));
+        
+        const recordingId = this.startRecording(radio, schedule.duration, scheduleId, phrase);
+        console.log(`✅ Grabación iniciada: ${radio.name} (${recordingId})`);
+        return { success: true, radio: radio.name, recordingId };
+      } catch (error) {
+        console.error(`❌ Error iniciando grabación ${radio.name}:`, error.message);
+        return { success: false, radio: radio.name, error: error.message };
+      }
+    });
+    
+    // Esperar a que todas las grabaciones se inicien
+    const results = await Promise.all(recordingPromises);
+    
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    
+    console.log(`📊 Resultado: ${successful} grabaciones iniciadas, ${failed} fallos`);
+    
+    return results;
+  }
+
+  // Iniciar grabación con carpetas organizadas
+  startRecording(radio, duration, scheduleId, phrase = null) {
+    const timestamp = new Date().toISOString();
+    const cleanRadioName = radio.name.replace(/[^a-zA-Z0-9]/g, '_');
+    
+    // Crear carpeta separada usando TranscriptionManager
+    const recordingFolder = this.transcriptionManager.createRecordingFolder(cleanRadioName, timestamp);
+    const filepath = path.join(recordingFolder.folderPath, recordingFolder.audioFileName);
+    
+    console.log(`🎙️ Iniciando grabación: ${radio.name}`);
+    console.log(`📁 Carpeta: ${recordingFolder.folderName}`);
+    console.log(`⏱️ Duración: ${duration} segundos`);
+    
+    const recordingId = `${scheduleId}_${radio.id}_${Date.now()}`;
+    
+    // Crear metadata completa
+    const metadata = {
+      recordingId: recordingId,
+      radio: {
+        id: radio.id,
+        name: radio.name,
+        streamUrl: radio.streamUrl,
+        region: radio.region || 'No especificada'
+      },
+      scheduleId: scheduleId,
+      phrase: phrase,
+      recording: {
+        startTime: timestamp,
+        duration: duration,
+        filename: recordingFolder.audioFileName,
+        folderName: recordingFolder.folderName,
+        folderPath: recordingFolder.folderPath
+      },
+      transcription: {
+        scheduled: true,
+        status: 'pending',
+        scheduledTime: 'Entre 2:00-5:00 AM'
+      },
+      status: 'recording'
+    };
+    
+    // Guardar metadata
+    const metadataPath = path.join(recordingFolder.folderPath, 'recording_info.json');
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+    
+    // Comando ffmpeg optimizado
+    const ffmpegArgs = [
+      '-i', radio.streamUrl,
+      '-t', duration.toString(),
+      '-acodec', 'mp3',
+      '-ab', '128k',
+      '-ar', '44100',
+      '-ac', '1', // Mono para reducir tamaño
+      '-y',
+      filepath
+    ];
+    
+    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+    
+    // Información de grabación activa
+    const recordingInfo = {
+      id: recordingId,
+      radio: radio,
+      scheduleId: scheduleId,
+      folderPath: recordingFolder.folderPath,
+      folderName: recordingFolder.folderName,
+      filename: recordingFolder.audioFileName,
+      filepath: filepath,
+      duration: duration,
+      startTime: new Date(),
+      process: ffmpegProcess,
+      phrase: phrase,
+      status: 'recording',
+      metadata: metadata
+    };
+    
+    this.activeRecordings.set(recordingId, recordingInfo);
+    
+    // Manejar eventos del proceso
+    ffmpegProcess.stderr.on('data', (data) => {
+      const output = data.toString();
+      if (output.includes('time=')) {
+        // Log de progreso cada 30 segundos
+        if (Math.random() < 0.1) {
+          console.log(`[${radio.name}] Grabando...`);
+        }
+      }
+    });
+    
+    ffmpegProcess.on('close', (code) => {
+      const endTime = new Date();
+      const actualDuration = Math.round((endTime - recordingInfo.startTime) / 1000);
+      
+      console.log(`✅ Grabación finalizada: ${radio.name} (${actualDuration}s, código: ${code})`);
+      
+      if (this.activeRecordings.has(recordingId)) {
+        const recording = this.activeRecordings.get(recordingId);
+        recording.status = code === 0 ? 'completed' : 'failed';
+        recording.endTime = endTime;
+        recording.exitCode = code;
+        recording.actualDuration = actualDuration;
+        
+        // Actualizar metadata final
+        const finalMetadata = {
+          ...recording.metadata,
+          recording: {
+            ...recording.metadata.recording,
+            endTime: endTime.toISOString(),
+            actualDuration: actualDuration,
+            exitCode: code,
+            status: code === 0 ? 'completed' : 'failed'
+          },
+          transcription: {
+            ...recording.metadata.transcription,
+            status: code === 0 ? 'pending' : 'not_applicable'
+          }
+        };
+        
+        try {
+          fs.writeFileSync(metadataPath, JSON.stringify(finalMetadata, null, 2));
+          
+          if (code === 0) {
+            console.log(`📁 Grabación guardada: ${recordingFolder.folderName}`);
+            console.log(`🌙 Programada para transcripción nocturna automática`);
+            
+            // Verificar tamaño del archivo
+            try {
+              const stats = fs.statSync(filepath);
+              const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+              console.log(`📊 Tamaño del archivo: ${fileSizeMB} MB`);
+            } catch (sizeError) {
+              console.warn('⚠️ No se pudo obtener el tamaño del archivo');
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error actualizando metadata final:', error);
+        }
+        
+        // Limpiar después de 5 minutos
+        setTimeout(() => {
+          this.activeRecordings.delete(recordingId);
+        }, 300000);
+      }
+    });
+    
+    ffmpegProcess.on('error', (error) => {
+      console.error(`❌ Error en grabación ${radio.name}:`, error.message);
+      
+      if (this.activeRecordings.has(recordingId)) {
+        const recording = this.activeRecordings.get(recordingId);
+        recording.status = 'error';
+        recording.error = error.message;
+        
+        // Guardar error en metadata
+        try {
+          const errorMetadata = {
+            ...recording.metadata,
+            recording: {
+              ...recording.metadata.recording,
+              endTime: new Date().toISOString(),
+              status: 'error',
+              error: error.message
+            }
+          };
+          fs.writeFileSync(metadataPath, JSON.stringify(errorMetadata, null, 2));
+        } catch (metaError) {
+          console.error('❌ Error guardando metadata de error:', metaError);
+        }
+      }
+    });
+    
+    return recordingId;
+  }
+
+  // Obtener grabaciones activas
+  getActiveRecordings() {
+    const active = [];
+    for (const [id, recording] of this.activeRecordings) {
+      active.push({
+        id: id,
+        radioName: recording.radio.name,
+        folderName: recording.folderName,
+        status: recording.status,
+        startTime: recording.startTime,
+        duration: recording.duration,
+        scheduleId: recording.scheduleId
+      });
+    }
+    return active;
+  }
+
+  // Obtener trabajos programados
+  getScheduledJobs() {
+    const jobs = [];
+    for (const [jobId, jobInfo] of this.scheduledJobs) {
+      jobs.push({
+        jobId: jobId,
+        scheduleId: jobInfo.scheduleId,
+        cronPattern: jobInfo.cronPattern,
+        dayOfWeek: jobInfo.dayOfWeek,
+        radiosCount: jobInfo.scheduleData.radios.length
+      });
+    }
+    return jobs;
+  }
+
+  // Obtener estadísticas de transcripciones
+  getTranscriptionStats() {
+    return this.transcriptionManager.getTranscriptionStats();
+  }
+
+  // Forzar transcripción inmediata (para pruebas)
+  async forceTranscription() {
+    console.log('🚀 Forzando transcripción inmediata...');
+    return await this.transcriptionManager.forceTranscription();
+  }
+
+  // Detener grabación específica
+  stopRecording(recordingId) {
+    if (this.activeRecordings.has(recordingId)) {
+      const recording = this.activeRecordings.get(recordingId);
+      
+      if (recording.process && !recording.process.killed) {
+        recording.process.kill('SIGTERM');
+        recording.status = 'stopped';
+        console.log(`🛑 Grabación detenida: ${recording.radio.name}`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Remover programación
+  removeSchedule(scheduleId) {
+    let removed = 0;
+    
+    // Remover trabajos cron
+    for (const [jobId, jobInfo] of this.scheduledJobs) {
+      if (jobInfo.scheduleId === scheduleId) {
+        jobInfo.job.stop();
+        this.scheduledJobs.delete(jobId);
+        removed++;
+      }
+    }
+    
+    // Marcar archivo como inactivo
+    try {
+      const configFiles = fs.readdirSync(this.configDir)
+        .filter(file => file.includes(scheduleId));
+      
+      for (const configFile of configFiles) {
+        const configPath = path.join(this.configDir, configFile);
+        const scheduleData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        scheduleData.status = 'inactive';
+        scheduleData.removedAt = new Date().toISOString();
+        fs.writeFileSync(configPath, JSON.stringify(scheduleData, null, 2));
+      }
+    } catch (error) {
+      console.error('❌ Error marcando programación como inactiva:', error);
+    }
+    
+    console.log(`🗑️ Programación removida: ${scheduleId} (${removed} trabajos)`);
+    return removed > 0;
+  }
+}
+
+module.exports = EnhancedRadioScheduler;

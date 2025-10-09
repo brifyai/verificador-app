@@ -156,11 +156,11 @@ export default function ConfigurarAnalisisPage() {
       // Convertir días de string a números (0=Domingo, 1=Lunes, etc.)
       const daysAsNumbers = scheduleDays.map(day => {
         const dayMap: { [key: string]: number } = {
-          'lunes': 1, 'martes': 2, 'miercoles': 3, 'jueves': 4, 
-          'viernes': 5, 'sabado': 6, 'domingo': 0
+          'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4, 
+          'friday': 5, 'saturday': 6, 'sunday': 0
         };
-        return dayMap[day.toLowerCase()] ?? parseInt(day);
-      });
+        return dayMap[day.toLowerCase()] ?? null;
+      }).filter(day => day !== null); // Filtrar valores null
 
       const requestData = {
         userId: 'user123', // TODO: Obtener del contexto de autenticación
