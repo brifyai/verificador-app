@@ -56,12 +56,26 @@ const PROVIDER_DEFAULTS: Record<string, any> = {
 function toApiProvider(c: any) {
   const metadata = (c?.metadata as any) || {};
   const defaults = PROVIDER_DEFAULTS[c.provider] || {};
+  
+  // Resolver API key desde variables de entorno si es un placeholder
+  let apiKey = c.apiKey || '';
+  if (apiKey && typeof apiKey === 'string') {
+    // Si la API key es un placeholder de variable de entorno, resolverla
+    const envVarName = apiKey.toUpperCase();
+    if (envVarName.endsWith('_API_KEY') && !apiKey.startsWith('sk-') && !apiKey.startsWith('gsk_')) {
+      const envValue = process.env[envVarName];
+      if (envValue) {
+        apiKey = envValue;
+      }
+    }
+  }
+  
   return {
     id: c.id,
     name: defaults.name || c.provider,
     type: defaults.type || 'transcription',
     baseUrl: metadata.baseUrl || defaults.baseUrl || '',
-    apiKey: c.apiKey || '', // texto plano temporal para pruebas
+    apiKey: apiKey,
     models: metadata.models || defaults.models || [],
     headers: metadata.headers || undefined,
     enabled: c.enabled,
