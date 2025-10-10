@@ -152,20 +152,31 @@ class EnhancedRadioScheduler {
     return results;
   }
 
-  // Iniciar grabación con carpetas organizadas
+  // Iniciar grabación con carpetas organizadas - VERSIÓN PARALELA
   startRecording(radio, duration, scheduleId, phrase = null) {
-    const timestamp = new Date().toISOString();
+    // Generar timestamp simple y válido
+    const now = new Date();
     const cleanRadioName = radio.name.replace(/[^a-zA-Z0-9]/g, '_');
     
+    // Verificar si ya hay una grabación activa para esta radio
+    const existingRecording = Array.from(this.activeRecordings.values())
+      .find(rec => rec.radio.id === radio.id && rec.status === 'recording');
+    
+    if (existingRecording) {
+      console.log(`⚠️ Ya hay una grabación activa para ${radio.name}, omitiendo...`);
+      return existingRecording.id;
+    }
+    
     // Crear carpeta separada usando TranscriptionManager
-    const recordingFolder = this.transcriptionManager.createRecordingFolder(cleanRadioName, timestamp);
+    const recordingFolder = this.transcriptionManager.createRecordingFolder(cleanRadioName, now);
     const filepath = path.join(recordingFolder.folderPath, recordingFolder.audioFileName);
     
-    console.log(`🎙️ Iniciando grabación: ${radio.name}`);
+    const recordingId = `${scheduleId}_${radio.id}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    
+    console.log(`🎙️ [PARALELO] Iniciando grabación: ${radio.name}`);
     console.log(`📁 Carpeta: ${recordingFolder.folderName}`);
     console.log(`⏱️ Duración: ${duration} segundos`);
-    
-    const recordingId = `${scheduleId}_${radio.id}_${Date.now()}`;
+    console.log(`🆔 ID: ${recordingId}`);
     
     // Crear metadata completa
     const metadata = {
@@ -179,7 +190,7 @@ class EnhancedRadioScheduler {
       scheduleId: scheduleId,
       phrase: phrase,
       recording: {
-        startTime: timestamp,
+        startTime: now.toISOString(),
         duration: duration,
         filename: recordingFolder.audioFileName,
         folderName: recordingFolder.folderName,
@@ -193,11 +204,17 @@ class EnhancedRadioScheduler {
       status: 'recording'
     };
     
-    // Guardar metadata
-    const metadataPath = path.join(recordingFolder.folderPath, 'recording_info.json');
-    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+    // Guardar metadata de forma asíncrona para no bloquear
+    setImmediate(() => {
+      try {
+        const metadataPath = path.join(recordingFolder.folderPath, 'recording_info.json');
+        fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+      } catch (error) {
+        console.error(`❌ Error guardando metadata para ${radio.name}:`, error.message);
+      }
+    });
     
-    // Comando ffmpeg optimizado
+    // Comando ffmpeg optimizado con configuración para múltiples streams
     const ffmpegArgs = [
       '-i', radio.streamUrl,
       '-t', duration.toString(),
@@ -205,11 +222,21 @@ class EnhancedRadioScheduler {
       '-ab', '128k',
       '-ar', '44100',
       '-ac', '1', // Mono para reducir tamaño
+      '-threads', '1', // Limitar threads por proceso
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '2',
       '-y',
       filepath
     ];
     
-    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+    console.log(`🚀 [${radio.name}] Ejecutando: ffmpeg ${ffmpegArgs.join(' ')}`);
+    
+    // Spawn proceso de forma no bloqueante
+    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false
+    });
     
     // Información de grabación activa
     const recordingInfo = {
@@ -225,19 +252,34 @@ class EnhancedRadioScheduler {
       process: ffmpegProcess,
       phrase: phrase,
       status: 'recording',
-      metadata: metadata
+      metadata: metadata,
+      pid: ffmpegProcess.pid
     };
     
+    // Agregar INMEDIATAMENTE al mapa de grabaciones activas
     this.activeRecordings.set(recordingId, recordingInfo);
     
-    // Manejar eventos del proceso
+    console.log(`✅ [${radio.name}] Proceso iniciado con PID: ${ffmpegProcess.pid}`);
+    console.log(`📊 Total grabaciones activas: ${this.activeRecordings.size}`);
+    
+    // Manejar eventos del proceso de forma no bloqueante
     ffmpegProcess.stderr.on('data', (data) => {
       const output = data.toString();
       if (output.includes('time=')) {
-        // Log de progreso cada 30 segundos
-        if (Math.random() < 0.1) {
-          console.log(`[${radio.name}] Grabando...`);
+        // Log de progreso ocasional
+        if (Math.random() < 0.05) { // Reducir frecuencia de logs
+          console.log(`[${radio.name}] 🎵 Grabando...`);
         }
+      }
+      if (output.includes('error') || output.includes('Error')) {
+        console.error(`❌ [${radio.name}] Error ffmpeg:`, output.trim());
+      }
+    });
+    
+    ffmpegProcess.on('error', (error) => {
+      console.error(`❌ [${radio.name}] Error proceso:`, error.message);
+      if (this.activeRecordings.has(recordingId)) {
+        this.activeRecordings.get(recordingId).status = 'failed';
       }
     });
     
@@ -245,7 +287,7 @@ class EnhancedRadioScheduler {
       const endTime = new Date();
       const actualDuration = Math.round((endTime - recordingInfo.startTime) / 1000);
       
-      console.log(`✅ Grabación finalizada: ${radio.name} (${actualDuration}s, código: ${code})`);
+      console.log(`🏁 [${radio.name}] Grabación finalizada: ${actualDuration}s (código: ${code})`);
       
       if (this.activeRecordings.has(recordingId)) {
         const recording = this.activeRecordings.get(recordingId);

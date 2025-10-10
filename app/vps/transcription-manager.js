@@ -43,7 +43,27 @@ class TranscriptionManager {
 
   // Crear estructura de carpetas para grabación
   createRecordingFolder(radioName, timestamp) {
-    const date = new Date(timestamp);
+    let date;
+    
+    // Manejar diferentes formatos de timestamp
+    try {
+      if (typeof timestamp === 'string' && timestamp.includes('_')) {
+        // Si el timestamp ya tiene formato personalizado, usar fecha actual
+        date = new Date();
+      } else {
+        date = new Date(timestamp);
+      }
+      
+      // Verificar si la fecha es válida
+      if (isNaN(date.getTime())) {
+        console.warn(`⚠️ Timestamp inválido: ${timestamp}, usando fecha actual`);
+        date = new Date();
+      }
+    } catch (error) {
+      console.warn(`⚠️ Error parseando timestamp: ${timestamp}, usando fecha actual`);
+      date = new Date();
+    }
+    
     const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
     

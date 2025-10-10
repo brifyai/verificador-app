@@ -22,9 +22,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
-app.get('/', (req, res) => {
-  res.json({
+// Healt*
     status: 'ok',
     message: 'Radio Monitoring VPS Server',
     timestamp: new Date().toISOString(),
