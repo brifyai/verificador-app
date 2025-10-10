@@ -243,6 +243,8 @@ export default function ConfigurarAnalisisPage() {
         };
         return dayMap[day.toLowerCase()] ?? null;
       }).filter(day => day !== null); // Filtrar valores null
+        return dayMap[day.toLowerCase()] ?? parseInt(day);
+      });
 
       const selectedConfig = apiConfigurations.find(c => c.id === selectedApiConfigId);
 
@@ -253,8 +255,7 @@ export default function ConfigurarAnalisisPage() {
         days: daysAsNumbers.length > 0 ? daysAsNumbers : [1, 2, 3, 4, 5, 6, 0], // Si no hay días, usar todos
         startTime: startTime,
         endTime: endTime,
-        apiConfigId: selectedApiConfigId,
-        aiModel: selectedConfig?.model || null,
+        aiModel: selectedAiModel,
         description: `Monitoreo programado desde dashboard - ${new Date().toLocaleDateString()}`
       };
 
