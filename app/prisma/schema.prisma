@@ -52,6 +52,10 @@ model Radio {
   metadata    Json?    // Información adicional como calidad, bitrate, etc.
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  
+  // Campos de verificación de estado
+  lastVerificationStatus VerificationStatus?
+  lastVerifiedAt         DateTime?
 
 
   sessions    MonitoringSession[]
@@ -80,6 +84,11 @@ enum RadioStatus {
   INACTIVE
   MAINTENANCE
   ERROR
+}
+
+enum VerificationStatus {
+  ONLINE
+  OFFLINE
 }
 
 // Frases publicitarias a detectar

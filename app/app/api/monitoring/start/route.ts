@@ -43,8 +43,15 @@ async function sendScheduleToVPS(scheduleData: any) {
     });
 
     if (!response.ok) {
+<<<<<<< HEAD
       const errorText = await response.text();
       throw new Error(`VPS respondió con error ${response.status}: ${errorText}`);
+=======
+      const errorBody = await response.text(); 
+      console.error(`❌ El VPS respondió con un error: ${response.status} ${response.statusText}`);
+      console.error(`❌ Cuerpo de la respuesta del VPS:`, errorBody);
+      throw new Error(`Error al enviar señal al VPS: ${response.statusText}`);
+>>>>>>> origin/feature/mzurita
     }
 
     const result = await response.json();
@@ -61,7 +68,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
+<<<<<<< HEAD
     console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
+=======
+    // Detectar si es una solicitud individual o masiva
+    const isIndividualRequest = body.radioId && !body.radioIds;
+    // Extraer horarios de grabación (por defecto 5 AM - 2 AM)
+    const recordingStartHour = body.recordingStartHour ?? 5;
+    const recordingEndHour = body.recordingEndHour ?? 2;
+    
+    console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
+    console.log('🔍 Tipo de solicitud:', isIndividualRequest ? 'Individual' : 'Masiva');
+    console.log(`⏰ Horarios de grabación: ${recordingStartHour}:00 - ${recordingEndHour}:00`);
+>>>>>>> origin/feature/mzurita
 
     // Validar datos requeridos para programación
     const { 
@@ -87,6 +106,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Debe seleccionar una frase a detectar' }, { status: 400 });
     }
 
+<<<<<<< HEAD
     if (!days || !Array.isArray(days)) {
       return NextResponse.json({ error: 'El parámetro days debe ser un array' }, { status: 400 });
     }
@@ -166,6 +186,31 @@ export async function POST(request: NextRequest) {
       // Si no hay streamUrl directo, buscar en metadata
       if (!actualStreamUrl && radio.metadata && typeof radio.metadata === 'object') {
         const metadata = radio.metadata as any;
+=======
+    // Intentar obtener userId válido (sesión aún no integrada: usar primer usuario como fallback)
+    let userId: string | null = null;
+    try {
+      const firstUser = await prisma.user.findFirst({ select: { id: true } });
+      if (firstUser) userId = firstUser.id;
+    } catch (e) {
+      console.warn('⚠️ No se pudo obtener un usuario por defecto.');
+    }
+
+    if (!userId) {
+      // Si no hay usuario, abortar para evitar violar el esquema (MonitoringSession.userId es requerido)
+      return NextResponse.json({
+        success: false,
+        error: 'No existe un usuario en la base de datos para asociar la sesión. Crea al menos un usuario o configura autenticación.'
+      }, { status: 400 });
+    }
+
+    // Enviar señal al VPS y crear sesión por cada radio
+    const results = [] as Array<{ radioId: string; radioName: string; sessionId?: string; success: boolean; message?: string; error?: string; streamUrl?: string; recordingHours?: string }>;
+    for (const radio of radiosToProcess) {
+      try {
+        console.log(`🚀 Iniciando grabación para ${radio.name} (${radio.id})`);
+        console.log(`📊 Datos completos de la radio:`, JSON.stringify(radio, null, 2));
+>>>>>>> origin/feature/mzurita
         
         // Buscar en platformData
         if (metadata.platformData && metadata.platformData.url) {
@@ -178,6 +223,52 @@ export async function POST(request: NextRequest) {
         else if (metadata.stream_url) {
           actualStreamUrl = metadata.stream_url.replace(/`/g, '').trim();
         }
+<<<<<<< HEAD
+=======
+        
+        // 1) Crear sesión de monitoreo en la base de datos con horarios
+        const session = await prisma.monitoringSession.create({
+          data: {
+            radioId: radio.id,
+            userId: userId,
+            status: 'ACTIVE',
+            captureInterval: 30,
+            captureDuration: 600, // 10 minutos
+            recordingStartHour: recordingStartHour,
+            recordingEndHour: recordingEndHour,
+            configuration: {
+              streamUrl: actualStreamUrl,
+              language: 'es',
+              autoTranscription: true,
+              phraseDetection: true
+            }
+          }
+        });
+
+        console.log(`✅ Sesión de monitoreo creada: ${session.id}`);
+
+        // 2) Enviar señal al VPS
+        await sendSignalToVPS(radio.id, actualStreamUrl);
+
+        // 3) Resumen
+        results.push({
+          radioId: radio.id,
+          radioName: radio.name,
+          sessionId: session.id,
+          success: true,
+          message: 'Grabación iniciada exitosamente',
+          streamUrl: actualStreamUrl,
+          recordingHours: `${recordingStartHour}:00 - ${recordingEndHour}:00`
+        });
+      } catch (error: any) {
+        console.error(`❌ Error con radio ${radio.name}:`, error.message);
+        results.push({
+          radioId: radio.id,
+          radioName: radio.name,
+          success: false,
+          error: error.message
+        });
+>>>>>>> origin/feature/mzurita
       }
       
       // Log para debugging
@@ -218,6 +309,7 @@ export async function POST(request: NextRequest) {
     
     const durationSeconds = durationMinutes * 60;
 
+<<<<<<< HEAD
     // Procesar días: si está vacío o contiene nulls, usar todos los días
     const processedDays = days.length === 0 || days.some(day => day === null) 
       ? [1, 2, 3, 4, 5, 6, 0] // Todos los días (Lun-Dom)
@@ -260,6 +352,25 @@ export async function POST(request: NextRequest) {
         totalRadios: radios.length,
         source: 'monitoring_start',
         estimatedCost: calculateEstimatedCost(radios.length, durationMinutes, aiModel || 'estandar')
+=======
+    // Respuesta diferente para solicitudes individuales vs masivas
+    if (isIndividualRequest) {
+      const result = results[0];
+      if (result.success) {
+        return NextResponse.json({
+          success: true,
+          sessionId: result.sessionId,
+          message: result.message,
+          radioName: result.radioName,
+          streamUrl: result.streamUrl,
+          recordingHours: result.recordingHours
+        });
+      } else {
+        return NextResponse.json({
+          success: false,
+          error: result.error
+        }, { status: 400 });
+>>>>>>> origin/feature/mzurita
       }
     };
 

@@ -9,7 +9,7 @@ import { Radio } from '@/lib/mock-data';
 import { MONITORING_CAPABILITIES } from '@/lib/streaming-platforms';
 import { 
   Play, Pause, Edit, Trash2, Globe, MapPin, Zap, Clock, 
-  Volume2, Settings, DollarSign, Loader 
+  Volume2, Settings, DollarSign, Loader, RefreshCw 
 } from 'lucide-react';
 
 interface RadioCardProps {
@@ -20,6 +20,8 @@ interface RadioCardProps {
   onPlay: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onVerify?: (radioId: string) => void;
+  isVerifying?: boolean;
   getPlatformIcon: (platform: string) => JSX.Element;
   getPlatformName: (platform: string) => string;
 }
@@ -32,6 +34,8 @@ export function RadioCard({
   onPlay,
   onEdit,
   onDelete,
+  onVerify,
+  isVerifying = false,
   getPlatformIcon,
   getPlatformName,
 }: RadioCardProps) {
@@ -47,6 +51,17 @@ export function RadioCard({
             <div className="flex items-center space-x-2">
               <div className={`w-3 h-3 rounded-full ${radio.isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
               <CardTitle className="text-lg text-white leading-tight font-semibold">{radio.name}</CardTitle>
+              {/* Indicador de verificación de stream */}
+              {(radio as any).lastVerificationStatus && (
+                <div 
+                  className={`w-2 h-2 rounded-full ${
+                    (radio as any).lastVerificationStatus === 'ONLINE' 
+                      ? 'bg-green-400' 
+                      : 'bg-red-400'
+                  }`}
+                  title={`Stream ${(radio as any).lastVerificationStatus === 'ONLINE' ? 'en línea' : 'fuera de línea'}`}
+                />
+              )}
             </div>
             <CardDescription className="text-gray-400 font-medium">
               {radio.programadora}
@@ -107,13 +122,41 @@ export function RadioCard({
           )}
         </div>
         
-        {/* Último monitoreo */}
-        {radio.lastMonitored && (
-          <div className="flex items-center space-x-2 text-sm bg-gray-700/20 rounded-lg px-3 py-2">
-            <Clock className="h-3 w-3 text-gray-400" />
-            <span className="text-gray-400">Último monitoreo: {radio.lastMonitored}</span>
-          </div>
-        )}
+        {/* Último monitoreo y verificación */}
+        <div className="space-y-2">
+          {radio.lastMonitored && (
+            <div className="flex items-center space-x-2 text-sm bg-gray-700/20 rounded-lg px-3 py-2">
+              <Clock className="h-3 w-3 text-gray-400" />
+              <span className="text-gray-400">Último monitoreo: {radio.lastMonitored}</span>
+            </div>
+          )}
+          {(radio as any).lastVerifiedAt && (
+            <div className="flex items-center justify-between text-sm bg-gray-700/20 rounded-lg px-3 py-2">
+              <div className="flex items-center space-x-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  (radio as any).lastVerificationStatus === 'ONLINE' 
+                    ? 'bg-green-400 animate-pulse' 
+                    : 'bg-red-400'
+                }`} />
+                <span className="text-gray-400">
+                  Stream: {
+                    (radio as any).lastVerificationStatus === 'ONLINE' 
+                      ? 'Online' 
+                      : 'Offline'
+                  }
+                </span>
+              </div>
+              <span className="text-gray-500 text-xs">
+                {new Date((radio as any).lastVerifiedAt).toLocaleString('es-CL', { 
+                  day: '2-digit', 
+                  month: '2-digit', 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </span>
+            </div>
+          )}
+        </div>
         
         <Separator className="bg-gray-600" />
         
@@ -149,6 +192,23 @@ export function RadioCard({
           </Button>
           
           <div className="flex items-center space-x-2">
+            {onVerify && (
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => onVerify(radio.id)}
+                disabled={isVerifying}
+                className="text-blue-500 bg-gray-700 hover:text-white hover:bg-blue-500/10 border-blue-600/50 transition-all duration-200"
+                title="Verificar stream"
+              >
+                {isVerifying ? (
+                  <Loader className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+            )}
+            
             <Button 
               size="sm" 
               variant="outline" 
