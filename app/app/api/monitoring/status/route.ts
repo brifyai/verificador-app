@@ -1,66 +1,190 @@
 
-import { NextResponse } from 'next/server';
-import { monitoringService } from '@/lib/monitoring-service';
+import { NextRequest, NextResponse } from 'next/server';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // Obtener estado real del sistema
-    const systemHealth = await monitoringService.checkSystemHealth();
-    const systemStats = await monitoringService.getSystemStats();
-    const activeSessions = monitoringService.getActiveSessions();
-    const recentDetections = await monitoringService.getRecentDetections(5);
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status') || 'ALL';
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+
+    console.log(`📊 API /monitoring/status - Consultando sesiones con filtro: ${status}, límite: ${limit}`);
+
+    // Obtener sesiones de monitoreo desde la base de datos
+    const activeSessions = await prisma.monitoringSession.findMany({
+      where: status === 'ALL' ? {} : {
+        status: status as any
+      },
+      include: {
+        radio: {
+          select: {
+            id: true,
+            name: true,
+            region: true,
+            platform: true
+          }
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        detections: {
+          take: 5,
+          orderBy: {
+            timestamp: 'desc'
+          },
+          select: {
+            id: true,
+            confidence: true,
+            timestamp: true,
+            phraseId: true
+          }
+        }
+      },
+      orderBy: {
+        startTime: 'desc'
+      },
+      take: limit
+    });
+
+    console.log(`📋 Sesiones encontradas en la base de datos: ${activeSessions.length}`);
+    if (activeSessions.length > 0) {
+      console.log(`📝 Primera sesión:`, {
+        id: activeSessions[0].id,
+        radioName: (activeSessions[0] as any).radio?.name,
+        status: activeSessions[0].status,
+        startTime: activeSessions[0].startTime
+      });
+    }
+
+    // Obtener estadísticas generales
+    const totalSessions = await prisma.monitoringSession.count();
+    const activeSessionsCount = await prisma.monitoringSession.count({
+      where: { status: 'ACTIVE' }
+    });
+    const totalDetections = await prisma.detection.count();
+    const recentDetections = await prisma.detection.count({
+      where: {
+        timestamp: {
+          gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Últimas 24 horas
+        }
+      }
+    });
+
+    // Obtener detecciones recientes con información completa
+    const latestDetections = await prisma.detection.findMany({
+      take: 10,
+      orderBy: {
+        timestamp: 'desc'
+      },
+      include: {
+        session: {
+          include: {
+            radio: {
+              select: {
+                name: true,
+                region: true
+              }
+            }
+          }
+        },
+        phrase: {
+          select: {
+            phrase: true,
+            brand: true,
+            campaign: true
+          }
+        }
+      }
+    });
+
+    const sessionsData = activeSessions.map(session => ({
+      id: session.id,
+      status: session.status,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      recordingStartHour: session.recordingStartHour,
+      recordingEndHour: session.recordingEndHour,
+      captureInterval: session.captureInterval,
+      captureDuration: session.captureDuration,
+      radio: (session as any).radio,
+      user: (session as any).user,
+      detectionsCount: (session as any).detections?.length || 0,
+      recentDetections: (session as any).detections || [],
+      configuration: session.configuration
+    }));
 
     const response = {
-      // Estado de dependencias/herramientas
-      dependencies: systemHealth.audioCapture || {
-        'node-fetch': true,
-        'audio-capture': true,
-        'stream-processing': true,
-        'database': true
-      },
+      success: true,
+      data: sessionsData,
       
-      // Proveedores de transcripción
-      transcriptionProviders: systemHealth.transcriptionProviders || {
-        total: 0,
-        enabled: 0,
-        providers: {}
-      },
+      // Sesiones activas (para compatibilidad con dashboard principal)
+      activeSessions: sessionsData,
       
-      // Estado general
-      activeCaptures: systemStats.totalCaptures || 0,
-      activeSessions: activeSessions,
-      totalEvents: systemStats.totalDetections || 0,
-      systemReady: systemHealth.systemReady || false,
-      systemStatus: systemHealth.systemReady ? 'ready' : 'configuration_needed',
+      // Estadísticas
+      stats: {
+        totalSessions,
+        activeSessions: activeSessionsCount,
+        totalDetections,
+        recentDetections,
+        systemReady: true,
+        systemStatus: 'ready'
+      },
       
       // Detecciones recientes
-      recentDetections: recentDetections.slice(0, 5),
+      recentDetections: latestDetections.map(detection => ({
+        id: detection.id,
+        confidence: detection.confidence,
+        timestamp: detection.timestamp,
+        radio: (detection as any).session?.radio,
+        phrase: (detection as any).phrase,
+        detectedText: detection.detectedText,
+        originalText: detection.originalText
+      })),
       
-      // Estadísticas adicionales
-      queueStats: systemHealth.jobQueue,
-      phraseCount: systemHealth.phraseDetection?.activePhrases || 0,
-      lastCheck: systemHealth.lastCheck || new Date()
+      // Estado del sistema
+      dependencies: {
+        'database': true,
+        'prisma': true,
+        'monitoring': true
+      },
+      
+      lastCheck: new Date().toISOString()
     };
+
+    console.log(`✅ Enviando respuesta con ${sessionsData.length} sesiones`);
+    console.log(`📊 Estadísticas: Total=${totalSessions}, Activas=${activeSessionsCount}, Detecciones=${totalDetections}`);
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Error en monitoring status:', error);
+    console.error('Error obteniendo estado de monitoreo:', error);
     return NextResponse.json({
-      dependencies: {
-        'node-fetch': true,
-        'audio-capture': false,
-        'stream-processing': false,
-        'database': false
-      },
-      activeCaptures: 0,
+      success: false,
+      data: [],
       activeSessions: [],
-      totalEvents: 0,
-      systemReady: false,
-      systemStatus: 'error',
+      stats: {
+        totalSessions: 0,
+        activeSessions: 0,
+        totalDetections: 0,
+        recentDetections: 0,
+        systemReady: false,
+        systemStatus: 'error'
+      },
       recentDetections: [],
-      error: error instanceof Error ? error.message : 'Unknown error'
+      dependencies: {
+        'database': false,
+        'prisma': false,
+        'monitoring': false
+      },
+      error: error instanceof Error ? error.message : 'Error desconocido',
+      lastCheck: new Date().toISOString()
     }, { status: 500 });
   }
 }

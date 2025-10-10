@@ -113,38 +113,41 @@ export default function ConfigurarAnalisisPage() {
     fetchData();
   }, []);
 
-  // Cargar sesiones (todas o activas) cuando cambie la pestaña
+  // Cargar todas las sesiones y filtrar según la pestaña
   useEffect(() => {
     let interval: any;
-    const load = async () => {
+    const loadAllSessions = async () => {
       try {
         setLoadingActive(true);
-        const url = activeTab === 'active' 
-          ? '/api/monitoring/sessions?status=ACTIVE&limit=100'
-          : '/api/monitoring/sessions?status=ALL&limit=100';
-        const res = await fetch(url);
+        const res = await fetch('/api/monitoring/status?status=ALL&limit=100');
         const data = await res.json();
+        
         if (data && data.success) {
-          setActiveSessions(data.data || []);
-        } else if (activeTab === 'active') {
-          // fallback a status
+          const allSessions = data.data || [];
+          setActiveSessions(allSessions);
+          console.log(`📊 Cargadas ${allSessions.length} sesiones totales`);
+        } else {
+          // fallback
           const res2 = await fetch('/api/monitoring/status');
           const d2 = await res2.json();
-          setActiveSessions(Array.isArray(d2.activeSessions) ? d2.activeSessions : []);
-        } else {
-          setActiveSessions([]);
+          const fallbackSessions = Array.isArray(d2.activeSessions) ? d2.activeSessions : [];
+          setActiveSessions(fallbackSessions);
+          console.log(`📊 Fallback: ${fallbackSessions.length} sesiones`);
         }
       } catch (e) {
-        // noop
+        console.error('Error cargando sesiones:', e);
+        setActiveSessions([]);
       } finally {
         setLoadingActive(false);
       }
     };
+
+    // Cargar sesiones para ambas pestañas
     if (activeTab === 'active' || activeTab === 'new') {
-      load();
-      interval = setInterval(load, 20000);
+      loadAllSessions();
+      interval = setInterval(loadAllSessions, 20000);
     }
-    return () => interval && clearInterval(interval);
+    return () => clearInterval(interval);
   }, [activeTab]);
 
   // Funciones para manejar la selección de radios
@@ -243,8 +246,6 @@ export default function ConfigurarAnalisisPage() {
         };
         return dayMap[day.toLowerCase()] ?? null;
       }).filter(day => day !== null); // Filtrar valores null
-        return dayMap[day.toLowerCase()] ?? parseInt(day);
-      });
 
       const selectedConfig = apiConfigurations.find(c => c.id === selectedApiConfigId);
 
@@ -255,7 +256,8 @@ export default function ConfigurarAnalisisPage() {
         days: daysAsNumbers.length > 0 ? daysAsNumbers : [1, 2, 3, 4, 5, 6, 0], // Si no hay días, usar todos
         startTime: startTime,
         endTime: endTime,
-        aiModel: selectedAiModel,
+        apiConfigId: selectedApiConfigId,
+        aiModel: selectedConfig?.model || null,
         description: `Monitoreo programado desde dashboard - ${new Date().toLocaleDateString()}`
       };
 
@@ -264,23 +266,7 @@ export default function ConfigurarAnalisisPage() {
       const response = await fetch("/api/monitoring/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-<<<<<<< HEAD
-<<<<<<< HEAD
         body: JSON.stringify(requestData),
-=======
-        body: JSON.stringify({
-          filterType: 'custom',
-          radioIds: Array.from(selectedRadioIds),
-          phraseId: selectedPhraseId,
-          apiConfigId: selectedApiConfigId,     // ✅ ID de configuración de API
-          scheduleDays: scheduleDays,
-          recordingStartHour,
-          recordingEndHour,
-        }),
->>>>>>> origin/feature/mzurita
-=======
-        body: JSON.stringify(requestData),
->>>>>>> origin/feature/mzurita
       });
 
       const data = await response.json();
@@ -461,7 +447,7 @@ export default function ConfigurarAnalisisPage() {
                                 setShowDetailsModal(true);
                                 setLoadingDetails(true);
                                 try {
-                                  const res = await fetch(`/api/monitoring/sessions/${sessionId}`);
+                                  const res = await fetch(`/api/monitoring/status?sessionId=${sessionId}`);
                                   const data = await res.json();
                                   setSessionDetails(data.success ? data.data : null);
                                 } catch (error) {

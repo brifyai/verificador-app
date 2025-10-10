@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export const dynamic = 'force-dynamic';
 
@@ -32,55 +34,43 @@ async function sendScheduleToVPS(scheduleData: any) {
     
     console.log('📡 Enviando programación a VPS:', vpsUrl);
     console.log('📋 Datos:', JSON.stringify(scheduleData, null, 2));
-
     const response = await fetch(vpsUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(scheduleData),
-      signal: AbortSignal.timeout(10000) // 10 segundos timeout
+      body: JSON.stringify(scheduleData)
     });
-
     if (!response.ok) {
-<<<<<<< HEAD
-      const errorText = await response.text();
-      throw new Error(`VPS respondió con error ${response.status}: ${errorText}`);
-=======
       const errorBody = await response.text(); 
       console.error(`❌ El VPS respondió con un error: ${response.status} ${response.statusText}`);
       console.error(`❌ Cuerpo de la respuesta del VPS:`, errorBody);
       throw new Error(`Error al enviar señal al VPS: ${response.statusText}`);
->>>>>>> origin/feature/mzurita
     }
-
     const result = await response.json();
     console.log('✅ VPS respondió correctamente:', result);
     return result;
 
   } catch (error: any) {
     console.error('❌ Error enviando a VPS:', error.message);
-    throw error;
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('🚀 === INICIANDO PROCESO DE MONITOREO ===');
+    console.log('📅 Timestamp:', new Date().toISOString());
+    
     const body = await request.json();
-    
-<<<<<<< HEAD
-    console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
-=======
-    // Detectar si es una solicitud individual o masiva
-    const isIndividualRequest = body.radioId && !body.radioIds;
-    // Extraer horarios de grabación (por defecto 5 AM - 2 AM)
-    const recordingStartHour = body.recordingStartHour ?? 5;
-    const recordingEndHour = body.recordingEndHour ?? 2;
-    
-    console.log('📥 Request recibido:', JSON.stringify(body, null, 2));
-    console.log('🔍 Tipo de solicitud:', isIndividualRequest ? 'Individual' : 'Masiva');
-    console.log(`⏰ Horarios de grabación: ${recordingStartHour}:00 - ${recordingEndHour}:00`);
->>>>>>> origin/feature/mzurita
+    console.log('📥 Datos recibidos:', JSON.stringify(body, null, 2));
+    console.log('📊 Resumen de datos:', {
+      userId: body.userId,
+      radioIds: body.radioIds?.length || 0,
+      phraseId: body.phraseId,
+      days: body.days,
+      startTime: body.startTime,
+      endTime: body.endTime
+    });
 
     // Validar datos requeridos para programación
     const { 
@@ -106,7 +96,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Debe seleccionar una frase a detectar' }, { status: 400 });
     }
 
-<<<<<<< HEAD
     if (!days || !Array.isArray(days)) {
       return NextResponse.json({ error: 'El parámetro days debe ser un array' }, { status: 400 });
     }
@@ -186,31 +175,6 @@ export async function POST(request: NextRequest) {
       // Si no hay streamUrl directo, buscar en metadata
       if (!actualStreamUrl && radio.metadata && typeof radio.metadata === 'object') {
         const metadata = radio.metadata as any;
-=======
-    // Intentar obtener userId válido (sesión aún no integrada: usar primer usuario como fallback)
-    let userId: string | null = null;
-    try {
-      const firstUser = await prisma.user.findFirst({ select: { id: true } });
-      if (firstUser) userId = firstUser.id;
-    } catch (e) {
-      console.warn('⚠️ No se pudo obtener un usuario por defecto.');
-    }
-
-    if (!userId) {
-      // Si no hay usuario, abortar para evitar violar el esquema (MonitoringSession.userId es requerido)
-      return NextResponse.json({
-        success: false,
-        error: 'No existe un usuario en la base de datos para asociar la sesión. Crea al menos un usuario o configura autenticación.'
-      }, { status: 400 });
-    }
-
-    // Enviar señal al VPS y crear sesión por cada radio
-    const results = [] as Array<{ radioId: string; radioName: string; sessionId?: string; success: boolean; message?: string; error?: string; streamUrl?: string; recordingHours?: string }>;
-    for (const radio of radiosToProcess) {
-      try {
-        console.log(`🚀 Iniciando grabación para ${radio.name} (${radio.id})`);
-        console.log(`📊 Datos completos de la radio:`, JSON.stringify(radio, null, 2));
->>>>>>> origin/feature/mzurita
         
         // Buscar en platformData
         if (metadata.platformData && metadata.platformData.url) {
@@ -223,52 +187,6 @@ export async function POST(request: NextRequest) {
         else if (metadata.stream_url) {
           actualStreamUrl = metadata.stream_url.replace(/`/g, '').trim();
         }
-<<<<<<< HEAD
-=======
-        
-        // 1) Crear sesión de monitoreo en la base de datos con horarios
-        const session = await prisma.monitoringSession.create({
-          data: {
-            radioId: radio.id,
-            userId: userId,
-            status: 'ACTIVE',
-            captureInterval: 30,
-            captureDuration: 600, // 10 minutos
-            recordingStartHour: recordingStartHour,
-            recordingEndHour: recordingEndHour,
-            configuration: {
-              streamUrl: actualStreamUrl,
-              language: 'es',
-              autoTranscription: true,
-              phraseDetection: true
-            }
-          }
-        });
-
-        console.log(`✅ Sesión de monitoreo creada: ${session.id}`);
-
-        // 2) Enviar señal al VPS
-        await sendSignalToVPS(radio.id, actualStreamUrl);
-
-        // 3) Resumen
-        results.push({
-          radioId: radio.id,
-          radioName: radio.name,
-          sessionId: session.id,
-          success: true,
-          message: 'Grabación iniciada exitosamente',
-          streamUrl: actualStreamUrl,
-          recordingHours: `${recordingStartHour}:00 - ${recordingEndHour}:00`
-        });
-      } catch (error: any) {
-        console.error(`❌ Error con radio ${radio.name}:`, error.message);
-        results.push({
-          radioId: radio.id,
-          radioName: radio.name,
-          success: false,
-          error: error.message
-        });
->>>>>>> origin/feature/mzurita
       }
       
       // Log para debugging
@@ -309,7 +227,6 @@ export async function POST(request: NextRequest) {
     
     const durationSeconds = durationMinutes * 60;
 
-<<<<<<< HEAD
     // Procesar días: si está vacío o contiene nulls, usar todos los días
     const processedDays = days.length === 0 || days.some(day => day === null) 
       ? [1, 2, 3, 4, 5, 6, 0] // Todos los días (Lun-Dom)
@@ -352,25 +269,6 @@ export async function POST(request: NextRequest) {
         totalRadios: radios.length,
         source: 'monitoring_start',
         estimatedCost: calculateEstimatedCost(radios.length, durationMinutes, aiModel || 'estandar')
-=======
-    // Respuesta diferente para solicitudes individuales vs masivas
-    if (isIndividualRequest) {
-      const result = results[0];
-      if (result.success) {
-        return NextResponse.json({
-          success: true,
-          sessionId: result.sessionId,
-          message: result.message,
-          radioName: result.radioName,
-          streamUrl: result.streamUrl,
-          recordingHours: result.recordingHours
-        });
-      } else {
-        return NextResponse.json({
-          success: false,
-          error: result.error
-        }, { status: 400 });
->>>>>>> origin/feature/mzurita
       }
     };
 
@@ -399,15 +297,166 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Enviar programación a la VPS
+    // 1. Crear sesiones de monitoreo en la base de datos local
+    console.log('💾 Creando sesiones de monitoreo en la base de datos...');
+    console.log(`🔍 Verificando conexión a BD - Total radios a procesar: ${radios.length}`);
+    
+    // Verificar conexión a la base de datos
     try {
-      console.log('✅ VPS disponible, enviando programación...');
+      const testConnection = await prisma.user.findFirst();
+      console.log(`✅ Conexión a BD exitosa - Usuario de prueba: ${testConnection?.id || 'No encontrado'}`);
+    } catch (dbError: any) {
+      console.error('❌ Error de conexión a la base de datos:', dbError.message);
+      return NextResponse.json({
+        success: false,
+        error: 'Error de conexión a la base de datos',
+        details: dbError.message
+      }, { status: 500 });
+    }
+    
+    const createdSessions = [];
+    
+    for (const radio of radios) {
+      try {
+        console.log(`📝 Creando sesión para radio: ${radio.name}`);
+        
+        const session = await prisma.monitoringSession.create({
+          data: {
+            // Relaciones requeridas
+            radio: {
+              connect: { id: radio.id }
+            },
+            user: {
+              connect: { id: userId }
+            },
+            
+            // Campos exactos de la tabla monitoring_sessions
+            status: 'ACTIVE',
+            startTime: new Date(), // timestamp with time zone
+            endTime: null, // Se establecerá cuando termine
+            captureInterval: 30, // integer - segundos entre capturas
+            captureDuration: 10, // integer - duración de cada captura (según la tabla es 10, no 600)
+            totalCaptures: 0, // integer - inicia en 0
+            totalDetections: 0, // integer - inicia en 0
+            lastCaptureAt: null, // timestamp - se establecerá con la primera captura
+            lastDetectionAt: null, // timestamp - se establecerá con la primera detección
+            recordingStartHour: parseInt(startTime.split(':')[0]), // integer - hora de inicio (5 por defecto)
+            recordingEndHour: parseInt(endTime.split(':')[0]), // integer - hora de fin (2 por defecto)
+            
+            // JSON fields - información completa
+            configuration: {
+              // Información del stream y radio
+              streamUrl: radiosForVPS.find(r => r.id === radio.id)?.streamUrl || '',
+              radioId: radio.id, // Guardamos el radioId en configuration
+              radioName: radio.name,
+              radioRegion: radio.region,
+              
+              // Configuración de IA y detección
+              language: 'es',
+              aiModel: aiModel || 'estandar',
+              autoTranscription: true,
+              phraseDetection: true,
+              
+              // Información completa de la frase
+              phrase: {
+                id: phrase.id,
+                text: phrase.phrase,
+                brand: phrase.brand,
+                campaign: phrase.campaign || 'Sin campaña',
+                category: phrase.category,
+                description: phrase.description
+              },
+              
+              // Configuración de horarios
+              schedule: {
+                startTime: startTime,
+                endTime: endTime,
+                days: processedDays,
+                duration: durationSeconds,
+                durationMinutes: durationMinutes
+              }
+            },
+            
+            metadata: {
+              // Request original completo
+              originalRequest: {
+                userId: userId,
+                radioIds: radioIds,
+                phraseId: phraseId,
+                days: days,
+                startTime: startTime,
+                endTime: endTime,
+                aiModel: aiModel,
+                description: description
+              },
+              
+              // Datos para el VPS
+              vpsData: {
+                scheduleData: scheduleData,
+                vpsScheduleId: `schedule_${userId}_${Date.now()}`,
+                estimatedCost: scheduleData.metadata.estimatedCost
+              },
+              
+              // Información de creación
+              creation: {
+                createdFrom: 'monitoring_start_api',
+                createdAt: new Date().toISOString(),
+                source: 'dashboard_monitoring',
+                totalRadios: radios.length
+              }
+            }
+          }
+        });
+
+        console.log(`✅ Sesión creada exitosamente: ${session.id}`);
+        console.log(`📊 Datos guardados en monitoring_sessions:`, {
+          id: session.id,
+          userId: session.userId,
+          status: session.status,
+          startTime: session.startTime,
+          captureInterval: session.captureInterval,
+          captureDuration: session.captureDuration,
+          recordingStartHour: session.recordingStartHour,
+          recordingEndHour: session.recordingEndHour,
+          hasConfiguration: !!session.configuration,
+          hasMetadata: !!session.metadata
+        });
+        createdSessions.push(session);
+        
+      } catch (error: any) {
+        console.error(`❌ Error creando sesión para ${radio.name}:`, error.message);
+        console.error(`❌ Error completo:`, {
+          message: error.message,
+          code: error.code,
+          meta: error.meta,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+      }
+    }
+
+    console.log(`💾 ${createdSessions.length} sesiones creadas exitosamente`);
+
+    // 2. Enviar programación a la VPS
+    try {
+      console.log('📡 Enviando programación a la VPS...');
       const vpsResponse = await sendScheduleToVPS(scheduleData);
+
+      console.log('✅ Programación enviada exitosamente al VPS');
 
       return NextResponse.json({
         success: true,
-        message: 'Programación de monitoreo enviada correctamente a la VPS',
+        message: `Monitoreo iniciado correctamente. ${createdSessions.length} sesiones creadas y programación enviada al VPS.`,
         data: {
+          // Sesiones creadas en la base de datos
+          createdSessions: createdSessions.map((session: any) => ({
+            id: session.id,
+            radioId: session.radioId,
+            radioName: radios.find(r => r.id === session.radioId)?.name || 'Radio desconocida',
+            status: session.status,
+            startTime: session.startTime,
+            recordingHours: `${session.recordingStartHour}:00 - ${session.recordingEndHour}:00`
+          })),
+          
           // Información de programación
           scheduledRadios: radios.length,
           days: processedDays,
@@ -446,10 +495,16 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
       console.error('❌ Error enviando programación a VPS:', error);
+      
+      // Aunque falló el VPS, las sesiones ya se crearon en la base de datos
       return NextResponse.json({
         success: false,
         error: 'Error al enviar programación a la VPS',
-        details: error.message
+        details: error.message,
+        data: {
+          createdSessions: createdSessions.length,
+          message: `Se crearon ${createdSessions.length} sesiones en la base de datos, pero falló el envío al VPS.`
+        }
       }, { status: 500 });
     }
 
