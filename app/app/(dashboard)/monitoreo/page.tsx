@@ -9,9 +9,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search, Clock, CheckCircle, XCircle, AlertTriangle, Eye, Pause, Play, StopCircle, Activity, Radio as RadioIcon, User, Calendar, Timer, Zap } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 // --- Interfaces para los datos que vienen de la API ---
 interface Radio {
@@ -59,6 +61,9 @@ export default function ConfigurarAnalisisPage() {
   const [recordingEndHour, setRecordingEndHour] = useState<number>(2);      // 2 AM por defecto
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'new' | 'active'>('new');
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  const [loadingActive, setLoadingActive] = useState<boolean>(false);
   
   // ✅ NUEVOS ESTADOS PARA FILTROS
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,6 +71,12 @@ export default function ConfigurarAnalisisPage() {
   
   // ✅ ESTADO PARA MODAL DE CONFIRMACIÓN
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // ✅ NUEVOS ESTADOS PARA MODAL DE DETALLES
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedSession, setSelectedSession] = useState<any>(null);
+  const [sessionDetails, setSessionDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Carga de datos inicial (radios, frases y APIs)
   useEffect(() => {
@@ -101,6 +112,40 @@ export default function ConfigurarAnalisisPage() {
     };
     fetchData();
   }, []);
+
+  // Cargar sesiones (todas o activas) cuando cambie la pestaña
+  useEffect(() => {
+    let interval: any;
+    const load = async () => {
+      try {
+        setLoadingActive(true);
+        const url = activeTab === 'active' 
+          ? '/api/monitoring/sessions?status=ACTIVE&limit=100'
+          : '/api/monitoring/sessions?status=ALL&limit=100';
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && data.success) {
+          setActiveSessions(data.data || []);
+        } else if (activeTab === 'active') {
+          // fallback a status
+          const res2 = await fetch('/api/monitoring/status');
+          const d2 = await res2.json();
+          setActiveSessions(Array.isArray(d2.activeSessions) ? d2.activeSessions : []);
+        } else {
+          setActiveSessions([]);
+        }
+      } catch (e) {
+        // noop
+      } finally {
+        setLoadingActive(false);
+      }
+    };
+    if (activeTab === 'active' || activeTab === 'new') {
+      load();
+      interval = setInterval(load, 20000);
+    }
+    return () => interval && clearInterval(interval);
+  }, [activeTab]);
 
   // Funciones para manejar la selección de radios
   const handleRadioToggle = (radioId: string) => {
@@ -199,6 +244,8 @@ export default function ConfigurarAnalisisPage() {
         return dayMap[day.toLowerCase()] ?? null;
       }).filter(day => day !== null); // Filtrar valores null
 
+      const selectedConfig = apiConfigurations.find(c => c.id === selectedApiConfigId);
+
       const requestData = {
         userId: 'user123', // TODO: Obtener del contexto de autenticación
         radioIds: Array.from(selectedRadioIds),
@@ -206,7 +253,8 @@ export default function ConfigurarAnalisisPage() {
         days: daysAsNumbers.length > 0 ? daysAsNumbers : [1, 2, 3, 4, 5, 6, 0], // Si no hay días, usar todos
         startTime: startTime,
         endTime: endTime,
-        aiModel: selectedAiModel,
+        apiConfigId: selectedApiConfigId,
+        aiModel: selectedConfig?.model || null,
         description: `Monitoreo programado desde dashboard - ${new Date().toLocaleDateString()}`
       };
 
@@ -215,6 +263,7 @@ export default function ConfigurarAnalisisPage() {
       const response = await fetch("/api/monitoring/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+<<<<<<< HEAD
 <<<<<<< HEAD
         body: JSON.stringify(requestData),
 =======
@@ -227,6 +276,9 @@ export default function ConfigurarAnalisisPage() {
           recordingStartHour,
           recordingEndHour,
         }),
+>>>>>>> origin/feature/mzurita
+=======
+        body: JSON.stringify(requestData),
 >>>>>>> origin/feature/mzurita
       });
 
@@ -283,8 +335,228 @@ export default function ConfigurarAnalisisPage() {
     return <LoadingSkeleton />;
   }
 
+  // Vista: Monitoreos (Activos)
+  if (activeTab === 'active') {
+    return (
+      <div className="space-y-8">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+          <TabsList className="grid w-full grid-cols-2 bg-gray-800 mb-2">
+            <TabsTrigger value="new" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Configurar Nuevo</TabsTrigger>
+            <TabsTrigger value="active" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Activos</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div>
+          <h1 className="text-3xl font-bold text-white">Monitoreos Activos</h1>
+          <p className="text-slate-400 mt-1">Listado de sesiones actualmente en ejecución</p>
+        </div>
+
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardHeader>
+            <CardTitle className="text-white">Sesiones</CardTitle>
+            <CardDescription>Actualiza automáticamente cada 20s</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingActive ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="flex items-center gap-3 text-slate-300">
+                  <Activity className="h-5 w-5 animate-pulse" />
+                  <span>Cargando sesiones activas...</span>
+                </div>
+              </div>
+            ) : activeSessions.length === 0 ? (
+              <div className="text-center py-12 bg-slate-700/20 rounded-lg border-2 border-dashed border-slate-600">
+                <RadioIcon className="h-12 w-12 text-slate-500 mx-auto mb-3" />
+                <p className="text-slate-400 text-lg font-medium mb-2">No hay monitoreos activos</p>
+                <p className="text-slate-500 text-sm">Las sesiones aparecerán aquí cuando estén en ejecución</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {activeSessions.map((s: any) => {
+                  const sessionId = s.id || s.sessionId;
+                  const radioName = s.radioName || s.radio?.name || 'Radio';
+                  const userName = s.userName || s.user?.name;
+                  const startTime = new Date(s.startTime || s.startedAt || Date.now());
+                  const status = s.status || 'ACTIVE';
+                  const isPaused = status === 'PAUSED';
+                  
+                  return (
+                    <div key={sessionId} className="group relative overflow-hidden rounded-xl border border-slate-700 bg-gradient-to-r from-slate-900/60 to-slate-800/40 backdrop-blur-sm hover:border-slate-600 transition-all duration-300">
+                      {/* Header con indicador de estado */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-blue-500"></div>
+                      
+                      <div className="p-6">
+                        <div className="flex items-start justify-between">
+                          {/* Información principal */}
+                          <div className="flex-1 space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <div className="relative">
+                                  <RadioIcon className="h-5 w-5 text-blue-400" />
+                                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+                                </div>
+                                <h3 className="text-lg font-semibold text-white">{radioName}</h3>
+                              </div>
+                              <Badge 
+                                variant={isPaused ? "secondary" : "default"} 
+                                className={`${isPaused ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'} border`}
+                              >
+                                {isPaused ? (
+                                  <><Pause className="h-3 w-3 mr-1" />Pausado</>
+                                ) : (
+                                  <><Activity className="h-3 w-3 mr-1" />Activo</>
+                                )}
+                              </Badge>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                              <div className="flex items-center gap-2 text-slate-300">
+                                <Timer className="h-4 w-4 text-slate-400" />
+                                <span>Inicio: {startTime.toLocaleString('es-CL', { 
+                                  day: '2-digit', 
+                                  month: '2-digit', 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                                })}</span>
+                              </div>
+                              
+                              {userName && (
+                                <div className="flex items-center gap-2 text-slate-300">
+                                  <User className="h-4 w-4 text-slate-400" />
+                                  <span>{userName}</span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-2 text-slate-300">
+                                <Zap className="h-4 w-4 text-slate-400" />
+                                <span>ID: {sessionId.slice(0, 8)}...</span>
+                              </div>
+                            </div>
+                            
+                            {/* Información adicional si está disponible */}
+                            {(s.phrase || s.detections) && (
+                              <div className="pt-2 border-t border-slate-700/50">
+                                <div className="flex items-center gap-4 text-xs text-slate-400">
+                                  {s.phrase && (
+                                    <span>Frase: "{s.phrase}"</span>
+                                  )}
+                                  {s.detections && (
+                                    <span>Detecciones: {s.detections}</span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Botones de acción */}
+                          <div className="flex items-center gap-2 ml-4">
+                            {/* Botón Ver Detalles */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:border-blue-400"
+                              onClick={async () => {
+                                setSelectedSession(s);
+                                setShowDetailsModal(true);
+                                setLoadingDetails(true);
+                                try {
+                                  const res = await fetch(`/api/monitoring/sessions/${sessionId}`);
+                                  const data = await res.json();
+                                  setSessionDetails(data.success ? data.data : null);
+                                } catch (error) {
+                                  console.error('Error loading session details:', error);
+                                  setSessionDetails(null);
+                                } finally {
+                                  setLoadingDetails(false);
+                                }
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              Detalles
+                            </Button>
+                            
+                            {/* Botón Pausar/Reanudar */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={`${
+                                isPaused 
+                                  ? 'border-green-500/50 text-green-400 hover:bg-green-500/10 hover:border-green-400'
+                                  : 'border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 hover:border-yellow-400'
+                              }`}
+                              onClick={async () => {
+                                try {
+                                  const action = isPaused ? 'resume' : 'pause';
+                                  await fetch(`/api/monitoring/${action}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ sessionId })
+                                  });
+                                  
+                                  // Actualizar estado local
+                                  setActiveSessions(prev => prev.map(session => 
+                                    (session.id || session.sessionId) === sessionId 
+                                      ? { ...session, status: isPaused ? 'ACTIVE' : 'PAUSED' }
+                                      : session
+                                  ));
+                                  
+                                  toast.success(`Monitoreo ${isPaused ? 'reanudado' : 'pausado'} correctamente`);
+                                } catch (error) {
+                                  toast.error(`No se pudo ${isPaused ? 'reanudar' : 'pausar'} el monitoreo`);
+                                }
+                              }}
+                            >
+                              {isPaused ? (
+                                <><Play className="h-4 w-4 mr-1" />Reanudar</>
+                              ) : (
+                                <><Pause className="h-4 w-4 mr-1" />Pausar</>
+                              )}
+                            </Button>
+                            
+                            {/* Botón Detener */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:border-red-400"
+                              onClick={async () => {
+                                try {
+                                  await fetch('/api/monitoring/stop', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ sessionId })
+                                  });
+                                  setActiveSessions(prev => prev.filter(p => (p.id || p.sessionId) !== sessionId));
+                                  toast.success('Monitoreo detenido correctamente');
+                                } catch (error) {
+                                  toast.error('No se pudo detener el monitoreo');
+                                }
+                              }}
+                            >
+                              <StopCircle className="h-4 w-4 mr-1" />
+                              Detener
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+        <TabsList className="grid w-full grid-cols-2 bg-gray-800 mb-2">
+          <TabsTrigger value="new" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Configurar Nuevo</TabsTrigger>
+          <TabsTrigger value="active" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Activos</TabsTrigger>
+        </TabsList>
+      </Tabs>
       <div>
         <h1 className="text-3xl font-bold text-white">Configurar Nuevo Análisis</h1>
         <p className="text-slate-400 mt-1">
@@ -829,6 +1101,200 @@ export default function ConfigurarAnalisisPage() {
               className="bg-blue-600 hover:bg-blue-700"
             >
               {isSubmitting ? 'Iniciando...' : 'Confirmar e Iniciar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ✅ MODAL DE DETALLES DE SESIÓN */}
+      <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
+        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl flex items-center gap-2">
+              <Activity className="h-6 w-6 text-blue-400" />
+              Detalles de Sesión de Monitoreo
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Información detallada y estadísticas de la sesión activa
+            </DialogDescription>
+          </DialogHeader>
+          
+          {loadingDetails ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex items-center gap-3 text-slate-300">
+                <Activity className="h-5 w-5 animate-spin" />
+                <span>Cargando detalles...</span>
+              </div>
+            </div>
+          ) : selectedSession ? (
+            <div className="space-y-6 my-4">
+              {/* Información básica */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-700/30 p-4 rounded-lg">
+                  <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                    <RadioIcon className="h-5 w-5 text-blue-400" />
+                    Radio
+                  </h4>
+                  <p className="text-lg text-slate-200 mb-1">
+                    {selectedSession.radioName || selectedSession.radio?.name || 'Radio'}
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    ID: {selectedSession.radioId || selectedSession.radio?.id || 'N/A'}
+                  </p>
+                  {selectedSession.radio?.region && (
+                    <p className="text-sm text-slate-400">
+                      Región: {selectedSession.radio.region}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="bg-slate-700/30 p-4 rounded-lg">
+                  <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                    <Timer className="h-5 w-5 text-emerald-400" />
+                    Estado y Tiempo
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        variant={selectedSession.status === 'PAUSED' ? "secondary" : "default"}
+                        className={`${
+                          selectedSession.status === 'PAUSED' 
+                            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' 
+                            : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                        } border`}
+                      >
+                        {selectedSession.status || 'ACTIVE'}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-slate-300">
+                      Inicio: {new Date(selectedSession.startTime || selectedSession.startedAt || Date.now()).toLocaleString('es-CL')}
+                    </p>
+                    {selectedSession.endTime && (
+                      <p className="text-sm text-slate-300">
+                        Fin: {new Date(selectedSession.endTime).toLocaleString('es-CL')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Usuario y configuración */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-700/30 p-4 rounded-lg">
+                  <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                    <User className="h-5 w-5 text-purple-400" />
+                    Usuario
+                  </h4>
+                  <p className="text-slate-200">
+                    {selectedSession.userName || selectedSession.user?.name || 'Usuario desconocido'}
+                  </p>
+                  {selectedSession.user?.email && (
+                    <p className="text-sm text-slate-400">
+                      {selectedSession.user.email}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="bg-slate-700/30 p-4 rounded-lg">
+                  <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-yellow-400" />
+                    Configuración
+                  </h4>
+                  <div className="space-y-1 text-sm">
+                    <p className="text-slate-300">
+                      ID de Sesión: <span className="font-mono text-slate-200">{selectedSession.id || selectedSession.sessionId}</span>
+                    </p>
+                    {selectedSession.phraseId && (
+                      <p className="text-slate-300">
+                        Frase ID: <span className="font-mono text-slate-200">{selectedSession.phraseId}</span>
+                      </p>
+                    )}
+                    {selectedSession.apiConfigId && (
+                      <p className="text-slate-300">
+                        API Config: <span className="font-mono text-slate-200">{selectedSession.apiConfigId}</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Estadísticas si están disponibles */}
+              {sessionDetails && (
+                <div className="bg-slate-700/30 p-4 rounded-lg">
+                  <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-cyan-400" />
+                    Estadísticas
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold text-emerald-400">
+                        {sessionDetails.detections || 0}
+                      </p>
+                      <p className="text-xs text-slate-400">Detecciones</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-blue-400">
+                        {sessionDetails.recordings || 0}
+                      </p>
+                      <p className="text-xs text-slate-400">Grabaciones</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-purple-400">
+                        {sessionDetails.transcriptions || 0}
+                      </p>
+                      <p className="text-xs text-slate-400">Transcripciones</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-yellow-400">
+                        {sessionDetails.duration || '0h'}
+                      </p>
+                      <p className="text-xs text-slate-400">Duración</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Información adicional */}
+              {(selectedSession.phrase || selectedSession.description) && (
+                <div className="bg-slate-700/30 p-4 rounded-lg">
+                  <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                    <TextSelect className="h-5 w-5 text-orange-400" />
+                    Información Adicional
+                  </h4>
+                  {selectedSession.phrase && (
+                    <div className="mb-3">
+                      <p className="text-sm text-slate-400 mb-1">Frase monitoreada:</p>
+                      <p className="text-slate-200 bg-slate-800/50 p-2 rounded font-mono text-sm">
+                        "{selectedSession.phrase}"
+                      </p>
+                    </div>
+                  )}
+                  {selectedSession.description && (
+                    <div>
+                      <p className="text-sm text-slate-400 mb-1">Descripción:</p>
+                      <p className="text-slate-200">{selectedSession.description}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-slate-400">No se pudo cargar la información de la sesión</p>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDetailsModal(false);
+                setSelectedSession(null);
+                setSessionDetails(null);
+              }}
+              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+            >
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,3 +1,34 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { providerId, modelId } = body;
+
+    const start = Date.now();
+    // Simulación de prueba de conectividad por ahora
+    await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 250));
+    const latency = Date.now() - start;
+
+    // Resultado simulado exitoso
+    return NextResponse.json({
+      result: {
+        success: true,
+        provider: providerId,
+        model: modelId,
+        responseTime: latency,
+        cost: 0,
+        accuracy: 0.9,
+        sampleTranscription: 'Transcripción de ejemplo para verificación.'
+      }
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Error probando proveedor' }, { status: 500 });
+  }
+}
+
 
 import { NextRequest, NextResponse } from 'next/server';
 

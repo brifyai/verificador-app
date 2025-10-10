@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
+  const range = request.headers.get('range') || undefined;
   
   if (!url) {
     return new NextResponse('URL parameter required', { status: 400 });
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
         'Accept': 'audio/*, video/*, */*',
         'Icy-MetaData': '1', // Para metadata de Icecast/Shoutcast
         'Connection': 'keep-alive',
+        ...(range ? { Range: range } : {}),
       },
       // @ts-ignore - Next.js soporta esto
       duplex: 'half'
@@ -41,15 +43,16 @@ export async function GET(request: NextRequest) {
 
     // Devolver el stream con CORS habilitado
     return new NextResponse(response.body, {
+      status: response.status,
       headers: {
         'Content-Type': contentType,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Range, Accept, User-Agent',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Accept-Ranges': 'bytes',
+        'Accept-Ranges': response.headers.get('accept-ranges') || 'bytes',
+        'Content-Range': response.headers.get('content-range') || '',
         'X-Content-Type-Options': 'nosniff',
-        // Pasar metadata de Icecast si existe
         ...(response.headers.get('icy-name') && {
           'icy-name': response.headers.get('icy-name') || '',
           'icy-genre': response.headers.get('icy-genre') || '',

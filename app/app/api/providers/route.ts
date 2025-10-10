@@ -1,383 +1,207 @@
-
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { prisma } from '@/lib/db';
 
-interface ApiProvider {
-  id: string;
-  name: string;
-  type: 'transcription' | 'audio_processing' | 'translation' | 'ai_chat';
-  baseUrl: string;
-  apiKey?: string;
-  models: Array<{
-    id: string;
-    name: string;
-    description: string;
-    costPerMinute: number; // en USD
-    accuracy?: number; // porcentaje
-    speed?: string; // 'slow', 'standard', 'fast', 'ultra-fast'
-    languages?: string[];
-  }>;
-  headers?: Record<string, string>;
-  enabled: boolean;
-  priority: number; // para fallback order
-  rateLimits?: {
-    requestsPerMinute: number;
-    requestsPerHour: number;
-  };
-  created_at: string;
-  updated_at: string;
-}
+export const dynamic = 'force-dynamic';
 
-const PROVIDERS_FILE = path.join(process.cwd(), 'data', 'api_providers.json');
+// Map display names to backend provider codes
+const NAME_TO_PROVIDER: Record<string, string> = {
+  'Abacus AI': 'abacus',
+  'Groq API': 'groq',
+  'OpenAI Whisper': 'openai',
+  'AssemblyAI': 'assemblyai',
+};
 
-// Proveedores predeterminados que se crean automáticamente
-const DEFAULT_PROVIDERS: ApiProvider[] = [
-  {
-    id: 'abacus-ai',
+const PROVIDER_DEFAULTS: Record<string, any> = {
+  abacus: {
     name: 'Abacus AI',
     type: 'transcription',
     baseUrl: 'https://api.abacus.ai/v1',
     models: [
-      {
-        id: 'whisper-large-v3',
-        name: 'Whisper Large V3',
-        description: 'Máxima precisión para español chileno',
-        costPerMinute: 0.05,
-        accuracy: 97,
-        speed: 'standard',
-        languages: ['es', 'es-CL', 'en']
-      },
-      {
-        id: 'whisper-medium',
-        name: 'Whisper Medium',
-        description: 'Balance precisión/costo',
-        costPerMinute: 0.03,
-        accuracy: 94,
-        speed: 'standard',
-        languages: ['es', 'es-CL', 'en']
-      }
+      { id: 'whisper-large-v3', name: 'Whisper Large V3', description: 'Máxima precisión para español chileno', costPerMinute: 50, accuracy: 97.0, speed: 'standard' },
+      { id: 'whisper-medium', name: 'Whisper Medium', description: 'Balance precisión/costo', costPerMinute: 30, accuracy: 94.0, speed: 'standard' },
     ],
-    enabled: true,
-    priority: 1,
-    rateLimits: {
-      requestsPerMinute: 60,
-      requestsPerHour: 1000
-    },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    rateLimits: { requestsPerMinute: 60, requestsPerHour: 1000 },
   },
-  {
-    id: 'groq-api',
+  groq: {
     name: 'Groq API',
     type: 'transcription',
     baseUrl: 'https://api.groq.com/openai/v1',
     models: [
-      {
-        id: 'whisper-large-v3',
-        name: 'Whisper Large V3',
-        description: '15x más rápido que OpenAI',
-        costPerMinute: 0.01,
-        accuracy: 95,
-        speed: 'ultra-fast',
-        languages: ['es', 'en', 'fr', 'de', 'it', 'pt']
-      },
-      {
-        id: 'distil-whisper-large-v3',
-        name: 'Distil-Whisper Large V3',
-        description: 'Versión ultra optimizada',
-        costPerMinute: 0.008,
-        accuracy: 93,
-        speed: 'ultra-fast',
-        languages: ['es', 'en']
-      }
+      { id: 'whisper-large-v3', name: 'Whisper Large V3', description: '15x más rápido que OpenAI', costPerMinute: 10, accuracy: 95.0, speed: 'ultra-fast' },
+      { id: 'distil-whisper-large-v3', name: 'Distil-Whisper Large V3', description: 'Versión ultra optimizada', costPerMinute: 8, accuracy: 93.0, speed: 'ultra-fast' },
     ],
-    enabled: true,
-    priority: 2,
-    rateLimits: {
-      requestsPerMinute: 30,
-      requestsPerHour: 500
-    },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    rateLimits: { requestsPerMinute: 120, requestsPerHour: 2000 },
   },
-  {
-    id: 'openai',
+  openai: {
     name: 'OpenAI Whisper',
     type: 'transcription',
     baseUrl: 'https://api.openai.com/v1',
     models: [
-      {
-        id: 'whisper-1',
-        name: 'Whisper-1',
-        description: 'Modelo estándar de OpenAI',
-        costPerMinute: 0.006,
-        accuracy: 94,
-        speed: 'standard',
-        languages: ['es', 'en', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh']
-      }
+      { id: 'whisper-1', name: 'Whisper-1', description: 'Modelo estándar de OpenAI', costPerMinute: 6, accuracy: 94.0, speed: 'standard' },
     ],
-    enabled: false,
-    priority: 3,
-    rateLimits: {
-      requestsPerMinute: 50,
-      requestsPerHour: 1000
-    },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    rateLimits: { requestsPerMinute: 50, requestsPerHour: 1000 },
   },
-  {
-    id: 'assemblyai',
+  assemblyai: {
     name: 'AssemblyAI',
     type: 'transcription',
     baseUrl: 'https://api.assemblyai.com/v2',
     models: [
-      {
-        id: 'best',
-        name: 'Best Model',
-        description: 'Mejor modelo de AssemblyAI',
-        costPerMinute: 0.00037,
-        accuracy: 95,
-        speed: 'standard',
-        languages: ['es', 'en']
-      },
-      {
-        id: 'nano',
-        name: 'Nano Model',
-        description: 'Modelo más rápido y económico',
-        costPerMinute: 0.00018,
-        accuracy: 88,
-        speed: 'fast',
-        languages: ['en']
-      }
+      { id: 'best', name: 'Best Model', description: 'Mejor modelo de AssemblyAI', costPerMinute: 0.37, accuracy: 95.0, speed: 'standard' },
+      { id: 'nano', name: 'Nano Model', description: 'Modelo más rápido y económico', costPerMinute: 0.18, accuracy: 88.0, speed: 'fast' },
     ],
-    enabled: false,
-    priority: 4,
-    rateLimits: {
-      requestsPerMinute: 100,
-      requestsPerHour: 2000
-    },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  }
-];
+    rateLimits: { requestsPerMinute: 60, requestsPerHour: 1000 },
+  },
+};
 
-async function ensureProvidersFile() {
-  const dataDir = path.join(process.cwd(), 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  if (!fs.existsSync(PROVIDERS_FILE)) {
-    fs.writeFileSync(PROVIDERS_FILE, JSON.stringify(DEFAULT_PROVIDERS, null, 2));
-    console.log('✅ Archivo de proveedores creado con datos predeterminados');
-  }
+function toApiProvider(c: any) {
+  const metadata = (c?.metadata as any) || {};
+  const defaults = PROVIDER_DEFAULTS[c.provider] || {};
+  return {
+    id: c.id,
+    name: defaults.name || c.provider,
+    type: defaults.type || 'transcription',
+    baseUrl: metadata.baseUrl || defaults.baseUrl || '',
+    apiKey: c.apiKey || '', // texto plano temporal para pruebas
+    models: metadata.models || defaults.models || [],
+    headers: metadata.headers || undefined,
+    enabled: c.enabled,
+    priority: c.priority,
+    rateLimits: metadata.rateLimits || defaults.rateLimits || undefined,
+    created_at: c.createdAt?.toISOString?.() || new Date().toISOString(),
+    updated_at: c.updatedAt?.toISOString?.() || new Date().toISOString(),
+  };
 }
 
-async function loadProviders(): Promise<ApiProvider[]> {
-  await ensureProvidersFile();
+export async function GET() {
   try {
-    const data = fs.readFileSync(PROVIDERS_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error cargando proveedores:', error);
-    return DEFAULT_PROVIDERS;
-  }
-}
-
-async function saveProviders(providers: ApiProvider[]) {
-  try {
-    fs.writeFileSync(PROVIDERS_FILE, JSON.stringify(providers, null, 2));
-  } catch (error) {
-    console.error('Error guardando proveedores:', error);
-    throw error;
-  }
-}
-
-// GET - Obtener todos los proveedores
-export async function GET(request: NextRequest) {
-  try {
-    const providers = await loadProviders();
-    
-    const url = new URL(request.url);
-    const type = url.searchParams.get('type');
-    const enabled = url.searchParams.get('enabled');
-    
-    let filteredProviders = providers;
-    
-    if (type) {
-      filteredProviders = filteredProviders.filter(p => p.type === type);
+    const configs = await prisma.apiConfiguration.findMany({ orderBy: { priority: 'asc' } });
+    // Si no hay, devolver defaults deshabilitados
+    if (configs.length === 0) {
+      const providers = Object.entries(PROVIDER_DEFAULTS).map(([provider, def]) => ({
+        id: provider,
+        name: def.name,
+        type: def.type,
+        baseUrl: def.baseUrl,
+        apiKey: '',
+        models: def.models,
+        enabled: false,
+        priority: 99,
+        rateLimits: def.rateLimits,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+      return NextResponse.json({ providers });
     }
-    
-    if (enabled !== null) {
-      const isEnabled = enabled === 'true';
-      filteredProviders = filteredProviders.filter(p => p.enabled === isEnabled);
-    }
-    
-    // Ordenar por prioridad
-    filteredProviders.sort((a, b) => a.priority - b.priority);
-    
-    return NextResponse.json({
-      success: true,
-      providers: filteredProviders,
-      count: filteredProviders.length
-    });
-  } catch (error) {
-    console.error('Error obteniendo proveedores:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+
+    const providers = configs.map(toApiProvider);
+    return NextResponse.json({ providers });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Error listando proveedores' }, { status: 500 });
   }
 }
 
-// POST - Crear nuevo proveedor
 export async function POST(request: NextRequest) {
   try {
-    const data = await request.json();
-    
-    // Validar campos requeridos
-    if (!data.name || !data.type || !data.baseUrl) {
-      return NextResponse.json(
-        { error: 'Faltan campos requeridos: name, type, baseUrl' },
-        { status: 400 }
-      );
-    }
-    
-    const providers = await loadProviders();
-    
-    // Verificar que no exista un proveedor con el mismo nombre
-    if (providers.some(p => p.name.toLowerCase() === data.name.toLowerCase())) {
-      return NextResponse.json(
-        { error: 'Ya existe un proveedor con ese nombre' },
-        { status: 409 }
-      );
-    }
-    
-    const newProvider: ApiProvider = {
-      id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: data.name,
-      type: data.type,
-      baseUrl: data.baseUrl,
-      apiKey: data.apiKey || '',
-      models: data.models || [],
-      headers: data.headers || {},
-      enabled: data.enabled ?? true,
-      priority: data.priority ?? (Math.max(...providers.map(p => p.priority)) + 1),
-      rateLimits: data.rateLimits || {
-        requestsPerMinute: 60,
-        requestsPerHour: 1000
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+    const body = await request.json();
+    // body puede venir con name o id; inferir provider code
+    const providerCode = NAME_TO_PROVIDER[body.name] || body.id || body.provider || 'custom';
+    const defaults = PROVIDER_DEFAULTS[providerCode] || {};
+
+    const metadata = {
+      baseUrl: body.baseUrl || defaults.baseUrl || '',
+      models: Array.isArray(body.models) ? body.models : (defaults.models || []),
+      rateLimits: body.rateLimits || defaults.rateLimits || undefined,
+      headers: body.headers || undefined,
     };
-    
-    providers.push(newProvider);
-    await saveProviders(providers);
-    
-    console.log(`✅ Nuevo proveedor creado: ${newProvider.name}`);
-    
-    return NextResponse.json({
-      success: true,
-      provider: newProvider,
-      message: 'Proveedor creado exitosamente'
+
+    const created = await prisma.apiConfiguration.upsert({
+      where: { provider: providerCode },
+      update: {
+        apiKey: body.apiKey || null, // texto plano temporal (para pruebas)
+        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
+        enabled: body.enabled ?? true,
+        priority: body.priority ?? defaults.priority ?? 99,
+        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
+        metadata,
+      },
+      create: {
+        provider: providerCode,
+        apiKey: body.apiKey || null,
+        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
+        enabled: body.enabled ?? true,
+        priority: body.priority ?? 99,
+        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
+        metadata,
+      },
     });
-  } catch (error) {
-    console.error('Error creando proveedor:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+
+    return NextResponse.json({ provider: toApiProvider(created) });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Error creando proveedor' }, { status: 500 });
   }
 }
 
-// PUT - Actualizar proveedor existente
 export async function PUT(request: NextRequest) {
   try {
-    const data = await request.json();
-    
-    if (!data.id) {
-      return NextResponse.json(
-        { error: 'Se requiere ID del proveedor' },
-        { status: 400 }
-      );
-    }
-    
-    const providers = await loadProviders();
-    const providerIndex = providers.findIndex(p => p.id === data.id);
-    
-    if (providerIndex === -1) {
-      return NextResponse.json(
-        { error: 'Proveedor no encontrado' },
-        { status: 404 }
-      );
-    }
-    
-    // Actualizar campos
-    const updatedProvider = {
-      ...providers[providerIndex],
-      ...data,
-      updated_at: new Date().toISOString()
+    const body = await request.json();
+    const id = body.id as string | undefined;
+    const existing = id
+      ? await prisma.apiConfiguration.findUnique({ where: { id } })
+      : null;
+
+    const providerCode = existing?.provider || NAME_TO_PROVIDER[body.name] || body.provider || 'custom';
+    const defaults = PROVIDER_DEFAULTS[providerCode] || {};
+
+    const prev = existing || (await prisma.apiConfiguration.findUnique({ where: { provider: providerCode } }));
+    const prevMeta = (prev?.metadata as any) || {};
+
+    const metadata = {
+      baseUrl: body.baseUrl ?? prevMeta.baseUrl ?? defaults.baseUrl ?? '',
+      models: Array.isArray(body.models) ? body.models : (prevMeta.models || defaults.models || []),
+      rateLimits: body.rateLimits ?? prevMeta.rateLimits ?? defaults.rateLimits ?? undefined,
+      headers: body.headers ?? prevMeta.headers ?? undefined,
     };
-    
-    providers[providerIndex] = updatedProvider;
-    await saveProviders(providers);
-    
-    console.log(`✅ Proveedor actualizado: ${updatedProvider.name}`);
-    
-    return NextResponse.json({
-      success: true,
-      provider: updatedProvider,
-      message: 'Proveedor actualizado exitosamente'
+
+    const updated = await prisma.apiConfiguration.upsert({
+      where: id ? { id } : { provider: providerCode },
+      update: {
+        apiKey: body.apiKey !== undefined ? (body.apiKey || null) : prev?.apiKey || null,
+        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || prev?.model || null,
+        enabled: body.enabled ?? prev?.enabled ?? false,
+        priority: body.priority ?? prev?.priority ?? defaults.priority ?? 99,
+        costPerUnit: body.costPerUnit ?? prev?.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rateLimit: body.rateLimits?.requestsPerMinute ?? prev?.rateLimit ?? null,
+        metadata,
+      },
+      create: {
+        provider: providerCode,
+        apiKey: body.apiKey || null,
+        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
+        enabled: body.enabled ?? true,
+        priority: body.priority ?? 99,
+        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
+        metadata,
+      },
     });
-  } catch (error) {
-    console.error('Error actualizando proveedor:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+
+    return NextResponse.json({ provider: toApiProvider(updated) });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Error actualizando proveedor' }, { status: 500 });
   }
 }
 
-// DELETE - Eliminar proveedor
 export async function DELETE(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const id = url.searchParams.get('id');
-    
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Se requiere ID del proveedor' },
-        { status: 400 }
-      );
-    }
-    
-    const providers = await loadProviders();
-    const providerIndex = providers.findIndex(p => p.id === id);
-    
-    if (providerIndex === -1) {
-      return NextResponse.json(
-        { error: 'Proveedor no encontrado' },
-        { status: 404 }
-      );
-    }
-    
-    const deletedProvider = providers[providerIndex];
-    providers.splice(providerIndex, 1);
-    await saveProviders(providers);
-    
-    console.log(`🗑️ Proveedor eliminado: ${deletedProvider.name}`);
-    
-    return NextResponse.json({
-      success: true,
-      message: 'Proveedor eliminado exitosamente',
-      deleted: deletedProvider.name
-    });
-  } catch (error) {
-    console.error('Error eliminando proveedor:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
+
+    await prisma.apiConfiguration.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Error eliminando proveedor' }, { status: 500 });
   }
 }

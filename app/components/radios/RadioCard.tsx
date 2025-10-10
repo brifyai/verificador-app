@@ -49,19 +49,26 @@ export function RadioCard({
         <div className="flex items-start justify-between">
           <div className="space-y-2 flex-1">
             <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${radio.isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
+              {(() => {
+                const verificationStatus = (radio as any).lastVerificationStatus as 'ONLINE' | 'OFFLINE' | undefined;
+                const isOnline = verificationStatus === 'ONLINE';
+                const isOffline = verificationStatus === 'OFFLINE';
+                const hasVerification = !!verificationStatus;
+                const dotClass = hasVerification
+                  ? (isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500')
+                  : (radio.isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-500');
+                const title = hasVerification
+                  ? (isOnline ? 'Online' : 'Offline')
+                  : (radio.isActive ? 'Activo' : 'Inactivo');
+                return (
+                  <div
+                    className={`w-3 h-3 rounded-full ${dotClass}`}
+                    title={title}
+                  />
+                );
+              })()}
               <CardTitle className="text-lg text-white leading-tight font-semibold">{radio.name}</CardTitle>
-              {/* Indicador de verificación de stream */}
-              {(radio as any).lastVerificationStatus && (
-                <div 
-                  className={`w-2 h-2 rounded-full ${
-                    (radio as any).lastVerificationStatus === 'ONLINE' 
-                      ? 'bg-green-400' 
-                      : 'bg-red-400'
-                  }`}
-                  title={`Stream ${(radio as any).lastVerificationStatus === 'ONLINE' ? 'en línea' : 'fuera de línea'}`}
-                />
-              )}
+              {/* Eliminado indicador duplicado de verificación para mantener un solo punto */}
             </div>
             <CardDescription className="text-gray-400 font-medium">
               {radio.programadora}
@@ -133,17 +140,8 @@ export function RadioCard({
           {(radio as any).lastVerifiedAt && (
             <div className="flex items-center justify-between text-sm bg-gray-700/20 rounded-lg px-3 py-2">
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  (radio as any).lastVerificationStatus === 'ONLINE' 
-                    ? 'bg-green-400 animate-pulse' 
-                    : 'bg-red-400'
-                }`} />
                 <span className="text-gray-400">
-                  Stream: {
-                    (radio as any).lastVerificationStatus === 'ONLINE' 
-                      ? 'Online' 
-                      : 'Offline'
-                  }
+                  {`Stream: ${((radio as any).lastVerificationStatus === 'ONLINE') ? 'Online' : 'Offline'}`}
                 </span>
               </div>
               <span className="text-gray-500 text-xs">
