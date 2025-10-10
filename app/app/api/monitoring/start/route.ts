@@ -72,6 +72,41 @@ export async function POST(request: NextRequest) {
       endTime: body.endTime
     });
 
+    // CHECKPOINT 1: Verificar que lleguen los datos básicos
+    if (!body.userId) {
+      console.error('❌ CHECKPOINT 1 FAILED: userId faltante');
+      return NextResponse.json({
+        success: false,
+        error: 'userId es requerido',
+        checkpoint: 'userId_validation'
+      }, { status: 400 });
+    }
+
+    if (!body.radioIds || body.radioIds.length === 0) {
+      console.error('❌ CHECKPOINT 1 FAILED: radioIds faltante o vacío');
+      return NextResponse.json({
+        success: false,
+        error: 'Debe seleccionar al menos una radio',
+        checkpoint: 'radioIds_validation'
+      }, { status: 400 });
+    }
+
+    console.log('✅ CHECKPOINT 1 PASSED: Datos básicos recibidos correctamente');
+
+    // CHECKPOINT 2: Verificar conexión a la base de datos
+    try {
+      const dbTest = await prisma.user.findFirst();
+      console.log('✅ CHECKPOINT 2 PASSED: Conexión a BD exitosa');
+    } catch (dbError: any) {
+      console.error('❌ CHECKPOINT 2 FAILED: Error de conexión a BD:', dbError.message);
+      return NextResponse.json({
+        success: false,
+        error: 'Error de conexión a la base de datos',
+        details: dbError.message,
+        checkpoint: 'database_connection'
+      }, { status: 500 });
+    }
+
     // Validar datos requeridos para programación
     const { 
       userId, 
@@ -297,6 +332,16 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
+    // CHECKPOINT 3: Antes de crear sesiones
+    console.log('🚀 CHECKPOINT 3: Iniciando creación de sesiones en BD');
+    console.log(`📊 Datos para crear sesiones:`, {
+      totalRadios: radios.length,
+      userId: userId,
+      phraseId: phraseId,
+      startTime: startTime,
+      endTime: endTime
+    });
+
     // 1. Crear sesiones de monitoreo en la base de datos local
     console.log('💾 Creando sesiones de monitoreo en la base de datos...');
     console.log(`🔍 Verificando conexión a BD - Total radios a procesar: ${radios.length}`);
@@ -408,7 +453,7 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        console.log(`✅ Sesión creada exitosamente: ${session.id}`);
+        console.log(`✅ CHECKPOINT 4 PASSED: Sesión creada exitosamente: ${session.id}`);
         console.log(`📊 Datos guardados en monitoring_sessions:`, {
           id: session.id,
           userId: session.userId,
@@ -421,6 +466,13 @@ export async function POST(request: NextRequest) {
           hasConfiguration: !!session.configuration,
           hasMetadata: !!session.metadata
         });
+        
+        // Verificar que se guardó correctamente
+        const verifySession = await prisma.monitoringSession.findUnique({
+          where: { id: session.id }
+        });
+        console.log(`🔍 VERIFICACIÓN: Sesión ${session.id} ${verifySession ? 'ENCONTRADA' : 'NO ENCONTRADA'} en BD`);
+        
         createdSessions.push(session);
         
       } catch (error: any) {
