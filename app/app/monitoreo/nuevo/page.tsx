@@ -33,6 +33,22 @@ interface AIModel {
   priceMultiplier: number;
 }
 
+interface AIProvider {
+  id: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  apiKey?: string;
+}
+
+interface TranscriptionProvider {
+  id: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  apiKey?: string;
+}
+
 // Modelos de IA disponibles
 const AI_MODELS: AIModel[] = [
   {
@@ -64,14 +80,18 @@ export default function NuevoMonitoreoPage() {
   // Estados
   const [radios, setRadios] = useState<Radio[]>([]);
   const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [transcriptionProviders, setTranscriptionProviders] = useState<TranscriptionProvider[]>([]);
+  const [aiProviders, setAiProviders] = useState<AIProvider[]>([]);
   const [selectedRadioIds, setSelectedRadioIds] = useState<string[]>([]);
   const [selectedPhraseId, setSelectedPhraseId] = useState<string>("");
   const [selectedAiModel, setSelectedAiModel] = useState<string>("estandar");
+  const [selectedTranscriptionProvider, setSelectedTranscriptionProvider] = useState<string>("");
+  const [selectedAiProvider, setSelectedAiProvider] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   
   // Cálculo de precio
   const totalPrice = selectedRadioIds.length * BASE_PRICE_PER_RADIO * 
-    AI_MODELS.find(model => model.id === selectedAiModel)?.priceMultiplier || 0;
+    (AI_MODELS.find(model => model.id === selectedAiModel)?.priceMultiplier || 1);
   
   // Cargar datos al montar el componente
   useEffect(() => {
@@ -88,6 +108,33 @@ export default function NuevoMonitoreoPage() {
         if (!phrasesResponse.ok) throw new Error("Error al cargar frases");
         const phrasesData = await phrasesResponse.json();
         setPhrases(phrasesData);
+        
+        // Cargar proveedores de IA
+        const providersResponse = await fetch("/api/providers");
+        if (providersResponse.ok) {
+          const data = await providersResponse.json();
+          const providersData = data.providers || data; // Manejar ambos formatos
+          
+          // Filtrar proveedores de transcripción con API key configurada
+          const transcriptionProvs = providersData.filter(
+            (p: TranscriptionProvider) => p.type === 'transcription' && p.apiKey && p.apiKey !== ''
+          );
+          setTranscriptionProviders(transcriptionProvs);
+          // Seleccionar el primero por defecto
+          if (transcriptionProvs.length > 0) {
+            setSelectedTranscriptionProvider(transcriptionProvs[0].id);
+          }
+          
+          // Filtrar proveedores de análisis con API key configurada
+          const analysisProviders = providersData.filter(
+            (p: AIProvider) => p.type === 'analysis' && p.apiKey && p.apiKey !== ''
+          );
+          setAiProviders(analysisProviders);
+          // Seleccionar el primero por defecto
+          if (analysisProviders.length > 0) {
+            setSelectedAiProvider(analysisProviders[0].id);
+          }
+        }
       } catch (error) {
         console.error("Error al cargar datos:", error);
         toast({
@@ -143,7 +190,9 @@ export default function NuevoMonitoreoPage() {
           radioIds: selectedRadioIds,
           configuration: {
             phraseId: selectedPhraseId,
-            aiModel: selectedAiModel
+            aiModel: selectedAiModel,
+            transcriptionProvider: selectedTranscriptionProvider,
+            aiProvider: selectedAiProvider
           }
         })
       });
@@ -248,10 +297,76 @@ export default function NuevoMonitoreoPage() {
         </CardContent>
       </Card>
       
+      {/* API de Transcripción */}
+      <Card>
+        <CardHeader>
+          <CardTitle>API de Transcripción</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {transcriptionProviders.length > 0 ? (
+            <Select 
+              value={selectedTranscriptionProvider} 
+              onValueChange={setSelectedTranscriptionProvider}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar API de transcripción..." />
+              </SelectTrigger>
+              <SelectContent>
+                {transcriptionProviders.map((provider) => (
+                  <SelectItem key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              No hay APIs de transcripción configuradas. 
+              <a href="/configuracion" className="text-primary underline ml-1">
+                Configurar en Ajustes
+              </a>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Proveedor de IA para Análisis de Frases */}
+      <Card>
+        <CardHeader>
+          <CardTitle>IA para Detección de Frases</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {aiProviders.length > 0 ? (
+            <Select 
+              value={selectedAiProvider} 
+              onValueChange={setSelectedAiProvider}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar IA para análisis..." />
+              </SelectTrigger>
+              <SelectContent>
+                {aiProviders.map((provider) => (
+                  <SelectItem key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              No hay IAs de análisis configuradas. 
+              <a href="/configuracion" className="text-primary underline ml-1">
+                Configurar en Ajustes
+              </a>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
       {/* Modelo de IA */}
       <Card>
         <CardHeader>
-          <CardTitle>Modelo de IA</CardTitle>
+          <CardTitle>Nivel de Servicio</CardTitle>
         </CardHeader>
         <CardContent>
           <RadioGroup 

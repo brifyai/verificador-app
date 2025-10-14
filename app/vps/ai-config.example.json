@@ -1,0 +1,6 @@
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "apiKey": "tu-api-key-aqui",
+  "description": "Configuración de IA para verificación semántica de frases"
+}

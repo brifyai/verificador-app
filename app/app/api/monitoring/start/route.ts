@@ -58,11 +58,16 @@ async function sendScheduleToVPS(scheduleData: any) {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('\n\n');
+    console.log('🚀 ========================================');
     console.log('🚀 === INICIANDO PROCESO DE MONITOREO ===');
+    console.log('🚀 ========================================');
     console.log('📅 Timestamp:', new Date().toISOString());
     
     const body = await request.json();
-    console.log('📥 Datos recibidos:', JSON.stringify(body, null, 2));
+    console.log('📥 ===== DATOS RECIBIDOS DEL DASHBOARD =====');
+    console.log(JSON.stringify(body, null, 2));
+    console.log('📥 ========================================');
     console.log('📊 Resumen de datos:', {
       userId: body.userId,
       radioIds: body.radioIds?.length || 0,
@@ -93,10 +98,43 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ CHECKPOINT 1 PASSED: Datos básicos recibidos correctamente');
 
-    // CHECKPOINT 2: Verificar conexión a la base de datos
+    // CHECKPOINT 2: Verificar conexión a la base de datos y usuario
     try {
       const dbTest = await prisma.user.findFirst();
       console.log('✅ CHECKPOINT 2 PASSED: Conexión a BD exitosa');
+      
+      // Verificar que el usuario existe
+      const userExists = await prisma.user.findUnique({
+        where: { id: body.userId }
+      });
+      
+      if (!userExists) {
+        console.error(`❌ Usuario no encontrado: ${body.userId}`);
+        console.log('🔍 Buscando o creando usuario por defecto...');
+        
+        // Buscar el primer usuario disponible o crear uno por defecto
+        let defaultUser = await prisma.user.findFirst();
+        
+        if (!defaultUser) {
+          console.log('⚠️ No hay usuarios en la BD, creando usuario por defecto...');
+          defaultUser = await prisma.user.create({
+            data: {
+              email: 'admin@ondaverificada.com',
+              password: 'temp-password-change-me', // Contraseña temporal
+              name: 'Administrador Sistema',
+              role: 'ADMIN'
+            }
+          });
+          console.log(`✅ Usuario por defecto creado: ${defaultUser.id}`);
+        }
+        
+        // Actualizar el userId en el body
+        body.userId = defaultUser.id;
+        console.log(`✅ Usando usuario: ${defaultUser.name} (${defaultUser.id})`);
+      } else {
+        console.log(`✅ Usuario verificado: ${userExists.name} (${userExists.id})`);
+      }
+      
     } catch (dbError: any) {
       console.error('❌ CHECKPOINT 2 FAILED: Error de conexión a BD:', dbError.message);
       return NextResponse.json({
@@ -116,6 +154,7 @@ export async function POST(request: NextRequest) {
       startTime, 
       endTime, 
       aiModel,
+      aiProvider,
       description 
     } = body;
 
@@ -277,8 +316,10 @@ export async function POST(request: NextRequest) {
     // Preparar datos completos para enviar a la VPS
     const scheduleData = {
       userId: userId,
+      aiProvider: aiProvider || null, // Proveedor de IA seleccionado por el usuario
       radios: radiosForVPS,
       days: processedDays,
+      status: 'ACTIVE', // Estado inicial del monitoreo
       schedule: {
         startTime: startTime,
         endTime: endTime,
@@ -294,6 +335,7 @@ export async function POST(request: NextRequest) {
       },
       detection: {
         aiModel: aiModel || 'estandar',
+        aiProvider: aiProvider || null,
         language: 'es',
         autoTranscription: true,
         phraseDetection: true
@@ -314,25 +356,9 @@ export async function POST(request: NextRequest) {
       return radioCount * Math.ceil(minutes / 60) * basePrice;
     }
 
-    // Verificar que la VPS esté disponible antes de enviar
-    console.log('🔍 Verificando estado de la VPS...');
-    const vpsHealthy = await checkVPSHealth();
-    
-    if (!vpsHealthy) {
-      console.error('❌ VPS no está disponible');
-      return NextResponse.json({
-        success: false,
-        error: 'VPS no disponible',
-        details: `No se puede conectar con la VPS en ${VPS_CONFIG.host}:${VPS_CONFIG.port}. Verifique que el servidor esté corriendo.`,
-        vpsConfig: {
-          host: VPS_CONFIG.host,
-          port: VPS_CONFIG.port,
-          endpoint: VPS_CONFIG.endpoint
-        }
-      }, { status: 503 });
-    }
-
     // CHECKPOINT 3: Antes de crear sesiones
+    // NOTA: Creamos las sesiones PRIMERO, luego intentamos enviar al VPS
+    // Esto asegura que los datos se guarden incluso si el VPS no está disponible
     console.log('🚀 CHECKPOINT 3: Iniciando creación de sesiones en BD');
     console.log(`📊 Datos para crear sesiones:`, {
       totalRadios: radios.length,
@@ -399,6 +425,7 @@ export async function POST(request: NextRequest) {
               // Configuración de IA y detección
               language: 'es',
               aiModel: aiModel || 'estandar',
+              aiProvider: aiProvider || null, // Proveedor de IA seleccionado
               autoTranscription: true,
               phraseDetection: true,
               
@@ -432,6 +459,7 @@ export async function POST(request: NextRequest) {
                 startTime: startTime,
                 endTime: endTime,
                 aiModel: aiModel,
+                aiProvider: aiProvider,
                 description: description
               },
               
@@ -486,18 +514,57 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`💾 ${createdSessions.length} sesiones creadas exitosamente`);
+    console.log('\n');
+    console.log('✅ ========================================');
+    console.log(`✅ RESULTADO: ${createdSessions.length} SESIONES CREADAS Y GUARDADAS EN BD`);
+    console.log('✅ ========================================');
+    
+    if (createdSessions.length > 0) {
+      console.log('📋 IDs de sesiones creadas:');
+      createdSessions.forEach((session: any, index: number) => {
+        console.log(`   ${index + 1}. ${session.id}`);
+      });
+    }
+    console.log('\n');
 
-    // 2. Enviar programación a la VPS
+    // 2. Intentar enviar programación a la VPS (OPCIONAL - no bloquea si falla)
+    let vpsResponse = null;
+    let vpsSuccess = false;
+    
     try {
-      console.log('📡 Enviando programación a la VPS...');
-      const vpsResponse = await sendScheduleToVPS(scheduleData);
+      console.log('📡 Verificando estado de la VPS...');
+      const vpsHealthy = await checkVPSHealth();
+      
+      if (vpsHealthy) {
+        console.log('📡 VPS disponible, enviando programación...');
+        
+        // Agregar los sessionIds al scheduleData
+        const scheduleDataWithSessions = {
+          ...scheduleData,
+          sessions: createdSessions.map((session: any) => ({
+            sessionId: session.id,
+            radioId: session.radioId,
+            radioName: radios.find(r => r.id === session.radioId)?.name || 'Unknown'
+          }))
+        };
+        
+        vpsResponse = await sendScheduleToVPS(scheduleDataWithSessions);
+        vpsSuccess = true;
+        console.log('✅ Programación enviada exitosamente al VPS');
+      } else {
+        console.log('⚠️ VPS no disponible, pero las sesiones ya fueron creadas en BD');
+      }
+    } catch (vpsError: any) {
+      console.error('⚠️ Error al enviar al VPS (no crítico):', vpsError.message);
+      console.log('✅ Las sesiones fueron creadas correctamente en la BD local');
+    }
 
-      console.log('✅ Programación enviada exitosamente al VPS');
-
-      return NextResponse.json({
-        success: true,
-        message: `Monitoreo iniciado correctamente. ${createdSessions.length} sesiones creadas y programación enviada al VPS.`,
+    // SIEMPRE retornar éxito si las sesiones se crearon, independientemente del VPS
+    return NextResponse.json({
+      success: true,
+      message: vpsSuccess 
+        ? `Monitoreo iniciado correctamente. ${createdSessions.length} sesiones creadas y programación enviada al VPS.`
+        : `Monitoreo creado correctamente. ${createdSessions.length} sesiones guardadas en BD. (VPS no disponible)`,
         data: {
           // Sesiones creadas en la base de datos
           createdSessions: createdSessions.map((session: any) => ({
@@ -533,6 +600,7 @@ export async function POST(request: NextRequest) {
           // Configuración de detección
           detection: {
             aiModel: aiModel || 'estandar',
+            aiProvider: aiProvider || null,
             language: 'es'
           },
           
@@ -542,23 +610,9 @@ export async function POST(request: NextRequest) {
           // Respuesta de la VPS
           vpsResponse
         },
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        vpsAvailable: vpsSuccess
       });
-
-    } catch (error: any) {
-      console.error('❌ Error enviando programación a VPS:', error);
-      
-      // Aunque falló el VPS, las sesiones ya se crearon en la base de datos
-      return NextResponse.json({
-        success: false,
-        error: 'Error al enviar programación a la VPS',
-        details: error.message,
-        data: {
-          createdSessions: createdSessions.length,
-          message: `Se crearon ${createdSessions.length} sesiones en la base de datos, pero falló el envío al VPS.`
-        }
-      }, { status: 500 });
-    }
 
   } catch (error: any) {
     console.error('❌ Error iniciando monitoreo:', error);

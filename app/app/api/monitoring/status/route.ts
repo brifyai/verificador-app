@@ -9,16 +9,29 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const status = url.searchParams.get('status') || 'ALL';
+    const statusParam = url.searchParams.get('status') || 'ALL';
     const limit = parseInt(url.searchParams.get('limit') || '50');
 
-    console.log(`📊 API /monitoring/status - Consultando sesiones con filtro: ${status}, límite: ${limit}`);
+    console.log(`📊 API /monitoring/status - Consultando sesiones con filtro: ${statusParam}, límite: ${limit}`);
+
+    // Manejar múltiples valores de status (ej: "ACTIVE,PAUSED")
+    let whereClause: any = {};
+    if (statusParam !== 'ALL') {
+      const statusValues = statusParam.split(',').map(s => s.trim());
+      console.log(`🔍 Status values a buscar:`, statusValues);
+      if (statusValues.length === 1) {
+        whereClause = { status: statusValues[0] };
+      } else {
+        whereClause = { status: { in: statusValues } };
+      }
+      console.log(`🔍 Where clause generado:`, JSON.stringify(whereClause));
+    } else {
+      console.log(`🔍 Buscando TODAS las sesiones (sin filtro de status)`);
+    }
 
     // Obtener sesiones de monitoreo desde la base de datos
     const activeSessions = await prisma.monitoringSession.findMany({
-      where: status === 'ALL' ? {} : {
-        status: status as any
-      },
+      where: whereClause,
       include: {
         radio: {
           select: {

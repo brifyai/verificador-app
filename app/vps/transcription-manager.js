@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const cron = require('node-cron');
+const PhraseDetector = require('./phrase-detector');
 
 class TranscriptionManager {
   constructor(recordingsDir = './recordings') {
@@ -10,6 +11,7 @@ class TranscriptionManager {
     this.isTranscribing = false;
     this.transcriptionQueue = [];
     this.supportedFormats = ['.mp3', '.wav', '.m4a', '.flac'];
+    this.phraseDetector = new PhraseDetector();
     
     // Programar transcripciones automáticas entre 2-5 AM
     this.scheduleTranscriptions();
@@ -212,6 +214,22 @@ class TranscriptionManager {
         if (result.success) {
           processed++;
           console.log(`✅ Transcripción completada: ${item.folderName}`);
+          
+          // 🔍 DETECCIÓN AUTOMÁTICA DE FRASES
+          console.log(`🔍 Iniciando detección automática de frases...`);
+          try {
+            const detectionResult = await this.phraseDetector.detectPhrasesInTranscription(
+              item.folderPath,
+              item.folderName
+            );
+            
+            if (detectionResult.success && detectionResult.matches > 0) {
+              console.log(`   ✅ Detección completada: ${detectionResult.matches} coincidencias`);
+            }
+          } catch (detectionError) {
+            console.error(`   ⚠️ Error en detección de frases:`, detectionError.message);
+            // No detener el proceso si falla la detección
+          }
         } else {
           errors++;
           console.log(`❌ Error en transcripción: ${item.folderName} - ${result.error}`);

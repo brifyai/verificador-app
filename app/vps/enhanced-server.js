@@ -88,12 +88,15 @@ app.post('/api/schedule', async (req, res) => {
         timeWindow: '02:00-05:00',
         model: 'whisper-base'
       },
-      status: 'active'
+      status: req.body.status || 'ACTIVE', // Usar el status que viene del dashboard
+      sessions: req.body.sessions || [] // Guardar los sessionIds
     };
     
     // Guardar configuración
     fs.writeFileSync(configFile, JSON.stringify(scheduleConfig, null, 2));
     console.log(`💾 Configuración guardada: ${scheduleId}.json`);
+    console.log(`📊 Status: ${scheduleConfig.status}`);
+    console.log(`🔑 Sessions: ${scheduleConfig.sessions.length}`);
     
     // Cargar en el scheduler mejorado
     console.log('🤖 Cargando en scheduler mejorado...');
@@ -128,6 +131,139 @@ app.post('/api/schedule', async (req, res) => {
       success: false,
       error: 'Error interno del servidor',
       details: error.message
+    });
+  }
+});
+
+// ========================================
+// NUEVOS ENDPOINTS DE CONTROL
+// ========================================
+
+// 1️⃣ PAUSAR SCHEDULE
+app.post('/api/pause-schedule', async (req, res) => {
+  try {
+    const { sessionId, radioId, userId, action, status } = req.body;
+    
+    console.log(`⏸️ [PAUSE] Recibido - sessionId: ${sessionId}, radioId: ${radioId}`);
+    
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId es requerido'
+      });
+    }
+    
+    // Pausar el schedule usando el scheduler
+    const result = scheduler.pauseSchedule(sessionId);
+    
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        error: 'Schedule no encontrado'
+      });
+    }
+    
+    console.log(`✅ Schedule pausado exitosamente: ${sessionId}`);
+    
+    res.json({
+      success: true,
+      message: 'Schedule pausado correctamente',
+      sessionId: sessionId,
+      status: 'PAUSED'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error pausando schedule:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 2️⃣ REANUDAR SCHEDULE
+app.post('/api/resume-schedule', async (req, res) => {
+  try {
+    const { sessionId, radioId, userId, action, status } = req.body;
+    
+    console.log(`▶️ [RESUME] Recibido - sessionId: ${sessionId}, radioId: ${radioId}`);
+    
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId es requerido'
+      });
+    }
+    
+    // Reanudar el schedule usando el scheduler
+    const result = scheduler.resumeSchedule(sessionId);
+    
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        error: 'Schedule no encontrado'
+      });
+    }
+    
+    console.log(`✅ Schedule reanudado exitosamente: ${sessionId}`);
+    
+    res.json({
+      success: true,
+      message: 'Schedule reanudado correctamente',
+      sessionId: sessionId,
+      status: 'ACTIVE'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error reanudando schedule:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 3️⃣ DETENER Y ELIMINAR SCHEDULE
+app.post('/api/stop-schedule', async (req, res) => {
+  try {
+    const { sessionId, radioId, userId, action } = req.body;
+    
+    console.log(`🛑 [STOP] Recibido - sessionId: ${sessionId}, radioId: ${radioId}`);
+    
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId es requerido'
+      });
+    }
+    
+    // Detener y eliminar el schedule usando el scheduler
+    const result = scheduler.stopAndDeleteSchedule(sessionId);
+    
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        error: 'Schedule no encontrado'
+      });
+    }
+    
+    console.log(`✅ Schedule eliminado exitosamente: ${sessionId}`);
+    
+    res.json({
+      success: true,
+      message: 'Schedule detenido y eliminado correctamente',
+      sessionId: sessionId,
+      stats: {
+        totalRecordings: 0,
+        totalTranscriptions: 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error deteniendo schedule:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -357,6 +493,9 @@ app.get('/', (req, res) => {
     },
     endpoints: [
       'POST /api/schedule - Programar grabaciones desde dashboard',
+      'POST /api/pause-schedule - Pausar schedule (NUEVO)',
+      'POST /api/resume-schedule - Reanudar schedule (NUEVO)',
+      'POST /api/stop-schedule - Detener y eliminar schedule (NUEVO)',
       'GET /api/scheduler/status - Estado completo del sistema',
       'GET /api/recordings/active - Grabaciones en curso',
       'GET /api/transcriptions/stats - Estadísticas de transcripciones',

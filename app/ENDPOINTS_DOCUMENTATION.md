@@ -125,6 +125,112 @@ Todos los endpoints requieren autenticación mediante NextAuth.js. Las rutas est
 
 ---
 
+## 📝 Frases API
+
+### GET `/api/phrases`
+**Descripción**: Obtiene la lista de frases publicitarias
+
+### GET `/api/phrases/search`
+**Descripción**: Busca frases clave en archivos de transcripción de grabaciones
+**Parámetros de consulta**:
+- `phraseIds` (opcional): IDs de frases específicas separados por coma
+- `recordingsDir` (opcional): Directorio de grabaciones (default: './recordings')
+
+**Respuesta**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalFolders": 10,
+    "foldersWithMatches": 5,
+    "totalMatches": 15,
+    "phraseStats": [
+      {
+        "phraseId": "phrase_id",
+        "phrase": "Coca Cola",
+        "brand": "Coca Cola",
+        "matchCount": 8
+      }
+    ],
+    "results": [
+      {
+        "folderName": "Radio_Cooperativa_2024-10-13_14-30-00",
+        "folderPath": "/path/to/folder",
+        "audioFile": "audio.mp3",
+        "transcriptionFile": "/path/to/transcription.txt",
+        "transcriptionLength": 5000,
+        "wordCount": 850,
+        "timestamp": "2024-10-13 14:30:00",
+        "matches": [
+          {
+            "phraseId": "phrase_id",
+            "phrase": "Coca Cola",
+            "brand": "Coca Cola",
+            "campaign": "Verano 2024",
+            "matchedText": "Coca Cola",
+            "confidence": 1.0,
+            "position": 1250,
+            "wordPosition": 215,
+            "context": "...y ahora un mensaje de Coca Cola, la bebida que refresca..."
+          }
+        ]
+      }
+    ]
+  },
+  "message": "Búsqueda completada: 15 coincidencias encontradas en 5 grabaciones"
+}
+```
+
+### POST `/api/phrases/search`
+**Descripción**: Búsqueda avanzada de frases con filtros de fecha
+**Body**:
+```json
+{
+  "phraseIds": ["phrase_id_1", "phrase_id_2"],
+  "recordingsDir": "./recordings",
+  "dateFrom": "2024-01-01",
+  "dateTo": "2024-12-31"
+}
+```
+
+**Respuesta**: Igual que GET pero con resultados filtrados por fecha
+
+### GET `/api/phrases`
+**Descripción**: Obtiene la lista de frases publicitarias (legacy)
+**Respuesta**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "phrase_id",
+      "phrase": "Coca Cola",
+      "brand": "Coca Cola",
+      "campaign": "Campaña Verano 2024",
+      "category": "Bebidas",
+      "description": "Frase publicitaria principal",
+      "isActive": true,
+      "createdAt": "2024-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+### POST `/api/phrases`
+**Descripción**: Crea una nueva frase objetivo
+**Body**:
+```json
+{
+  "phrase": "Nueva frase",
+  "brand": "Marca",
+  "campaign": "Campaña",
+  "category": "Categoría",
+  "description": "Descripción opcional"
+}
+```
+
+---
+
 ## 🎵 Frases API
 
 ### GET `/api/frases`

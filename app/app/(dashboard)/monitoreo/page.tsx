@@ -61,9 +61,11 @@ export default function ConfigurarAnalisisPage() {
   const [recordingEndHour, setRecordingEndHour] = useState<number>(2);      // 2 AM por defecto
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'new' | 'active'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'active' | 'finished'>('new');
   const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  const [finishedSessions, setFinishedSessions] = useState<any[]>([]);
   const [loadingActive, setLoadingActive] = useState<boolean>(false);
+  const [loadingFinished, setLoadingFinished] = useState<boolean>(false);
   
   // ✅ NUEVOS ESTADOS PARA FILTROS
   const [searchTerm, setSearchTerm] = useState('');
@@ -77,6 +79,7 @@ export default function ConfigurarAnalisisPage() {
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [sessionDetails, setSessionDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsModalKey, setDetailsModalKey] = useState(0);
 
   // Carga de datos inicial (radios, frases y APIs)
   useEffect(() => {
@@ -113,40 +116,61 @@ export default function ConfigurarAnalisisPage() {
     fetchData();
   }, []);
 
-  // Cargar todas las sesiones y filtrar según la pestaña
+  // Cargar sesiones activas y finalizadas según la pestaña
   useEffect(() => {
     let interval: any;
-    const loadAllSessions = async () => {
+    
+    const loadActiveSessions = async () => {
       try {
         setLoadingActive(true);
-        const res = await fetch('/api/monitoring/status?status=ALL&limit=100');
+        const res = await fetch('/api/monitoring/status?status=ACTIVE,PAUSED&limit=100');
         const data = await res.json();
         
         if (data && data.success) {
-          const allSessions = data.data || [];
-          setActiveSessions(allSessions);
-          console.log(`📊 Cargadas ${allSessions.length} sesiones totales`);
+          const sessions = data.data || [];
+          setActiveSessions(sessions);
+          console.log(`📊 Cargadas ${sessions.length} sesiones activas`);
         } else {
-          // fallback
-          const res2 = await fetch('/api/monitoring/status');
-          const d2 = await res2.json();
-          const fallbackSessions = Array.isArray(d2.activeSessions) ? d2.activeSessions : [];
-          setActiveSessions(fallbackSessions);
-          console.log(`📊 Fallback: ${fallbackSessions.length} sesiones`);
+          setActiveSessions([]);
         }
       } catch (e) {
-        console.error('Error cargando sesiones:', e);
+        console.error('Error cargando sesiones activas:', e);
         setActiveSessions([]);
       } finally {
         setLoadingActive(false);
       }
     };
 
-    // Cargar sesiones para ambas pestañas
+    const loadFinishedSessions = async () => {
+      try {
+        setLoadingFinished(true);
+        const res = await fetch('/api/monitoring/status?status=COMPLETED&limit=100');
+        const data = await res.json();
+        
+        if (data && data.success) {
+          const sessions = data.data || [];
+          setFinishedSessions(sessions);
+          console.log(`📊 Cargadas ${sessions.length} sesiones finalizadas`);
+        } else {
+          setFinishedSessions([]);
+        }
+      } catch (e) {
+        console.error('Error cargando sesiones finalizadas:', e);
+        setFinishedSessions([]);
+      } finally {
+        setLoadingFinished(false);
+      }
+    };
+
+    // Cargar sesiones según la pestaña activa
     if (activeTab === 'active' || activeTab === 'new') {
-      loadAllSessions();
-      interval = setInterval(loadAllSessions, 20000);
+      loadActiveSessions();
+      interval = setInterval(loadActiveSessions, 20000);
+    } else if (activeTab === 'finished') {
+      loadFinishedSessions();
+      interval = setInterval(loadFinishedSessions, 30000);
     }
+    
     return () => clearInterval(interval);
   }, [activeTab]);
 
@@ -327,9 +351,10 @@ export default function ConfigurarAnalisisPage() {
     return (
       <div className="space-y-8">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-          <TabsList className="grid w-full grid-cols-2 bg-gray-800 mb-2">
+          <TabsList className="grid w-full grid-cols-3 bg-gray-800 mb-2">
             <TabsTrigger value="new" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Configurar Nuevo</TabsTrigger>
             <TabsTrigger value="active" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Activos</TabsTrigger>
+            <TabsTrigger value="finished" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Finalizados</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -442,20 +467,30 @@ export default function ConfigurarAnalisisPage() {
                               variant="outline"
                               size="sm"
                               className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:border-blue-400"
-                              onClick={async () => {
+                              onClick={() => {
+                                // Establecer datos inmediatamente
                                 setSelectedSession(s);
+                                setSessionDetails(s);
+                                setDetailsModalKey(prev => prev + 1);
+                                
+                                // Abrir modal inmediatamente
                                 setShowDetailsModal(true);
+                                
+                                // Cargar detalles adicionales en segundo plano
                                 setLoadingDetails(true);
-                                try {
-                                  const res = await fetch(`/api/monitoring/status?sessionId=${sessionId}`);
-                                  const data = await res.json();
-                                  setSessionDetails(data.success ? data.data : null);
-                                } catch (error) {
-                                  console.error('Error loading session details:', error);
-                                  setSessionDetails(null);
-                                } finally {
-                                  setLoadingDetails(false);
-                                }
+                                fetch(`/api/monitoring/status?sessionId=${sessionId}`)
+                                  .then(res => res.json())
+                                  .then(data => {
+                                    if (data.success && data.data) {
+                                      setSessionDetails(data.data);
+                                    }
+                                  })
+                                  .catch(error => {
+                                    console.error('Error loading session details:', error);
+                                  })
+                                  .finally(() => {
+                                    setLoadingDetails(false);
+                                  });
                               }}
                             >
                               <Eye className="h-4 w-4 mr-1" />
@@ -536,12 +571,156 @@ export default function ConfigurarAnalisisPage() {
     );
   }
 
+  // Vista: Monitoreos Finalizados
+  if (activeTab === 'finished') {
+    return (
+      <div className="space-y-8">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+          <TabsList className="grid w-full grid-cols-3 bg-gray-800 mb-2">
+            <TabsTrigger value="new" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Configurar Nuevo</TabsTrigger>
+            <TabsTrigger value="active" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Activos</TabsTrigger>
+            <TabsTrigger value="finished" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Finalizados</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div>
+          <h1 className="text-3xl font-bold text-white">Monitoreos Finalizados</h1>
+          <p className="text-slate-400 mt-1">Historial de sesiones completadas</p>
+        </div>
+
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardHeader>
+            <CardTitle className="text-white">Sesiones Completadas</CardTitle>
+            <CardDescription>Actualiza automáticamente cada 30s</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingFinished ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="flex items-center gap-3 text-slate-300">
+                  <Activity className="h-5 w-5 animate-pulse" />
+                  <span>Cargando sesiones finalizadas...</span>
+                </div>
+              </div>
+            ) : finishedSessions.length === 0 ? (
+              <div className="text-center py-12 bg-slate-700/20 rounded-lg border-2 border-dashed border-slate-600">
+                <CheckCircle className="h-12 w-12 text-slate-500 mx-auto mb-3" />
+                <p className="text-slate-400 text-lg font-medium mb-2">No hay monitoreos finalizados</p>
+                <p className="text-slate-500 text-sm">Las sesiones completadas aparecerán aquí</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {finishedSessions.map((s: any) => {
+                  const sessionId = s.id || s.sessionId;
+                  const radioName = s.radioName || s.radio?.name || 'Radio';
+                  const userName = s.userName || s.user?.name;
+                  const startTime = new Date(s.startTime || s.startedAt || Date.now());
+                  const endTime = s.endTime ? new Date(s.endTime) : null;
+                  const duration = endTime ? Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60)) : 0;
+                  
+                  return (
+                    <div key={sessionId} className="group relative overflow-hidden rounded-xl border border-slate-700 bg-gradient-to-r from-slate-900/60 to-slate-800/40 backdrop-blur-sm hover:border-slate-600 transition-all duration-300">
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-emerald-500"></div>
+                      
+                      <div className="p-6">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <div className="relative">
+                                  <RadioIcon className="h-5 w-5 text-green-400" />
+                                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
+                                </div>
+                                <h3 className="text-lg font-semibold text-white">{radioName}</h3>
+                              </div>
+                              <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30 border">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Completado
+                              </Badge>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                              <div className="flex items-center gap-2 text-slate-300">
+                                <Clock className="h-4 w-4 text-slate-400" />
+                                <span>Inicio: {startTime.toLocaleString('es-CL')}</span>
+                              </div>
+                              
+                              {endTime && (
+                                <div className="flex items-center gap-2 text-slate-300">
+                                  <CheckCircle className="h-4 w-4 text-slate-400" />
+                                  <span>Fin: {endTime.toLocaleString('es-CL')}</span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-2 text-slate-300">
+                                <Timer className="h-4 w-4 text-slate-400" />
+                                <span>Duración: {duration} min</span>
+                              </div>
+                              
+                              {userName && (
+                                <div className="flex items-center gap-2 text-slate-300">
+                                  <User className="h-4 w-4 text-slate-400" />
+                                  <span>{userName}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {(s.totalCaptures || s.totalDetections) && (
+                              <div className="pt-2 border-t border-slate-700/50">
+                                <div className="flex items-center gap-4 text-xs text-slate-400">
+                                  {s.totalCaptures && <span>Capturas: {s.totalCaptures}</span>}
+                                  {s.totalDetections && <span className="text-green-400">Detecciones: {s.totalDetections}</span>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center gap-2 ml-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:border-blue-400"
+                              onClick={() => {
+                                setSelectedSession(s);
+                                setSessionDetails(s);
+                                setDetailsModalKey(prev => prev + 1);
+                                setShowDetailsModal(true);
+                                
+                                setLoadingDetails(true);
+                                fetch(`/api/monitoring/status?sessionId=${sessionId}`)
+                                  .then(res => res.json())
+                                  .then(data => {
+                                    if (data.success && data.data) {
+                                      setSessionDetails(data.data);
+                                    }
+                                  })
+                                  .catch(error => console.error('Error:', error))
+                                  .finally(() => setLoadingDetails(false));
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver Detalles
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className="grid w-full grid-cols-2 bg-gray-800 mb-2">
+        <TabsList className="grid w-full grid-cols-3 bg-gray-800 mb-2">
           <TabsTrigger value="new" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Configurar Nuevo</TabsTrigger>
           <TabsTrigger value="active" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Activos</TabsTrigger>
+          <TabsTrigger value="finished" className="text-white data-[state=active]:bg-blue-600 data-[state=active]:text-white">Finalizados</TabsTrigger>
         </TabsList>
       </Tabs>
       <div>
@@ -1094,7 +1273,7 @@ export default function ConfigurarAnalisisPage() {
       </Dialog>
 
       {/* ✅ MODAL DE DETALLES DE SESIÓN */}
-      <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
+      <Dialog key={detailsModalKey} open={showDetailsModal} onOpenChange={setShowDetailsModal}>
         <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl flex items-center gap-2">

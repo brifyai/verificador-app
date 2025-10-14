@@ -21,6 +21,8 @@ interface DashboardStats {
     weekDetections: number;
     monthDetections: number;
     activeSessions: number;
+    pausedSessions: number;
+    completedSessions: number;
     totalRadios: number;
     totalPhrases: number;
     verificationRate: string;
@@ -99,35 +101,60 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Metrics cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Metrics cards - Monitoreos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <MetricCard
-          title="Radios Activas"
+          title="Monitoreos Activos"
           value={stats.summary.activeSessions}
           icon={Radio}
-          iconColor="bg-blue-500/20 text-blue-400"
-          subtitle={`De ${stats.summary.totalRadios} totales`}
+          iconColor="bg-emerald-500/20 text-emerald-400"
+          subtitle={`De ${stats.summary.totalRadios} radios totales`}
         />
+        <MetricCard
+          title="Monitoreos Pausados"
+          value={stats.summary.pausedSessions}
+          icon={Radio}
+          iconColor="bg-yellow-500/20 text-yellow-400"
+          subtitle="En espera"
+        />
+        <MetricCard
+          title="Monitoreos Finalizados"
+          value={stats.summary.completedSessions}
+          icon={CheckCircle}
+          iconColor="bg-green-500/20 text-green-400"
+          subtitle="Completados"
+        />
+      </div>
+
+      {/* Metrics cards - Detecciones y Costos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Detecciones Hoy"
           value={stats.summary.todayDetections}
-          icon={CheckCircle}
-          iconColor="bg-green-500/20 text-green-400"
+          icon={BarChart3}
+          iconColor="bg-blue-500/20 text-blue-400"
           subtitle={`${stats.summary.weekDetections} esta semana`}
         />
         <MetricCard
           title="Tasa de Verificación"
           value={`${stats.summary.verificationRate}%`}
           icon={TrendingUp}
-          iconColor="bg-yellow-500/20 text-yellow-400"
+          iconColor="bg-purple-500/20 text-purple-400"
           subtitle={`${stats.summary.totalDetections} totales`}
         />
         <MetricCard
           title="Costos del Mes"
           value={`$${stats.summary.monthCosts.toFixed(2)}`}
           icon={DollarSign}
-          iconColor="bg-purple-500/20 text-purple-400"
+          iconColor="bg-orange-500/20 text-orange-400"
           subtitle="Gasto acumulado"
+        />
+        <MetricCard
+          title="Radios Disponibles"
+          value={stats.summary.totalRadios}
+          icon={Radio}
+          iconColor="bg-cyan-500/20 text-cyan-400"
+          subtitle={`${stats.summary.totalPhrases} frases activas`}
         />
       </div>
 

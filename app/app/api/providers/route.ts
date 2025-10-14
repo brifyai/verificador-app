@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +76,17 @@ function toApiProvider(c: any) {
 
 export async function GET() {
   try {
+    // Leer desde api_providers.json
+    const filePath = path.join(process.cwd(), 'data', 'api_providers.json');
+    
+    if (fs.existsSync(filePath)) {
+      const fileContent = fs.readFileSync(filePath, 'utf-8');
+      const providers = JSON.parse(fileContent);
+      // Retornar en el formato esperado por DynamicProvidersManager
+      return NextResponse.json({ providers });
+    }
+    
+    // Fallback: leer de la base de datos
     const configs = await prisma.apiConfiguration.findMany({ orderBy: { priority: 'asc' } });
     // Si no hay, devolver defaults deshabilitados
     if (configs.length === 0) {
@@ -103,41 +116,40 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    // body puede venir con name o id; inferir provider code
-    const providerCode = NAME_TO_PROVIDER[body.name] || body.id || body.provider || 'custom';
-    const defaults = PROVIDER_DEFAULTS[providerCode] || {};
-
-    const metadata = {
-      baseUrl: body.baseUrl || defaults.baseUrl || '',
-      models: Array.isArray(body.models) ? body.models : (defaults.models || []),
-      rateLimits: body.rateLimits || defaults.rateLimits || undefined,
-      headers: body.headers || undefined,
+    const filePath = path.join(process.cwd(), 'data', 'api_providers.json');
+    
+    // Leer archivo actual
+    let providers = [];
+    if (fs.existsSync(filePath)) {
+      const fileContent = fs.readFileSync(filePath, 'utf-8');
+      providers = JSON.parse(fileContent);
+    }
+    
+    // Crear nuevo proveedor
+    const newProvider = {
+      id: body.id || body.name.toLowerCase().replace(/\s+/g, '-'),
+      name: body.name,
+      type: body.type || 'transcription',
+      baseUrl: body.baseUrl || '',
+      apiKey: body.apiKey || '',
+      models: body.models || [],
+      enabled: body.enabled ?? true,
+      priority: body.priority ?? (Math.max(...providers.map((p: any) => p.priority || 0), 0) + 1),
+      rateLimits: body.rateLimits || {
+        requestsPerMinute: 60,
+        requestsPerHour: 1000
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
-
-    const created = await prisma.apiConfiguration.upsert({
-      where: { provider: providerCode },
-      update: {
-        apiKey: body.apiKey || null, // texto plano temporal (para pruebas)
-        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
-        enabled: body.enabled ?? true,
-        priority: body.priority ?? defaults.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
-        metadata,
-      },
-      create: {
-        provider: providerCode,
-        apiKey: body.apiKey || null,
-        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
-        enabled: body.enabled ?? true,
-        priority: body.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
-        metadata,
-      },
-    });
-
-    return NextResponse.json({ provider: toApiProvider(created) });
+    
+    // Agregar al array
+    providers.push(newProvider);
+    
+    // Guardar archivo
+    fs.writeFileSync(filePath, JSON.stringify(providers, null, 2), 'utf-8');
+    
+    return NextResponse.json({ provider: newProvider });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error creando proveedor' }, { status: 500 });
   }
@@ -146,48 +158,41 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const id = body.id as string | undefined;
-    const existing = id
-      ? await prisma.apiConfiguration.findUnique({ where: { id } })
-      : null;
-
-    const providerCode = existing?.provider || NAME_TO_PROVIDER[body.name] || body.provider || 'custom';
-    const defaults = PROVIDER_DEFAULTS[providerCode] || {};
-
-    const prev = existing || (await prisma.apiConfiguration.findUnique({ where: { provider: providerCode } }));
-    const prevMeta = (prev?.metadata as any) || {};
-
-    const metadata = {
-      baseUrl: body.baseUrl ?? prevMeta.baseUrl ?? defaults.baseUrl ?? '',
-      models: Array.isArray(body.models) ? body.models : (prevMeta.models || defaults.models || []),
-      rateLimits: body.rateLimits ?? prevMeta.rateLimits ?? defaults.rateLimits ?? undefined,
-      headers: body.headers ?? prevMeta.headers ?? undefined,
+    const filePath = path.join(process.cwd(), 'data', 'api_providers.json');
+    
+    // Leer archivo actual
+    if (!fs.existsSync(filePath)) {
+      return NextResponse.json({ error: 'Archivo de proveedores no encontrado' }, { status: 404 });
+    }
+    
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    let providers = JSON.parse(fileContent);
+    
+    // Buscar el proveedor a actualizar
+    const index = providers.findIndex((p: any) => p.id === body.id);
+    
+    if (index === -1) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+    }
+    
+    // Actualizar proveedor
+    providers[index] = {
+      ...providers[index],
+      name: body.name ?? providers[index].name,
+      type: body.type ?? providers[index].type,
+      baseUrl: body.baseUrl ?? providers[index].baseUrl,
+      apiKey: body.apiKey !== undefined ? body.apiKey : providers[index].apiKey,
+      models: body.models ?? providers[index].models,
+      enabled: body.enabled ?? providers[index].enabled,
+      priority: body.priority ?? providers[index].priority,
+      rateLimits: body.rateLimits ?? providers[index].rateLimits,
+      updated_at: new Date().toISOString()
     };
-
-    const updated = await prisma.apiConfiguration.upsert({
-      where: id ? { id } : { provider: providerCode },
-      update: {
-        apiKey: body.apiKey !== undefined ? (body.apiKey || null) : prev?.apiKey || null,
-        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || prev?.model || null,
-        enabled: body.enabled ?? prev?.enabled ?? false,
-        priority: body.priority ?? prev?.priority ?? defaults.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? prev?.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? prev?.rateLimit ?? null,
-        metadata,
-      },
-      create: {
-        provider: providerCode,
-        apiKey: body.apiKey || null,
-        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
-        enabled: body.enabled ?? true,
-        priority: body.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
-        metadata,
-      },
-    });
-
-    return NextResponse.json({ provider: toApiProvider(updated) });
+    
+    // Guardar archivo
+    fs.writeFileSync(filePath, JSON.stringify(providers, null, 2), 'utf-8');
+    
+    return NextResponse.json({ provider: providers[index] });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error actualizando proveedor' }, { status: 500 });
   }
@@ -199,7 +204,21 @@ export async function DELETE(request: NextRequest) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
 
-    await prisma.apiConfiguration.delete({ where: { id } });
+    const filePath = path.join(process.cwd(), 'data', 'api_providers.json');
+    
+    if (!fs.existsSync(filePath)) {
+      return NextResponse.json({ error: 'Archivo de proveedores no encontrado' }, { status: 404 });
+    }
+    
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    let providers = JSON.parse(fileContent);
+    
+    // Filtrar el proveedor a eliminar
+    providers = providers.filter((p: any) => p.id !== id);
+    
+    // Guardar archivo
+    fs.writeFileSync(filePath, JSON.stringify(providers, null, 2), 'utf-8');
+    
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error eliminando proveedor' }, { status: 500 });

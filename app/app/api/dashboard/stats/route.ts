@@ -31,6 +31,8 @@ export async function GET(request: NextRequest) {
       weekDetections,
       monthDetections,
       activeSessions,
+      pausedSessions,
+      completedSessions,
       totalRadios,
       totalPhrases,
       totalCaptures
@@ -47,6 +49,12 @@ export async function GET(request: NextRequest) {
       }),
       prisma.monitoringSession.count({
         where: { status: 'ACTIVE' }
+      }),
+      prisma.monitoringSession.count({
+        where: { status: 'PAUSED' }
+      }),
+      prisma.monitoringSession.count({
+        where: { status: 'COMPLETED' }
       }),
       prisma.radio.count({ where: { status: 'ACTIVE' } }),
       prisma.phrase.count({ where: { active: true } }),
@@ -182,6 +190,8 @@ export async function GET(request: NextRequest) {
           weekDetections,
           monthDetections,
           activeSessions,
+          pausedSessions,
+          completedSessions,
           totalRadios,
           totalPhrases,
           totalCaptures,

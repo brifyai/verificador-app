@@ -58,8 +58,11 @@ class EnhancedRadioScheduler {
     try {
       const scheduleData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       
-      if (scheduleData.status !== 'active') {
-        console.log(`⏸️ Programación inactiva: ${scheduleData.scheduleId}`);
+      // Verificar status (puede ser 'active', 'ACTIVE', 'PAUSED', etc.)
+      const status = (scheduleData.status || '').toUpperCase();
+      
+      if (status !== 'ACTIVE' && status !== 'active') {
+        console.log(`⏸️ Programación inactiva: ${scheduleData.scheduleId} (status: ${scheduleData.status})`);
         return;
       }
 
@@ -121,10 +124,20 @@ class EnhancedRadioScheduler {
 
   // Ejecutar grabaciones programadas
   async executeScheduledRecordings(scheduleData) {
-    const { radios, schedule, phrase, scheduleId } = scheduleData;
+    const { radios, schedule, phrase, scheduleId, userId, aiProvider } = scheduleData;
+    
+    // ✅ VERIFICAR STATUS ANTES DE GRABAR
+    const status = (scheduleData.status || '').toUpperCase();
+    if (status === 'PAUSED') {
+      console.log(`⏸️ Schedule pausado, no grabar: ${scheduleId}`);
+      return [];
+    }
     
     console.log(`🎙️ Iniciando grabaciones para: ${scheduleId}`);
     console.log(`📻 ${radios.length} radios - Duración: ${schedule.duration}s`);
+    if (aiProvider) {
+      console.log(`🤖 IA seleccionada: ${aiProvider}`);
+    }
     
     // Iniciar todas las grabaciones en PARALELO (no secuencial)
     const recordingPromises = radios.map(async (radio, index) => {
@@ -132,7 +145,7 @@ class EnhancedRadioScheduler {
         // Pequeño delay para evitar conflictos de timestamp
         await new Promise(resolve => setTimeout(resolve, index * 100));
         
-        const recordingId = this.startRecording(radio, schedule.duration, scheduleId, phrase);
+        const recordingId = this.startRecording(radio, schedule.duration, scheduleId, phrase, userId, aiProvider);
         console.log(`✅ Grabación iniciada: ${radio.name} (${recordingId})`);
         return { success: true, radio: radio.name, recordingId };
       } catch (error) {
@@ -153,7 +166,7 @@ class EnhancedRadioScheduler {
   }
 
   // Iniciar grabación con carpetas organizadas - VERSIÓN PARALELA
-  startRecording(radio, duration, scheduleId, phrase = null) {
+  startRecording(radio, duration, scheduleId, phrase = null, userId = null, aiProvider = null) {
     // Generar timestamp simple y válido
     const now = new Date();
     const cleanRadioName = radio.name.replace(/[^a-zA-Z0-9]/g, '_');
@@ -181,6 +194,8 @@ class EnhancedRadioScheduler {
     // Crear metadata completa
     const metadata = {
       recordingId: recordingId,
+      userId: userId,
+      aiProvider: aiProvider,
       radio: {
         id: radio.id,
         name: radio.name,
@@ -457,6 +472,158 @@ class EnhancedRadioScheduler {
     
     console.log(`🗑️ Programación removida: ${scheduleId} (${removed} trabajos)`);
     return removed > 0;
+  }
+
+  // ========================================
+  // NUEVAS FUNCIONES DE CONTROL
+  // ========================================
+
+  // Buscar schedule por sessionId
+  findScheduleBySessionId(sessionId) {
+    try {
+      const configFiles = fs.readdirSync(this.configDir)
+        .filter(file => file.startsWith('schedule_') && file.endsWith('.json'));
+      
+      for (const configFile of configFiles) {
+        const configPath = path.join(this.configDir, configFile);
+        const scheduleData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        
+        // Buscar en el array de sessions
+        if (scheduleData.sessions && Array.isArray(scheduleData.sessions)) {
+          const hasSession = scheduleData.sessions.some(s => s.sessionId === sessionId);
+          if (hasSession) {
+            return {
+              scheduleData: scheduleData,
+              configPath: configPath,
+              configFile: configFile
+            };
+          }
+        }
+      }
+      
+      console.log(`⚠️ No se encontró schedule para sessionId: ${sessionId}`);
+      return null;
+      
+    } catch (error) {
+      console.error('❌ Error buscando schedule:', error);
+      return null;
+    }
+  }
+
+  // Pausar schedule
+  pauseSchedule(sessionId) {
+    console.log(`⏸️ Pausando schedule para sessionId: ${sessionId}`);
+    
+    const result = this.findScheduleBySessionId(sessionId);
+    if (!result) {
+      console.error(`❌ No se puede pausar, schedule no encontrado: ${sessionId}`);
+      return false;
+    }
+    
+    const { scheduleData, configPath } = result;
+    
+    // Actualizar status a PAUSED
+    scheduleData.status = 'PAUSED';
+    scheduleData.pausedAt = new Date().toISOString();
+    
+    // Guardar cambios
+    try {
+      fs.writeFileSync(configPath, JSON.stringify(scheduleData, null, 2));
+      console.log(`✅ Schedule pausado en archivo: ${configPath}`);
+    } catch (error) {
+      console.error('❌ Error guardando schedule pausado:', error);
+      return false;
+    }
+    
+    // Detener grabaciones activas para este sessionId
+    let stoppedRecordings = 0;
+    for (const [recordingId, recording] of this.activeRecordings) {
+      if (recording.scheduleId === scheduleData.scheduleId) {
+        if (this.stopRecording(recordingId)) {
+          stoppedRecordings++;
+        }
+      }
+    }
+    
+    console.log(`✅ Schedule pausado: ${sessionId} (${stoppedRecordings} grabaciones detenidas)`);
+    return true;
+  }
+
+  // Reanudar schedule
+  resumeSchedule(sessionId) {
+    console.log(`▶️ Reanudando schedule para sessionId: ${sessionId}`);
+    
+    const result = this.findScheduleBySessionId(sessionId);
+    if (!result) {
+      console.error(`❌ No se puede reanudar, schedule no encontrado: ${sessionId}`);
+      return false;
+    }
+    
+    const { scheduleData, configPath } = result;
+    
+    // Actualizar status a ACTIVE
+    scheduleData.status = 'ACTIVE';
+    scheduleData.resumedAt = new Date().toISOString();
+    
+    // Guardar cambios
+    try {
+      fs.writeFileSync(configPath, JSON.stringify(scheduleData, null, 2));
+      console.log(`✅ Schedule reanudado en archivo: ${configPath}`);
+    } catch (error) {
+      console.error('❌ Error guardando schedule reanudado:', error);
+      return false;
+    }
+    
+    console.log(`✅ Schedule reanudado: ${sessionId}`);
+    console.log(`📅 Las grabaciones se reanudarán en el próximo horario programado`);
+    return true;
+  }
+
+  // Detener y eliminar schedule completamente
+  stopAndDeleteSchedule(sessionId) {
+    console.log(`🛑 Deteniendo y eliminando schedule para sessionId: ${sessionId}`);
+    
+    const result = this.findScheduleBySessionId(sessionId);
+    if (!result) {
+      console.error(`❌ No se puede detener, schedule no encontrado: ${sessionId}`);
+      return false;
+    }
+    
+    const { scheduleData, configPath, configFile } = result;
+    
+    // 1. Detener todas las grabaciones activas
+    let stoppedRecordings = 0;
+    for (const [recordingId, recording] of this.activeRecordings) {
+      if (recording.scheduleId === scheduleData.scheduleId) {
+        if (this.stopRecording(recordingId)) {
+          stoppedRecordings++;
+        }
+      }
+    }
+    console.log(`✅ ${stoppedRecordings} grabaciones detenidas`);
+    
+    // 2. Detener trabajos cron
+    let removedJobs = 0;
+    for (const [jobId, jobInfo] of this.scheduledJobs) {
+      if (jobInfo.scheduleId === scheduleData.scheduleId) {
+        jobInfo.job.stop();
+        this.scheduledJobs.delete(jobId);
+        removedJobs++;
+      }
+    }
+    console.log(`✅ ${removedJobs} trabajos cron detenidos`);
+    
+    // 3. ELIMINAR el archivo de configuración
+    try {
+      fs.unlinkSync(configPath);
+      console.log(`✅ Archivo de configuración eliminado: ${configFile}`);
+    } catch (error) {
+      console.error('❌ Error eliminando archivo de configuración:', error);
+      return false;
+    }
+    
+    console.log(`✅ Schedule completamente eliminado: ${sessionId}`);
+    return true;
   }
 }
 

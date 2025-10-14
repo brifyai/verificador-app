@@ -46,7 +46,7 @@ interface ApiModel {
 interface ApiProvider {
   id: string;
   name: string;
-  type: 'transcription' | 'audio_processing' | 'translation' | 'ai_chat';
+  type: 'transcription' | 'audio_processing' | 'translation' | 'ai_chat' | 'analysis';
   baseUrl: string;
   apiKey?: string;
   models: ApiModel[];
@@ -241,9 +241,10 @@ export default function DynamicProvidersManager() {
   const getProviderIcon = (type: string) => {
     switch (type) {
       case 'transcription': return <Brain className="h-4 w-4" />;
+      case 'analysis': return <Zap className="h-4 w-4" />;
       case 'audio_processing': return <Activity className="h-4 w-4" />;
       case 'translation': return <Globe className="h-4 w-4" />;
-      case 'ai_chat': return <Zap className="h-4 w-4" />;
+      case 'ai_chat': return <Brain className="h-4 w-4" />;
       default: return <Settings className="h-4 w-4" />;
     }
   };
@@ -334,23 +335,15 @@ export default function DynamicProvidersManager() {
                   
                   <div className="space-y-2">
                     <Label className="text-white">Tipo *</Label>
-                    <Select 
+                    <Input
                       value={editingProvider?.type || newProvider.type}
-                      onValueChange={(value) => editingProvider ? 
-                        setEditingProvider({...editingProvider, type: value as any}) :
-                        setNewProvider({...newProvider, type: value as any})
+                      onChange={(e) => editingProvider ? 
+                        setEditingProvider({...editingProvider, type: e.target.value as any}) :
+                        setNewProvider({...newProvider, type: e.target.value as any})
                       }
-                    >
-                      <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="transcription">Transcripción</SelectItem>
-                        <SelectItem value="audio_processing">Procesamiento Audio</SelectItem>
-                        <SelectItem value="translation">Traducción</SelectItem>
-                        <SelectItem value="ai_chat">IA Chat</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      className="bg-gray-800 border-gray-700 text-white"
+                      placeholder="transcription, analysis, etc."
+                    />
                   </div>
                 </div>
                 
