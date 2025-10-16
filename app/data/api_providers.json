@@ -121,7 +121,6 @@
     "name": "grok",
     "type": "Gemma2-9b-it",
     "baseUrl": "https://api.groq.com/openai/v1",
-    "apiKey": "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",
     "models": [],
     "enabled": true,
     "priority": 1,
