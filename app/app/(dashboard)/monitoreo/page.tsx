@@ -16,22 +16,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 
 // --- Interfaces para los datos que vienen de la API ---
-import { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Waves, TextSelect, Bot, Calculator, CalendarDays, Search, Clock, CheckCircle, XCircle, AlertTriangle, Eye, Pause, Play, StopCircle, Activity, Radio as RadioIcon, User, Calendar, Timer, Zap } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-
-// --- Interfaces para los datos que vienen de la API ---
 interface Radio {
   id: string;
   name: string;
@@ -40,14 +24,8 @@ interface Radio {
   lastVerificationStatus?: 'ONLINE' | 'OFFLINE' | null;
   lastVerifiedAt?: string | null;
   streamPlatform?: string;
-  region: string | null;
-  isActive?: boolean;
-  lastVerificationStatus?: 'ONLINE' | 'OFFLINE' | null;
-  lastVerifiedAt?: string | null;
-  streamPlatform?: string;
 }
 
-interface Phrase {
 interface Phrase {
   id: string;
   phrase: string;
@@ -260,70 +238,6 @@ export default function ConfigurarAnalisisPage() {
     // ✅ Validar horarios
     if (recordingStartHour === recordingEndHour) {
       toast.warning("⚠️ El horario de inicio y fin no pueden ser iguales.");
-  // Funciones para manejar la selección de radios
-  const handleRadioToggle = (radioId: string) => {
-    setSelectedRadioIds(prev => {
-      const newSet = new Set(prev);
-      newSet.has(radioId) ? newSet.delete(radioId) : newSet.add(radioId);
-      return newSet;
-    });
-  };
-  
-  const selectAllRadios = () => setSelectedRadioIds(new Set(radios.map(r => r.id)));
-  const deselectAllRadios = () => setSelectedRadioIds(new Set());
-
-  // ✅ NUEVA FUNCIÓN: Filtrar radios según criterios
-  const filteredRadios = useMemo(() => {
-    let result = radios;
-
-    // Filtrar por búsqueda
-    if (searchTerm) {
-      result = result.filter(radio =>
-        radio.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (radio.region && radio.region.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
-    }
-
-    // Filtrar por región
-    if (filterRegion !== 'all') {
-      result = result.filter(radio => radio.region === filterRegion);
-    }
-
-    return result;
-  }, [radios, searchTerm, filterRegion]);
-
-  // ✅ Obtener regiones únicas para el filtro
-  const uniqueRegions = useMemo(() => {
-    const regions = radios
-      .map(r => r.region)
-      .filter((region): region is string => region !== null);
-    return Array.from(new Set(regions)).sort();
-  }, [radios]);
-
-  // Cálculo de costos
-  const { radioCost, aiCost, totalCost } = useMemo(() => {
-    const radioCost = selectedRadioIds.size * PRICE_PER_RADIO;
-    const selectedConfig = apiConfigurations.find(c => c.id === selectedApiConfigId);
-    const aiCost = selectedConfig ? selectedConfig.costPerUnit : 0;
-    return { radioCost, aiCost, totalCost: radioCost + aiCost };
-  }, [selectedRadioIds.size, selectedApiConfigId, apiConfigurations]);
-
-  // ✅ VALIDAR Y MOSTRAR MODAL DE CONFIRMACIÓN
-  const handleValidateAndShowConfirm = () => {
-    // ✅ Validaciones separadas para mejor feedback
-    if (selectedRadioIds.size === 0) {
-      toast.warning("⚠️ Debes seleccionar al menos una radio.");
-      return;
-    }
-
-    if (!selectedPhraseId) {
-      toast.warning("⚠️ Debes seleccionar una frase para monitorear.");
-      return;
-    }
-
-    // ✅ Validar horarios
-    if (recordingStartHour === recordingEndHour) {
-      toast.warning("⚠️ El horario de inicio y fin no pueden ser iguales.");
       return;
     }
 
@@ -400,50 +314,7 @@ export default function ConfigurarAnalisisPage() {
 💰 Costo estimado: $${estimatedCost}`,
           { duration: 8000 }
         );
-      const data = await response.json();
-      console.log('📥 Respuesta recibida:', data);
-
-      if (!response.ok) {
-        throw new Error(data.error || "Error al iniciar el monitoreo");
-      }
-      
-      // ✅ Mensaje de éxito detallado con información de la respuesta
-      if (data.success && data.data) {
-        const { scheduledRadios, phrase, timeRange, duration, estimatedCost } = data.data;
-        
-        toast.success(
-          `✅ ¡Monitoreo programado exitosamente!
-          
-📻 ${scheduledRadios} radio${scheduledRadios > 1 ? 's' : ''}
-🔍 Frase: "${phrase.text}" (${phrase.brand})
-⏰ Horario: ${timeRange}
-⏱️ Duración: ${duration}
-💰 Costo estimado: $${estimatedCost}`,
-          { duration: 8000 }
-        );
       } else {
-        toast.success(
-          `✅ ¡Monitoreo iniciado correctamente!`,
-          { duration: 5000 }
-        );
-      }
-
-      // ✅ Limpiar formulario después del éxito
-      setSelectedRadioIds(new Set());
-      setSelectedPhraseId('');
-      setScheduleDays([]);
-      
-      // ✅ Redirigir al dashboard principal
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 2000);
-      
-    } catch (error: any) {
-      console.error('❌ Error al iniciar monitoreo:', error);
-      toast.error(
-        `❌ Error: ${error.message || 'No se pudo iniciar el monitoreo'}`,
-        { duration: 6000 }
-      );
         toast.success(
           `✅ ¡Monitoreo iniciado correctamente!`,
           { duration: 5000 }
@@ -488,8 +359,6 @@ export default function ConfigurarAnalisisPage() {
         </Tabs>
 
         <div>
-          <h1 className="text-3xl font-bold text-white">Monitoreos Activos</h1>
-          <p className="text-slate-400 mt-1">Listado de sesiones actualmente en ejecución</p>
           <h1 className="text-3xl font-bold text-white">Monitoreos Activos</h1>
           <p className="text-slate-400 mt-1">Listado de sesiones actualmente en ejecución</p>
         </div>
@@ -1106,262 +975,8 @@ export default function ConfigurarAnalisisPage() {
                     </p>
                     {config.rateLimit && (
                       <p className="text-xs text-slate-500">Límite: {config.rateLimit} req/min</p>
-      {/* --- API de Transcripción --- */}
-      <Card className="bg-slate-800/50 border-slate-700">
-        <CardHeader>
-          <div className="flex items-center">
-            <Bot className="h-6 w-6 mr-3 text-emerald-400" />
-            <div>
-              <CardTitle className="text-lg text-white">API de Transcripción</CardTitle>
-              <CardDescription className="text-slate-400">
-                {apiConfigurations.length > 0 
-                  ? `${apiConfigurations.length} API${apiConfigurations.length !== 1 ? 's' : ''} configurada${apiConfigurations.length !== 1 ? 's' : ''} y habilitada${apiConfigurations.length !== 1 ? 's' : ''}`
-                  : 'No hay APIs configuradas'}
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {apiConfigurations.length === 0 ? (
-            <div className="text-center py-8 bg-slate-700/30 rounded-lg">
-              <p className="text-slate-400 mb-2">No hay APIs de transcripción habilitadas</p>
-              <p className="text-sm text-slate-500">Configura al menos una API en la sección de Configuración</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {apiConfigurations.map(config => (
-                <div
-                  key={config.id}
-                  onClick={() => setSelectedApiConfigId(config.id)}
-                  className={`p-6 rounded-lg border-2 transition-all cursor-pointer ${
-                    selectedApiConfigId === config.id
-                      ? 'border-blue-500 bg-blue-500/10'
-                      : 'border-slate-700 hover:border-slate-500'
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="text-xl font-bold text-white capitalize">{config.provider}</h3>
-                    <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Activa</span>
-                  </div>
-                  <p className="text-slate-400 text-sm mb-3">{config.model || 'Modelo por defecto'}</p>
-                  <div className="space-y-1">
-                    <p className="text-2xl font-bold text-white">
-                      ${config.costPerUnit.toFixed(2)}
-                      <span className="text-sm font-normal text-slate-400">/unidad</span>
-                    </p>
-                    {config.rateLimit && (
-                      <p className="text-xs text-slate-500">Límite: {config.rateLimit} req/min</p>
                     )}
                   </div>
-                  <div className="mt-3 pt-3 border-t border-slate-600">
-                    <p className="text-xs text-slate-500">Prioridad: {config.priority}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      {/* --- Nueva Sección de Horario de Grabación --- */}
-      <Card className="bg-slate-800/50 border-slate-700">
-        <CardHeader>
-          <div className="flex items-center">
-            <Clock className="h-6 w-6 mr-3 text-orange-400" />
-            <div>
-              <CardTitle className="text-lg text-white">Horario de Grabación</CardTitle>
-              <CardDescription className="text-slate-400">
-                Define el rango horario en el que se realizarán las grabaciones. Por defecto: 5 AM - 2 AM.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Hora de Inicio */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white">Hora de Inicio</label>
-              <Select 
-                value={recordingStartHour.toString()} 
-                onValueChange={(value) => setRecordingStartHour(parseInt(value))}
-              >
-                <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <SelectItem key={i} value={i.toString()} className="focus:bg-slate-600">
-                      {i.toString().padStart(2, '0')}:00 {i < 12 ? 'AM' : 'PM'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-400">Comenzar grabaciones desde esta hora cada día</p>
-            </div>
-
-            {/* Hora de Fin */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-white">Hora de Fin</label>
-              <Select 
-                value={recordingEndHour.toString()} 
-                onValueChange={(value) => setRecordingEndHour(parseInt(value))}
-              >
-                <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-700 border-slate-600 text-white max-h-80">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <SelectItem key={i} value={i.toString()} className="focus:bg-slate-600">
-                      {i.toString().padStart(2, '0')}:00 {i < 12 ? 'AM' : 'PM'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-400">Detener grabaciones a esta hora cada día</p>
-            </div>
-          </div>
-
-          {/* Indicador de horas activas */}
-          <div className="mt-4 p-4 bg-slate-700/30 rounded-lg">
-            <p className="text-sm text-slate-300">
-              <span className="font-semibold">Rango activo:</span>{' '}
-              {recordingStartHour.toString().padStart(2, '0')}:00 - {recordingEndHour.toString().padStart(2, '0')}:00
-              {recordingStartHour > recordingEndHour && (
-                <span className="ml-2 text-yellow-400">(cruza medianoche)</span>
-              )}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              {recordingStartHour > recordingEndHour 
-                ? `Grabará desde las ${recordingStartHour}:00 hasta las ${recordingEndHour}:00 del día siguiente`
-                : `Grabará ${recordingEndHour - recordingStartHour} horas diarias`
-              }
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-      
-      {/* --- Nueva Sección de Programación por Días --- */}
-      <Card className="bg-slate-800/50 border-slate-700">
-        <CardHeader>
-          <div className="flex items-center">
-            <CalendarDays className="h-6 w-6 mr-3 text-cyan-400" />
-            <div>
-              <CardTitle className="text-lg text-white">Programación del Monitoreo (Opcional)</CardTitle>
-              <CardDescription className="text-slate-400">
-                Selecciona días específicos para el monitoreo. Si no seleccionas ninguno, se monitoreará todos los días.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <ToggleGroup
-            type="multiple"
-            variant="outline"
-            value={scheduleDays}
-            onValueChange={(value) => setScheduleDays(value)}
-            className="grid grid-cols-4 sm:grid-cols-7 gap-2"
-          >
-            <ToggleGroupItem value="monday" aria-label="Lunes" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Lun</ToggleGroupItem>
-            <ToggleGroupItem value="tuesday" aria-label="Martes" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Mar</ToggleGroupItem>
-            <ToggleGroupItem value="wednesday" aria-label="Miércoles" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Mié</ToggleGroupItem>
-            <ToggleGroupItem value="thursday" aria-label="Jueves" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Jue</ToggleGroupItem>
-            <ToggleGroupItem value="friday" aria-label="Viernes" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Vie</ToggleGroupItem>
-            <ToggleGroupItem value="saturday" aria-label="Sábado" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Sáb</ToggleGroupItem>
-            <ToggleGroupItem value="sunday" aria-label="Domingo" className="data-[state=on]:bg-blue-500/20 data-[state=on]:text-white border-slate-600 hover:bg-slate-700 bg-slate-600">Dom</ToggleGroupItem>
-          </ToggleGroup>
-        </CardContent>
-      </Card>
-      
-      {/* --- Calculadora y Acciones --- */}
-      <Card className="bg-slate-800/50 border-slate-700">
-        <CardHeader>
-          <div className="flex items-center">
-            <Calculator className="h-6 w-6 mr-3 text-yellow-400" />
-            <div>
-              <CardTitle className="text-lg text-white">Calculadora de Precio</CardTitle>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex justify-between text-slate-300">
-              <p>Radios seleccionadas ({selectedRadioIds.size})</p>
-              <p>${radioCost.toFixed(2)}</p>
-            </div>
-            <div className="flex justify-between text-slate-300">
-              <p>
-                API de Transcripción (
-                {apiConfigurations.find(c => c.id === selectedApiConfigId)?.provider || 'Ninguna'}
-                )
-              </p>
-              <p>${aiCost.toFixed(2)}</p>
-            </div>
-            <Separator className="bg-slate-700 my-4" />
-            <div className="flex justify-between items-center text-xl font-bold text-white">
-              <p>Precio mensual estimado</p>
-              <p className="text-2xl text-emerald-400">${totalCost.toFixed(2)}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end gap-4 pt-4">
-        <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-slate-300 hover:bg-slate-700">Cancelar</Button>
-        <Button 
-          onClick={handleValidateAndShowConfirm} 
-          disabled={isSubmitting || selectedRadioIds.size === 0 || !selectedPhraseId || !selectedApiConfigId} 
-          size="lg" 
-          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isSubmitting ? 'Iniciando...' : 'Revisar y Confirmar'}
-        </Button>
-      </div>
-
-      {/* ✅ MODAL DE CONFIRMACIÓN */}
-      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-2xl">Confirmar Inicio de Monitoreo</DialogTitle>
-            <DialogDescription className="text-slate-400">
-              Revisa la configuración antes de iniciar el monitoreo
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 my-4">
-            {/* Resumen de Radios */}
-            <div className="bg-slate-700/30 p-4 rounded-lg">
-              <h4 className="font-semibold text-white mb-2 flex items-center gap-2">
-                <Waves className="h-5 w-5 text-blue-400" />
-                Radios Seleccionadas
-              </h4>
-              <p className="text-slate-300">
-                <span className="font-bold text-blue-400">{selectedRadioIds.size}</span> radio{selectedRadioIds.size !== 1 ? 's' : ''}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {Array.from(selectedRadioIds).map(id => {
-                  const radio = radios.find(r => r.id === id);
-                  return radio ? (
-                    <span key={id} className="text-xs bg-slate-600 px-2 py-1 rounded">
-                      {radio.name}
-                    </span>
-                  ) : null;
-                })}
-              </div>
-            </div>
-
-            {/* Resumen de Frase */}
-            <div className="bg-slate-700/30 p-4 rounded-lg">
-              <h4 className="font-semibold text-white mb-2 flex items-center gap-2">
-                <TextSelect className="h-5 w-5 text-purple-400" />
-                Frase a Detectar
-              </h4>
-              <p className="text-slate-300">
-                {phrases.find(p => p.id === selectedPhraseId)?.phrase || 'No seleccionada'}
-              </p>
-              <p className="text-sm text-slate-400 mt-1">
-                Marca: {phrases.find(p => p.id === selectedPhraseId)?.marca}
-              </p>
-            </div>
                   <div className="mt-3 pt-3 border-t border-slate-600">
                     <p className="text-xs text-slate-500">Prioridad: {config.priority}</p>
                   </div>
@@ -1853,27 +1468,6 @@ export default function ConfigurarAnalisisPage() {
     </div>
   );
 }
-
-// Componente de esqueleto de carga para mejorar la UX inicial
-const LoadingSkeleton = () => (
-  <div className="space-y-8">
-    <div>
-      <Skeleton className="h-10 w-3/4" />
-      <Skeleton className="h-4 w-1/2 mt-2" />
-    </div>
-    <Card className="bg-slate-800/50 border-slate-700">
-      <CardHeader><Skeleton className="h-8 w-1/4" /></CardHeader>
-      <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-20" />)}
-      </CardContent>
-    </Card>
-    <Card className="bg-slate-800/50 border-slate-700">
-      <CardHeader><Skeleton className="h-8 w-1/4" /></CardHeader>
-      <CardContent><Skeleton className="h-12 w-full" /></CardContent>
-    </Card>
-  </div>
-);
-
 
 // Componente de esqueleto de carga para mejorar la UX inicial
 const LoadingSkeleton = () => (
