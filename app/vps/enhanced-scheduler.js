@@ -328,15 +328,16 @@ class EnhancedRadioScheduler {
         };
         
         try {
+          const metadataPath = path.join(recording.folderPath, 'recording_info.json');
           fs.writeFileSync(metadataPath, JSON.stringify(finalMetadata, null, 2));
           
           if (code === 0) {
-            console.log(`📁 Grabación guardada: ${recordingFolder.folderName}`);
+            console.log(`📁 Grabación guardada: ${recording.folderName}`);
             console.log(`🌙 Programada para transcripción nocturna automática`);
             
             // Verificar tamaño del archivo
             try {
-              const stats = fs.statSync(filepath);
+              const stats = fs.statSync(recording.filepath);
               const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
               console.log(`📊 Tamaño del archivo: ${fileSizeMB} MB`);
             } catch (sizeError) {

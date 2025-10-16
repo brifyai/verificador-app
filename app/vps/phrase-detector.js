@@ -7,39 +7,76 @@ const fs = require('fs');
 const path = require('path');
 const NotificationService = require('./notification-service');
 const axios = require('axios');
+const { Client } = require('pg');
 
 class PhraseDetector {
   constructor() {
     this.notificationService = new NotificationService();
     this.aiConfig = null;
-    this.apiProvidersPath = path.join(__dirname, 'api_providers.json');
+    this.dbClient = null;
   }
 
   /**
-   * Cargar configuración de IA específica del usuario desde api_providers.json
+   * Conectar a la base de datos PostgreSQL
+   */
+  async connectToDatabase() {
+    if (this.dbClient) {
+      return this.dbClient; // Ya está conectado
+    }
+
+    try {
+      this.dbClient = new Client({
+        connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_CuHOsyb3Xh7g@ep-sparkling-block-acyyvpq7-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require',
+        ssl: {
+          rejectUnauthorized: false
+        }
+      });
+
+      await this.dbClient.connect();
+      console.log('✅ Conectado a la base de datos PostgreSQL');
+      return this.dbClient;
+    } catch (error) {
+      console.error('❌ Error conectando a la base de datos:', error.message);
+      this.dbClient = null;
+      return null;
+    }
+  }
+
+  /**
+   * Cargar configuración de IA específica del usuario desde la base de datos
    */
   async loadUserAIConfig(userId, selectedProvider) {
     try {
-      console.log(`📥 Cargando configuración de IA (${selectedProvider})...`);
+      console.log(`📥 Cargando configuración de IA (${selectedProvider}) desde BD...`);
       
-      // Leer archivo api_providers.json
-      if (!fs.existsSync(this.apiProvidersPath)) {
-        console.log(`⚠️ No se encontró archivo api_providers.json`);
+      // Conectar a la base de datos
+      const db = await this.connectToDatabase();
+      if (!db) {
+        console.log('⚠️ No se pudo conectar a la base de datos');
         return null;
       }
 
-      const providersData = JSON.parse(fs.readFileSync(this.apiProvidersPath, 'utf8'));
+      // Buscar el proveedor específico en la base de datos
+      const query = `
+        SELECT id, provider, "apiKey", model, enabled, priority, "costPerUnit", "rateLimit", metadata
+        FROM api_configurations
+        WHERE id = $1 OR provider = $1
+        LIMIT 1
+      `;
       
-      // Buscar el proveedor de tipo "analysis" que coincida
-      // NO verificar enabled - el usuario ya lo seleccionó
-      const providerConfig = providersData.find(p => 
-        p.id === selectedProvider && 
-        p.type === 'analysis'
-      );
+      const result = await db.query(query, [selectedProvider]);
 
-      if (!providerConfig) {
-        console.log(`⚠️ No se encontró configuración para ${selectedProvider}`);
-        console.log(`💡 Proveedores disponibles: ${providersData.filter(p => p.type === 'analysis').map(p => p.id).join(', ')}`);
+      if (result.rows.length === 0) {
+        console.log(`⚠️ No se encontró configuración para ${selectedProvider} en la BD`);
+        return null;
+      }
+
+      const providerConfig = result.rows[0];
+      const metadata = providerConfig.metadata || {};
+
+      // Verificar que sea de tipo analysis
+      if (metadata.type !== 'analysis') {
+        console.log(`⚠️ ${selectedProvider} no es un proveedor de análisis (tipo: ${metadata.type})`);
         return null;
       }
 
@@ -49,29 +86,33 @@ class PhraseDetector {
         return null;
       }
 
-      // Usar el primer modelo disponible
-      const defaultModel = providerConfig.models && providerConfig.models.length > 0 
-        ? providerConfig.models[0].id 
-        : this.getDefaultModel(selectedProvider);
+      // Usar el modelo de la BD (campo 'model'), o el primero del metadata, o el default
+      const selectedModel = providerConfig.model || 
+        (metadata.models && metadata.models.length > 0 ? metadata.models[0].id : null) ||
+        this.getDefaultModel(selectedProvider);
 
       this.aiConfig = {
         provider: selectedProvider,
-        model: defaultModel,
+        model: selectedModel,
         apiKey: providerConfig.apiKey,
-        baseUrl: providerConfig.baseUrl
+        baseUrl: metadata.baseUrl || '',
+        systemPrompt: metadata.systemPrompt || null // Prompt personalizado desde BD
       };
 
-      console.log(`🤖 IA configurada: ${this.aiConfig.provider} (${this.aiConfig.model})`);
+      console.log(`🤖 IA configurada desde BD: ${this.aiConfig.provider} (${this.aiConfig.model})`);
+      if (this.aiConfig.systemPrompt) {
+        console.log(`📝 Usando prompt personalizado desde BD`);
+      }
       return this.aiConfig;
 
     } catch (error) {
-      console.error('❌ Error cargando configuración de IA:', error.message);
+      console.error('❌ Error cargando configuración de IA desde BD:', error.message);
       return null;
     }
   }
 
   /**
-   * Cargar configuración de IA desde api_providers.json (fallback)
+   * Cargar configuración de IA desde la base de datos (fallback)
    * Solo se usa si no se especificó aiProvider en recording_info.json
    */
   async loadAIConfig() {
@@ -80,44 +121,64 @@ class PhraseDetector {
     }
 
     try {
-      console.log('📥 Cargando configuración de IA desde api_providers.json...');
+      console.log('📥 Cargando configuración de IA desde BD (fallback)...');
       
-      if (!fs.existsSync(this.apiProvidersPath)) {
-        console.log('⚠️ No se encontró archivo api_providers.json');
+      // Conectar a la base de datos
+      const db = await this.connectToDatabase();
+      if (!db) {
+        console.log('⚠️ No se pudo conectar a la base de datos');
         return null;
       }
 
-      const providersData = JSON.parse(fs.readFileSync(this.apiProvidersPath, 'utf8'));
-      
       // Buscar proveedores de análisis con API key configurada, ordenados por prioridad
-      const aiProviders = providersData
-        .filter(p => p.type === 'analysis' && p.apiKey && p.apiKey !== '')
-        .sort((a, b) => a.priority - b.priority);
+      const query = `
+        SELECT id, provider, "apiKey", model, enabled, priority, "costPerUnit", "rateLimit", metadata
+        FROM api_configurations
+        WHERE "apiKey" IS NOT NULL AND "apiKey" != ''
+        ORDER BY priority ASC
+        LIMIT 10
+      `;
+      
+      const result = await db.query(query);
+
+      if (result.rows.length === 0) {
+        console.log('⚠️ No hay proveedores de IA con API key configurada en la BD');
+        console.log('💡 Configure al menos una API key en /configuracion');
+        return null;
+      }
+
+      // Filtrar solo los de tipo analysis
+      const aiProviders = result.rows.filter(p => {
+        const metadata = p.metadata || {};
+        return metadata.type === 'analysis';
+      });
 
       if (aiProviders.length === 0) {
-        console.log('⚠️ No hay proveedores de IA con API key configurada');
-        console.log('💡 Configure al menos una API key en /configuracion');
+        console.log('⚠️ No hay proveedores de análisis con API key configurada');
         return null;
       }
 
       // Usar el primer proveedor con API key (mayor prioridad)
       const provider = aiProviders[0];
-      const defaultModel = provider.models && provider.models.length > 0 
-        ? provider.models[0].id 
-        : this.getDefaultModel(provider.id);
+      const metadata = provider.metadata || {};
+      
+      // Usar el modelo de la BD (campo 'model'), o el primero del metadata, o el default
+      const selectedModel = provider.model || 
+        (metadata.models && metadata.models.length > 0 ? metadata.models[0].id : null) ||
+        this.getDefaultModel(provider.id);
       
       this.aiConfig = {
         provider: provider.id,
-        model: defaultModel,
+        model: selectedModel,
         apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl
+        baseUrl: metadata.baseUrl || ''
       };
 
-      console.log(`🤖 IA configurada (fallback): ${this.aiConfig.provider} (${this.aiConfig.model})`);
+      console.log(`🤖 IA configurada desde BD (fallback): ${this.aiConfig.provider} (${this.aiConfig.model})`);
       return this.aiConfig;
 
     } catch (error) {
-      console.error('❌ Error cargando configuración de IA:', error.message);
+      console.error('❌ Error cargando configuración de IA desde BD:', error.message);
       return null;
     }
   }
@@ -136,6 +197,140 @@ class PhraseDetector {
   }
 
   /**
+   * Normalizar números en texto (convertir dígitos a palabras y viceversa)
+   */
+  normalizeNumbers(text) {
+    const numberMap = {
+      '0': 'cero', '1': 'uno', '2': 'dos', '3': 'tres', '4': 'cuatro',
+      '5': 'cinco', '6': 'seis', '7': 'siete', '8': 'ocho', '9': 'nueve',
+      '10': 'diez', '11': 'once', '12': 'doce', '13': 'trece', '14': 'catorce',
+      '15': 'quince', '16': 'dieciséis', '17': 'diecisiete', '18': 'dieciocho',
+      '19': 'diecinueve', '20': 'veinte', '30': 'treinta', '40': 'cuarenta',
+      '50': 'cincuenta', '60': 'sesenta', '70': 'setenta', '80': 'ochenta',
+      '90': 'noventa', '100': 'cien', '1000': 'mil'
+    };
+
+    let normalized = text.toLowerCase();
+    
+    // Reemplazar números por palabras
+    Object.entries(numberMap).forEach(([num, word]) => {
+      const regex = new RegExp(`\\b${num}\\b`, 'g');
+      normalized = normalized.replace(regex, word);
+    });
+    
+    return normalized;
+  }
+
+  /**
+   * Calcular similitud entre dos textos (porcentaje de palabras coincidentes)
+   */
+  calculateSimilarity(text1, text2) {
+    const words1 = text1.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const words2 = text2.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    
+    if (words1.length === 0 || words2.length === 0) return 0;
+    
+    let matches = 0;
+    words1.forEach(word1 => {
+      if (words2.some(word2 => word2.includes(word1) || word1.includes(word2))) {
+        matches++;
+      }
+    });
+    
+    return matches / words1.length;
+  }
+
+  /**
+   * Eliminar coincidencias superpuestas (mantener solo la mejor de cada grupo)
+   */
+  removeDuplicates(matches, minDistance = 5) {
+    if (matches.length === 0) return [];
+    
+    const filtered = [];
+    const used = new Set();
+    
+    // Ordenar por confianza (mejor primero)
+    const sorted = [...matches].sort((a, b) => b.confidence - a.confidence);
+    
+    for (const match of sorted) {
+      // Verificar si esta posición ya fue usada o está muy cerca de una usada
+      let tooClose = false;
+      for (const usedPos of used) {
+        if (Math.abs(match.position - usedPos) < minDistance) {
+          tooClose = true;
+          break;
+        }
+      }
+      
+      if (!tooClose) {
+        filtered.push(match);
+        used.add(match.position);
+      }
+    }
+    
+    // Ordenar por posición
+    return filtered.sort((a, b) => a.position - b.position);
+  }
+
+  /**
+   * Búsqueda fuzzy: buscar fragmentos similares en la transcripción
+   */
+  fuzzySearch(transcriptionText, targetPhrase) {
+    const targetWords = targetPhrase.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const transcriptionWords = transcriptionText.toLowerCase().split(/\s+/);
+    
+    const matches = [];
+    
+    // Probar diferentes tamaños de ventana para capturar frases incompletas
+    const windowSizes = [
+      targetWords.length + 2,  // Ventana completa
+      targetWords.length + 1,  // Ventana ajustada
+      targetWords.length,      // Ventana exacta
+      Math.max(3, targetWords.length - 1), // Ventana reducida (para frases incompletas)
+      Math.max(3, targetWords.length - 2)  // Ventana muy reducida
+    ];
+    
+    for (const windowSize of windowSizes) {
+      // Buscar en ventanas deslizantes (saltar de 2 en 2 para evitar solapamiento excesivo)
+      for (let i = 0; i <= transcriptionWords.length - Math.min(3, windowSize); i += 2) {
+        const window = transcriptionWords.slice(i, i + windowSize).join(' ');
+        const windowNormalized = this.normalizeNumbers(window);
+        const targetNormalized = this.normalizeNumbers(targetPhrase);
+        
+        const similarity = this.calculateSimilarity(windowNormalized, targetNormalized);
+        
+        // Umbral más bajo: 50% para capturar frases incompletas
+        if (similarity >= 0.50) {
+          const matchedText = transcriptionWords.slice(i, i + windowSize).join(' ');
+          
+          // Determinar nivel de confianza
+          let confidenceLevel = '';
+          if (similarity >= 0.85) {
+            confidenceLevel = 'Alta';
+          } else if (similarity >= 0.70) {
+            confidenceLevel = 'Media-Alta';
+          } else if (similarity >= 0.60) {
+            confidenceLevel = 'Media';
+          } else {
+            confidenceLevel = 'Baja - Requiere verificación';
+          }
+          
+          matches.push({
+            text: matchedText,
+            confidence: similarity,
+            position: i,
+            reason: `Similitud: ${(similarity * 100).toFixed(0)}% (${confidenceLevel}) - Búsqueda fuzzy con normalización numérica`
+          });
+        }
+      }
+    }
+    
+    // Eliminar duplicados y ordenar por confianza
+    const uniqueMatches = this.removeDuplicates(matches, Math.max(3, Math.floor(targetWords.length / 2)));
+    return uniqueMatches.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  /**
    * Verificar con IA si un texto contiene una frase (búsqueda semántica)
    */
   async verifyWithAI(transcriptionText, targetPhrase) {
@@ -149,7 +344,15 @@ class PhraseDetector {
     }
 
     try {
-      const prompt = `Analiza el siguiente texto de transcripción de radio y determina si contiene menciones de la siguiente frase publicitaria, considerando variaciones, errores de transcripción o palabras similares.
+      // Usar prompt personalizado de la BD o el prompt por defecto
+      const defaultPrompt = `Analiza el siguiente texto de transcripción de radio y determina si contiene menciones de la siguiente frase publicitaria.
+
+IMPORTANTE: Considera estas variaciones como VÁLIDAS:
+- Números escritos en palabras vs dígitos (ej: "15" = "quince", "19990" = "diecinueve mil novecientos noventa")
+- Palabras faltantes u omitidas
+- Orden ligeramente diferente
+- Sinónimos o palabras similares
+- Errores de transcripción automática
 
 FRASE OBJETIVO: "${targetPhrase}"
 
@@ -161,17 +364,34 @@ Responde SOLO en formato JSON con esta estructura:
   "found": true/false,
   "matches": [
     {
-      "text": "texto exacto encontrado",
+      "text": "texto exacto encontrado en la transcripción",
       "confidence": 0.0-1.0,
       "position": posición aproximada en caracteres,
-      "reason": "explicación breve de por qué coincide"
+      "reason": "explicación de por qué coincide (ej: 'iPhone 15 = iPhone quince')"
     }
   ]
 }
 
-Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`;
+CRITERIOS DE CONFIANZA:
+- 0.95-1.0: Coincidencia casi perfecta (solo variaciones numéricas)
+- 0.85-0.94: Buena coincidencia (1-2 palabras diferentes)
+- 0.70-0.84: Coincidencia aceptable (varias palabras diferentes pero mismo mensaje)
+- <0.70: No reportar
+
+Si no encuentras ninguna coincidencia con confianza >= 0.70, devuelve {"found": false, "matches": []}`;
+
+      // Si hay prompt personalizado, reemplazar las variables
+      const prompt = this.aiConfig.systemPrompt 
+        ? this.aiConfig.systemPrompt
+            .replace('{{targetPhrase}}', targetPhrase)
+            .replace('{{transcriptionText}}', transcriptionText)
+        : defaultPrompt;
 
       let response;
+
+      console.log(`   🔧 Proveedor de IA: ${this.aiConfig.provider}`);
+      console.log(`   🔧 Modelo: ${this.aiConfig.model}`);
+      console.log(`   🔧 Base URL: ${this.aiConfig.baseUrl}`);
 
       // Llamar a la IA según el proveedor
       if (this.aiConfig.provider === 'openai-gpt' || this.aiConfig.provider === 'openai') {
@@ -274,6 +494,10 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
 
     } catch (error) {
       console.error('❌ Error verificando con IA:', error.message);
+      if (error.response) {
+        console.error('📋 Respuesta de la API:', error.response.status, error.response.statusText);
+        console.error('📋 Datos:', JSON.stringify(error.response.data, null, 2));
+      }
       return null;
     }
   }
@@ -285,6 +509,9 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
   async detectPhrasesInTranscription(folderPath, folderName) {
     try {
       console.log(`\n🔍 Buscando frases en: ${folderName}`);
+      
+      // IMPORTANTE: Limpiar configuración de IA anterior
+      this.aiConfig = null;
 
       // PRIORIDAD 1: Buscar frase específica del recording_info.json
       const recordingInfoPath = path.join(folderPath, 'recording_info.json');
@@ -324,6 +551,8 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
       // Cargar configuración de IA específica del usuario
       if (selectedAIProvider && userId) {
         await this.loadUserAIConfig(userId, selectedAIProvider);
+      } else if (!selectedAIProvider) {
+        console.log('   ⚠️ No se especificó IA para este monitoreo, se omitirá análisis con IA');
       }
 
       // Si no hay frase específica, no hay nada que buscar
@@ -357,17 +586,27 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
           phrase
         );
 
-        // 2. Búsqueda con IA (semántica) si está configurada
-        let aiMatches = [];
-        if (exactMatches.length === 0) {
-          // Cargar config de IA si no está cargada
-          if (!this.aiConfig) {
-            await this.loadAIConfig();
-          }
+        if (exactMatches.length > 0) {
+          console.log(`   ✓ Encontradas ${exactMatches.length} coincidencia(s) exacta(s)`);
         }
+
+        // 2. Búsqueda fuzzy (palabra por palabra con normalización numérica)
+        console.log(`   🔍 Búsqueda fuzzy (normalización numérica)...`);
+        const fuzzyMatches = this.fuzzySearch(transcriptionText, phrase.phrase);
         
-        if (this.aiConfig && exactMatches.length === 0) {
-          console.log(`   🤖 No se encontró coincidencia exacta, verificando con IA...`);
+        if (fuzzyMatches.length > 0) {
+          console.log(`   ✓ Búsqueda fuzzy encontró ${fuzzyMatches.length} coincidencia(s):`);
+          fuzzyMatches.forEach((match, idx) => {
+            console.log(`      ${idx + 1}. "${match.text.substring(0, 80)}..." (${(match.confidence * 100).toFixed(0)}%)`);
+          });
+        }
+
+        // 3. Usar IA para búsqueda semántica si está configurada (solo si fuzzy no encontró nada)
+        let aiMatches = [];
+        
+        // Solo usar IA si fue configurada específicamente para este monitoreo
+        if (this.aiConfig && fuzzyMatches.length === 0) {
+          console.log(`   🤖 Verificando con IA para detectar variaciones semánticas...`);
           const aiResult = await this.verifyWithAI(transcriptionText, phrase.phrase);
           
           if (aiResult && aiResult.found && aiResult.matches) {
@@ -379,21 +618,36 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
               context: this.extractContext(transcriptionText, match.position || 0, 100),
               verifiedBy: 'AI',
               aiReason: match.reason,
-              needsHumanVerification: match.confidence < 0.9 // Requiere verificación humana si confianza < 90%
+              needsHumanVerification: match.confidence < 0.85 // Requiere verificación si confianza < 85%
             }));
             
-            console.log(`   🤖 IA encontró ${aiMatches.length} coincidencia(s) aproximada(s)`);
+            console.log(`   🤖 IA encontró ${aiMatches.length} coincidencia(s) semántica(s)`);
             aiMatches.forEach((m, idx) => {
               console.log(`      ${idx + 1}. "${m.matchedText}" (confianza: ${(m.confidence * 100).toFixed(0)}%)`);
+              console.log(`         💡 ${m.aiReason}`);
               if (m.needsHumanVerification) {
                 console.log(`         ⚠️ Requiere verificación humana`);
               }
             });
+          } else {
+            console.log(`   🤖 IA no encontró coincidencias semánticas`);
           }
         }
 
+        // Convertir fuzzyMatches al formato esperado
+        const fuzzyMatchesFormatted = fuzzyMatches.map(match => ({
+          matchedText: match.text,
+          confidence: match.confidence,
+          position: match.position,
+          wordPosition: match.position,
+          context: match.text,
+          verifiedBy: 'Fuzzy',
+          aiReason: match.reason,
+          needsHumanVerification: match.confidence < 0.70 // Requiere verificación si < 70%
+        }));
+
         // Combinar resultados
-        const allMatches = [...exactMatches, ...aiMatches];
+        const allMatches = [...exactMatches, ...fuzzyMatchesFormatted, ...aiMatches];
 
         if (allMatches.length > 0) {
           totalMatches += allMatches.length;
@@ -403,7 +657,7 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
             campaign: phrase.campaign,
             matches: allMatches,
             hasAIMatches: aiMatches.length > 0,
-            needsVerification: aiMatches.some(m => m.needsHumanVerification)
+            needsVerification: allMatches.some(m => m.needsHumanVerification) // Verificar TODOS los matches
           });
 
           const exactCount = exactMatches.length;
@@ -446,6 +700,9 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
                   campaign: detection.campaign,
                   totalMatches: detection.matches.length,
                   recordingDate: recordingDate,
+                  matches: detection.matches, // Incluir todas las coincidencias con sus metadatos
+                  userId: userId, // ID del usuario que creó el monitoreo
+                  needsVerification: detection.needsVerification // Si requiere verificación humana
                 });
               }
             }
@@ -719,7 +976,15 @@ Si no encuentras ninguna coincidencia, devuelve {"found": false, "matches": []}`
    * Cerrar recursos
    */
   async disconnect() {
-    // No hay recursos que cerrar
+    if (this.dbClient) {
+      try {
+        await this.dbClient.end();
+        console.log('✅ Conexión a BD cerrada');
+      } catch (error) {
+        console.error('❌ Error cerrando conexión a BD:', error.message);
+      }
+      this.dbClient = null;
+    }
     return Promise.resolve();
   }
 }

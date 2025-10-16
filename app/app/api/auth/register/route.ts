@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 import { z } from 'zod';
-
-const prisma = new PrismaClient();
 
 // Schema de validación con Zod
 const registerSchema = z.object({

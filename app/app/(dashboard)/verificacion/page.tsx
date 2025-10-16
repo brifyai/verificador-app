@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { CheckCircle, Play, Clock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { AudioPlayer } from '@/components/audio-player';
+import AudioPlayer from '@/components/audio-player';
 
 // Interfaz para los elementos de verificación basada en la estructura real
 interface VerificationItem {
@@ -59,7 +59,11 @@ export default function Verificacion() {
         }
       } catch (error) {
         console.error("Error fetching verification items:", error);
-        toast.error("No se pudieron cargar los elementos de verificación");
+        toast({
+          title: "Error",
+          description: "No se pudieron cargar los elementos de verificación",
+          variant: "destructive"
+        });
       } finally {
         setLoading(false);
       }

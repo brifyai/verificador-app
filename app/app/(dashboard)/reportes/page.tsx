@@ -144,7 +144,7 @@ export default function Reportes() {
       });
       
       // Extraer regiones únicas de los datos
-      const regions = [...new Set(data.data.map((d: Detection) => d.region).filter(Boolean))];
+      const regions = [...new Set(data.data.map((d: Detection) => d.region).filter(Boolean))] as string[];
       setAvailableRegions(regions);
       
       setTotalPages(data.pagination.pages);
@@ -687,7 +687,7 @@ export default function Reportes() {
               
               <div>
                 <Label className="text-slate-300">Texto Original</Label>
-                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.originalText}</p>
+                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{(selectedDetection as any).originalText || selectedDetection.detectedText}</p>
               </div>
               
               <div className="grid grid-cols-3 gap-4">

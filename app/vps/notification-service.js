@@ -61,10 +61,128 @@ class NotificationService {
       console.log(`📁 Grabación: ${notification.data.folderName}`);
       console.log('🔔 ═══════════════════════════════════════════════════════\n');
 
+      // 🆕 Enviar detecciones que necesitan verificación al backend
+      if (detectionData.needsVerification && detectionData.matches) {
+        await this.sendDetectionsToBackend(detectionData);
+      }
+
       return notification;
     } catch (error) {
       console.error('❌ Error creando notificación:', error);
       return null;
+    }
+  }
+
+  /**
+   * Guardar detecciones directamente en la base de datos (solo las que necesitan verificación)
+   */
+  async sendDetectionsToBackend(detectionData) {
+    try {
+      const { Client } = require('pg');
+      
+      // Filtrar solo las coincidencias que necesitan verificación
+      const matchesNeedingVerification = detectionData.matches.filter(
+        match => match.needsHumanVerification
+      );
+
+      if (matchesNeedingVerification.length === 0) {
+        console.log('   ℹ️ No hay coincidencias que requieran verificación');
+        return;
+      }
+
+      console.log(`   📤 Guardando ${matchesNeedingVerification.length} detección(es) en la base de datos...`);
+
+      // Conectar a la base de datos
+      const client = new Client({
+        connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_CuHOsyb3Xh7g@ep-sparkling-block-acyyvpq7-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require'
+      });
+      
+      await client.connect();
+
+      // Guardar cada coincidencia que necesita verificación en la tabla detections
+      for (const match of matchesNeedingVerification) {
+        // 1. Buscar o crear la frase
+        let phraseResult = await client.query(
+          'SELECT id FROM phrases WHERE phrase = $1 LIMIT 1',
+          [detectionData.phrase]
+        );
+
+        let phraseId;
+        if (phraseResult.rows.length === 0) {
+          // Crear la frase
+          const newPhrase = await client.query(
+            'INSERT INTO phrases (phrase, brand, campaign, category, "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id',
+            [
+              detectionData.phrase, 
+              detectionData.brand || 'No especificada', 
+              detectionData.campaign || 'No especificada', 
+              'PROMOTION'
+            ]
+          );
+          phraseId = newPhrase.rows[0].id;
+          console.log(`   ℹ️ Frase creada: "${detectionData.phrase}" (ID: ${phraseId})`);
+        } else {
+          phraseId = phraseResult.rows[0].id;
+          console.log(`   ℹ️ Usando frase existente: "${detectionData.phrase}" (ID: ${phraseId})`);
+        }
+
+        // 2. Buscar o crear la radio
+        const radioName = this.extractRadioName(detectionData.folderName);
+        let radioResult = await client.query(
+          'SELECT id FROM radios WHERE name = $1 LIMIT 1',
+          [radioName]
+        );
+
+        let radioId;
+        if (radioResult.rows.length === 0) {
+          // Crear la radio
+          const newRadio = await client.query(
+            'INSERT INTO radios (name, "streamUrl", region, "userId", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id',
+            [radioName, '', 'No especificada', detectionData.userId]
+          );
+          radioId = newRadio.rows[0].id;
+        } else {
+          radioId = radioResult.rows[0].id;
+        }
+
+        // 3. Crear la detección
+        const detectionResult = await client.query(
+          `INSERT INTO detections (
+            id, "phraseId", "radioId", "detectedText", "originalText",
+            confidence, similarity, timestamp,
+            verified, "falsePositive", cost, metadata
+          ) VALUES (
+            gen_random_uuid()::text, $1, $2, $3, $4, 
+            $5, $6, $7,
+            $8, $9, $10, $11
+          ) RETURNING id`,
+          [
+            phraseId, 
+            radioId, 
+            match.matchedText, // detectedText
+            detectionData.phrase, // originalText (la frase buscada)
+            match.confidence, 
+            match.confidence, // similarity
+            new Date(detectionData.recordingDate),
+            false, // verified (false = necesita verificación)
+            false, // falsePositive
+            0.0, // cost
+            JSON.stringify({
+              verifiedBy: match.verifiedBy,
+              reason: match.aiReason,
+              folderName: detectionData.folderName,
+              context: match.context || match.matchedText,
+              needsVerification: true
+            })
+          ]
+        );
+        console.log(`   ✅ Detección guardada con ID: ${detectionResult.rows[0].id}`);
+      }
+
+      await client.end();
+      console.log('   ✅ Detecciones guardadas en la base de datos correctamente');
+    } catch (error) {
+      console.error('   ❌ Error guardando detecciones en la base de datos:', error.message);
     }
   }
 

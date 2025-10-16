@@ -37,7 +37,7 @@ app.post('/api/schedule', async (req, res) => {
     console.log('📥 Nueva programación recibida del dashboard');
     console.log('📋 Datos:', JSON.stringify(req.body, null, 2));
     
-    const { userId, radios, days, schedule, phrase, metadata } = req.body;
+    const { userId, radios, days, schedule, phrase, metadata, aiProvider } = req.body;
     
     // Validaciones
     if (!userId || !radios || !Array.isArray(radios) || radios.length === 0) {
@@ -63,6 +63,9 @@ app.post('/api/schedule', async (req, res) => {
 
     console.log(`📅 Programando ${radios.length} radio(s) para ${days.length} día(s)`);
     console.log(`⏰ Horario: ${schedule.startTime} - ${schedule.endTime}`);
+    if (aiProvider) {
+      console.log(`🤖 IA seleccionada: ${aiProvider}`);
+    }
     
     // Crear configuración completa
     const timestamp = Date.now();
@@ -72,6 +75,7 @@ app.post('/api/schedule', async (req, res) => {
     const scheduleConfig = {
       scheduleId,
       userId,
+      aiProvider: aiProvider || null, // Proveedor de IA seleccionado
       radios,
       days,
       schedule,
