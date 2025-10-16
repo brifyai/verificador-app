@@ -522,6 +522,14 @@ export async function POST(request: NextRequest) {
       createdSessions.forEach((session: any, index: number) => {
         console.log(`   ${index + 1}. ${session.id}`);
       });
+
+    } catch (error: any) {
+      console.error('❌ Error enviando programación a VPS:', error);
+      return NextResponse.json({
+        success: false,
+        error: 'Error al enviar programación a la VPS',
+        details: error.message
+      }, { status: 500 });
     }
     console.log('\n');
 
