@@ -44,9 +44,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-<<<<<<< HEAD
     
     // Preparar metadata con la información adicional
+    const metadata = {
       name: body.name,
       type: body.type || 'transcription',
       baseUrl: body.baseUrl || '',
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         requestsPerMinute: 60,
         requestsPerHour: 1000
       },
-      headers: body.headers || undefined
+      headers: body.headers || {}
     };
     
     // Crear en la base de datos
@@ -76,22 +76,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ provider });
   } catch (error: any) {
     console.error('Error creando proveedor:', error);
-=======
-    // body puede venir con name o id; inferir provider code
-    const providerCode = NAME_TO_PROVIDER[body.name] || body.id || body.provider || 'custom';
+    return NextResponse.json({ error: error.message || 'Error creando proveedor' }, { status: 500 });
+  }
+}
 
 export async function PUT(request: NextRequest) {
   try {
-    const body = await request.json();
-<<<<<<< HEAD
+    const { id } = await request.json();
     
-    if (!body.id) {
+    if (!id) {
       return NextResponse.json({ error: 'ID es requerido' }, { status: 400 });
     }
     
     // Buscar el registro existente
     const existing = await prisma.apiConfiguration.findUnique({
-      where: { id: body.id }
+      where: { id: id }
     });
     
     if (!existing) {
@@ -112,7 +111,7 @@ export async function PUT(request: NextRequest) {
     
     // Actualizar en la base de datos
     const config = await prisma.apiConfiguration.update({
-      where: { id: body.id },
+      where: { id: id },
       data: {
         apiKey: body.apiKey !== undefined ? body.apiKey : existing.apiKey,
         model: body.models?.[0]?.id ?? existing.model,
@@ -128,51 +127,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ provider });
   } catch (error: any) {
     console.error('Error actualizando proveedor:', error);
-=======
-    const id = body.id as string | undefined;
-    const existing = id
-      ? await prisma.apiConfiguration.findUnique({ where: { id } })
-      : null;
-
-    const providerCode = existing?.provider || NAME_TO_PROVIDER[body.name] || body.provider || 'custom';
-    const defaults = PROVIDER_DEFAULTS[providerCode] || {};
-
-    const prev = existing || (await prisma.apiConfiguration.findUnique({ where: { provider: providerCode } }));
-    const prevMeta = (prev?.metadata as any) || {};
-
-    const metadata = {
-      baseUrl: body.baseUrl ?? prevMeta.baseUrl ?? defaults.baseUrl ?? '',
-      models: Array.isArray(body.models) ? body.models : (prevMeta.models || defaults.models || []),
-      rateLimits: body.rateLimits ?? prevMeta.rateLimits ?? defaults.rateLimits ?? undefined,
-      headers: body.headers ?? prevMeta.headers ?? undefined,
-    };
-
-    const updated = await prisma.apiConfiguration.upsert({
-      where: id ? { id } : { provider: providerCode },
-      update: {
-        apiKey: body.apiKey !== undefined ? (body.apiKey || null) : prev?.apiKey || null,
-        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || prev?.model || null,
-        enabled: body.enabled ?? prev?.enabled ?? false,
-        priority: body.priority ?? prev?.priority ?? defaults.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? prev?.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? prev?.rateLimit ?? null,
-        metadata,
-      },
-      create: {
-        provider: providerCode,
-        apiKey: body.apiKey || null,
-        model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
-        enabled: body.enabled ?? true,
-        priority: body.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
-        metadata,
-      },
-    });
-
-    return NextResponse.json({ provider: toApiProvider(updated) });
-  } catch (error: any) {
->>>>>>> 99cf29b403b8f1e10a76b487acd81b5c8b2f0a09
     return NextResponse.json({ error: error.message || 'Error actualizando proveedor' }, { status: 500 });
   }
 }
@@ -181,7 +135,6 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-<<<<<<< HEAD
     
     if (!id) {
       return NextResponse.json({ error: 'ID es requerido' }, { status: 400 });
@@ -200,13 +153,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
     }
     
-=======
-    if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
-
-    await prisma.apiConfiguration.delete({ where: { id } });
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
->>>>>>> 99cf29b403b8f1e10a76b487acd81b5c8b2f0a09
     return NextResponse.json({ error: error.message || 'Error eliminando proveedor' }, { status: 500 });
   }
 }
