@@ -74,23 +74,21 @@ class NotificationService {
   }
 
   /**
-   * Guardar detecciones directamente en la base de datos (solo las que necesitan verificación)
+   * Guardar TODAS las detecciones directamente en la base de datos
    */
   async sendDetectionsToBackend(detectionData) {
     try {
       const { Client } = require('pg');
       
-      // Filtrar solo las coincidencias que necesitan verificación
-      const matchesNeedingVerification = detectionData.matches.filter(
-        match => match.needsHumanVerification
-      );
+      // 🆕 GUARDAR TODAS LAS DETECCIONES (no filtrar)
+      const allMatches = detectionData.matches || [];
 
-      if (matchesNeedingVerification.length === 0) {
-        console.log('   ℹ️ No hay coincidencias que requieran verificación');
+      if (allMatches.length === 0) {
+        console.log('   ℹ️ No hay detecciones para guardar');
         return;
       }
 
-      console.log(`   📤 Guardando ${matchesNeedingVerification.length} detección(es) en la base de datos...`);
+      console.log(`   📤 Guardando ${allMatches.length} detección(es) en la base de datos...`);
 
       // Conectar a la base de datos
       const client = new Client({
@@ -99,8 +97,14 @@ class NotificationService {
       
       await client.connect();
 
-      // Guardar cada coincidencia que necesita verificación en la tabla detections
-      for (const match of matchesNeedingVerification) {
+      // 🆕 Buscar o crear sesión de monitoreo
+      const sessionId = await this.findOrCreateSession(client, detectionData);
+      
+      // 🆕 Crear captura de audio
+      const captureId = await this.createCapture(client, detectionData, sessionId);
+      
+      // Guardar TODAS las coincidencias en la tabla detections
+      for (const match of allMatches) {
         // 1. Buscar o crear la frase
         let phraseResult = await client.query(
           'SELECT id FROM phrases WHERE phrase = $1 LIMIT 1',
@@ -126,45 +130,41 @@ class NotificationService {
           console.log(`   ℹ️ Usando frase existente: "${detectionData.phrase}" (ID: ${phraseId})`);
         }
 
-        // 2. Buscar o crear la radio
-        const radioName = this.extractRadioName(detectionData.folderName);
-        let radioResult = await client.query(
-          'SELECT id FROM radios WHERE name = $1 LIMIT 1',
-          [radioName]
+        // 2. Obtener radioId de la sesión (ya existe porque se creó en findOrCreateSession)
+        const sessionInfo = await client.query(
+          'SELECT "radioId" FROM monitoring_sessions WHERE id = $1',
+          [sessionId]
         );
+        
+        const radioId = sessionInfo.rows[0]?.radioId || sessionId; // Fallback si no existe
 
-        let radioId;
-        if (radioResult.rows.length === 0) {
-          // Crear la radio
-          const newRadio = await client.query(
-            'INSERT INTO radios (name, "streamUrl", region, "userId", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id',
-            [radioName, '', 'No especificada', detectionData.userId]
-          );
-          radioId = newRadio.rows[0].id;
-        } else {
-          radioId = radioResult.rows[0].id;
-        }
-
-        // 3. Crear la detección
+        // 3. 🆕 Determinar si necesita verificación humana (umbral: 65%)
+        const needsVerification = match.confidence < 0.65;
+        
+        // 4. Crear la detección con sessionId y captureId
         const detectionResult = await client.query(
           `INSERT INTO detections (
-            id, "phraseId", "radioId", "detectedText", "originalText",
+            id, "phraseId", "radioId", "sessionId", "captureId",
+            "detectedText", "originalText",
             confidence, similarity, timestamp,
             verified, "falsePositive", cost, metadata
           ) VALUES (
             gen_random_uuid()::text, $1, $2, $3, $4, 
-            $5, $6, $7,
-            $8, $9, $10, $11
+            $5, $6, 
+            $7, $8, $9,
+            $10, $11, $12, $13
           ) RETURNING id`,
           [
             phraseId, 
-            radioId, 
+            radioId,
+            sessionId, // 🆕 Agregar sessionId
+            captureId, // 🆕 Agregar captureId
             match.matchedText, // detectedText
             detectionData.phrase, // originalText (la frase buscada)
             match.confidence, 
             match.confidence, // similarity
             new Date(detectionData.recordingDate),
-            false, // verified (false = necesita verificación)
+            !needsVerification, // 🆕 verified = true si confianza >= 65%
             false, // falsePositive
             0.0, // cost
             JSON.stringify({
@@ -172,17 +172,123 @@ class NotificationService {
               reason: match.aiReason,
               folderName: detectionData.folderName,
               context: match.context || match.matchedText,
-              needsVerification: true
+              needsVerification: needsVerification,
+              confidenceLevel: match.confidence >= 0.85 ? 'Alta' : 
+                               match.confidence >= 0.65 ? 'Media' : 'Baja'
             })
           ]
         );
-        console.log(`   ✅ Detección guardada con ID: ${detectionResult.rows[0].id}`);
+        
+        const status = needsVerification ? '⚠️ Requiere verificación' : '✅ Verificada automáticamente';
+        console.log(`   ${status} - ID: ${detectionResult.rows[0].id} (${(match.confidence * 100).toFixed(0)}%)`);
       }
 
       await client.end();
-      console.log('   ✅ Detecciones guardadas en la base de datos correctamente');
+      console.log('   ✅ Todas las detecciones guardadas en la base de datos correctamente');
     } catch (error) {
       console.error('   ❌ Error guardando detecciones en la base de datos:', error.message);
+      console.error('   📋 Stack:', error.stack);
+    }
+  }
+
+  /**
+   * 🆕 Buscar o crear sesión de monitoreo
+   */
+  async findOrCreateSession(client, detectionData) {
+    try {
+      // Extraer información de la carpeta
+      const radioName = this.extractRadioName(detectionData.folderName);
+      const userId = detectionData.userId || 'system';
+      
+      // 🆕 PRIMERO: Buscar o crear la radio
+      let radioResult = await client.query(
+        'SELECT id FROM radios WHERE name = $1 LIMIT 1',
+        [radioName]
+      );
+
+      let radioId;
+      if (radioResult.rows.length === 0) {
+        // Crear la radio
+        const newRadio = await client.query(
+          `INSERT INTO radios (
+            id, name, "streamUrl", platform, region, status, "createdAt", "updatedAt"
+          ) VALUES (
+            gen_random_uuid()::text, $1, '', 'HTTP_STREAM', 'No especificada', 'ACTIVE', NOW(), NOW()
+          ) RETURNING id`,
+          [radioName]
+        );
+        radioId = newRadio.rows[0].id;
+        console.log(`   ℹ️ Radio creada: "${radioName}" (ID: ${radioId})`);
+      } else {
+        radioId = radioResult.rows[0].id;
+      }
+      
+      // Buscar sesión existente para este usuario y radio
+      const sessionResult = await client.query(
+        `SELECT id FROM monitoring_sessions 
+         WHERE "userId" = $1 
+         AND "radioId" = $2
+         AND status = 'ACTIVE' 
+         ORDER BY "startTime" DESC 
+         LIMIT 1`,
+        [userId, radioId]
+      );
+      
+      if (sessionResult.rows.length > 0) {
+        return sessionResult.rows[0].id;
+      }
+      
+      // Crear nueva sesión con radioId válido
+      const newSession = await client.query(
+        `INSERT INTO monitoring_sessions (
+          id, "userId", "radioId", status, "startTime"
+        ) VALUES (
+          gen_random_uuid()::text, $1, $2, 'ACTIVE', NOW()
+        ) RETURNING id`,
+        [userId, radioId]
+      );
+      
+      console.log(`   ℹ️ Sesión creada: ${newSession.rows[0].id}`);
+      return newSession.rows[0].id;
+      
+    } catch (error) {
+      console.error('   ⚠️ Error creando sesión:', error.message);
+      console.error('   📋 Stack:', error.stack);
+      throw error; // Re-lanzar el error para manejarlo arriba
+    }
+  }
+
+  /**
+   * 🆕 Crear captura de audio
+   */
+  async createCapture(client, detectionData, sessionId) {
+    try {
+      // Construir ruta del audio
+      const audioPath = `recordings/${detectionData.folderName}/${detectionData.folderName}.mp3`;
+      
+      // Crear captura
+      const captureResult = await client.query(
+        `INSERT INTO captures (
+          id, "sessionId", "audioPath", "duration", 
+          "capturedAt"
+        ) VALUES (
+          gen_random_uuid()::text, $1, $2, 60,
+          $3
+        ) RETURNING id`,
+        [
+          sessionId,
+          audioPath,
+          new Date(detectionData.recordingDate)
+        ]
+      );
+      
+      console.log(`   ℹ️ Captura creada: ${captureResult.rows[0].id}`);
+      return captureResult.rows[0].id;
+      
+    } catch (error) {
+      console.error('   ⚠️ Error creando captura:', error.message);
+      // Retornar un ID genérico si falla
+      return 'system-capture';
     }
   }
 

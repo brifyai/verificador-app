@@ -618,7 +618,7 @@ Si no encuentras ninguna coincidencia con confianza >= 0.70, devuelve {"found": 
               context: this.extractContext(transcriptionText, match.position || 0, 100),
               verifiedBy: 'AI',
               aiReason: match.reason,
-              needsHumanVerification: match.confidence < 0.85 // Requiere verificación si confianza < 85%
+              needsHumanVerification: match.confidence < 0.65 // 🆕 Umbral 65%
             }));
             
             console.log(`   🤖 IA encontró ${aiMatches.length} coincidencia(s) semántica(s)`);
@@ -643,7 +643,7 @@ Si no encuentras ninguna coincidencia con confianza >= 0.70, devuelve {"found": 
           context: match.text,
           verifiedBy: 'Fuzzy',
           aiReason: match.reason,
-          needsHumanVerification: match.confidence < 0.70 // Requiere verificación si < 70%
+          needsHumanVerification: match.confidence < 0.65 // 🆕 Umbral 65%
         }));
 
         // Combinar resultados
@@ -681,7 +681,7 @@ Si no encuentras ninguna coincidencia con confianza >= 0.70, devuelve {"found": 
         fs.writeFileSync(detectionsFile, JSON.stringify(detectionsData, null, 2));
         console.log(`   💾 Detecciones guardadas: ${detectionsFile}`);
 
-        // 🔔 CREAR NOTIFICACIÓN DE ALERTA
+        // 🔔 CREAR NOTIFICACIÓN Y GUARDAR EN BD
         // Si la frase fue del monitoreo específico (recording_info.json), crear alerta
         if (fs.existsSync(recordingInfoPath)) {
           try {
@@ -693,21 +693,22 @@ Si no encuentras ninguna coincidencia con confianza >= 0.70, devuelve {"found": 
               
               // Crear notificación para cada frase detectada
               for (const detection of detections) {
-                await this.notificationService.createPhraseDetectionAlert({
+                // 🆕 SIEMPRE enviar detecciones a la BD (needsVerification ya está en cada match)
+                await this.notificationService.sendDetectionsToBackend({
                   folderName: folderName,
                   phrase: detection.phrase,
                   brand: detection.brand,
                   campaign: detection.campaign,
                   totalMatches: detection.matches.length,
                   recordingDate: recordingDate,
-                  matches: detection.matches, // Incluir todas las coincidencias con sus metadatos
-                  userId: userId, // ID del usuario que creó el monitoreo
-                  needsVerification: detection.needsVerification // Si requiere verificación humana
+                  matches: detection.matches, // Todas las coincidencias
+                  userId: userId,
+                  needsVerification: detection.needsVerification
                 });
               }
             }
           } catch (error) {
-            console.log('   ⚠️ Error creando notificación:', error.message);
+            console.log('   ⚠️ Error guardando detecciones en BD:', error.message);
           }
         }
       }

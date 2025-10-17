@@ -123,29 +123,18 @@ export default function Reportes() {
         throw new Error(data.error || 'Error al cargar detecciones');
       }
       
-      // Adaptar los datos al formato esperado por el componente
+      // Usar los datos directamente de la API
       setDetections(data.data);
       
-      // Calcular estadísticas desde los datos
-      const totalDetections = data.pagination.total;
-      const completedDetections = data.data.filter((d: Detection) => d.verified).length;
-      const pendingDetections = data.data.filter((d: Detection) => !d.verified && !d.falsePositive).length;
-      const totalValue = data.data.reduce((sum: number, d: Detection) => sum + (d.cost || 0), 0);
-      const averageConfidence = data.data.length > 0 
-        ? data.data.reduce((sum: number, d: Detection) => sum + d.confidence, 0) / data.data.length 
-        : 0;
+      // Usar las estadísticas calculadas por la API (ya incluyen todos los registros filtrados, no solo la página actual)
+      if (data.stats) {
+        setStats(data.stats);
+      }
       
-      setStats({
-        totalDetections,
-        completedDetections,
-        pendingDetections,
-        totalValue,
-        averageConfidence
-      });
-      
-      // Extraer regiones únicas de los datos
-      const regions = [...new Set(data.data.map((d: Detection) => d.region).filter(Boolean))] as string[];
-      setAvailableRegions(regions);
+      // Usar las regiones proporcionadas por la API
+      if (data.filters && data.filters.regions) {
+        setAvailableRegions(data.filters.regions);
+      }
       
       setTotalPages(data.pagination.pages);
       setTotalDetections(data.pagination.total);
@@ -283,23 +272,19 @@ export default function Reportes() {
         return;
       }
       
-      // Construir la URL del archivo de audio para Next.js static files
-      // Los archivos en public/ se sirven desde la raíz
-      let audioUrl = detection.audioPath;
+      // Usar el endpoint de API para servir el audio
+      // Esto permite acceder a archivos tanto locales como desde la VPS
+      let audioPath = detection.audioPath;
       
-      // Si la ruta no empieza con /, agregarla
-      if (!audioUrl.startsWith('/')) {
-        audioUrl = `/${audioUrl}`;
-      }
+      // Limpiar la ruta del audio
+      // Remover prefijos comunes
+      audioPath = audioPath.replace(/^\/+/, ''); // Remover / al inicio
+      audioPath = audioPath.replace(/^captures\//, ''); // Remover captures/ al inicio si existe
+      audioPath = audioPath.replace(/^public\/captures\//, ''); // Remover public/captures/ si existe
+      audioPath = audioPath.replace(/^app\/captures\//, ''); // Remover app/captures/ si existe
       
-      // Si la ruta apunta a captures/ pero no está en public/, corregirla
-      if (audioUrl.startsWith('/captures/')) {
-        // Ya está correcta para archivos estáticos de Next.js
-      } else if (audioUrl.includes('captures/')) {
-        // Extraer solo la parte de captures/ hacia adelante
-        const capturesIndex = audioUrl.indexOf('captures/');
-        audioUrl = `/${audioUrl.substring(capturesIndex)}`;
-      }
+      // Construir la URL del endpoint de audio
+      const audioUrl = `/api/audio/${audioPath}`;
       
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
