@@ -1,0 +1,122 @@
+[
+  {
+    "phrase": "precio bajo garantizado",
+    "brand": "Falabella",
+    "category": "retail",
+    "active": true,
+    "priority": "high",
+    "notes": "Eslogan principal de Falabella"
+  },
+  {
+    "phrase": "do it all",
+    "brand": "Falabella",
+    "category": "retail",
+    "active": true,
+    "priority": "high",
+    "notes": "Campaña reciente de Falabella"
+  },
+  {
+    "phrase": "la vida es hoy",
+    "brand": "París",
+    "category": "retail",
+    "active": true,
+    "priority": "high",
+    "notes": "Eslogan de París"
+  },
+  {
+    "phrase": "tienda oficial",
+    "brand": "París",
+    "category": "retail",
+    "active": true,
+    "priority": "medium",
+    "notes": "Término común en publicidad"
+  },
+  {
+    "phrase": "precios bajos siempre",
+    "brand": "Líder",
+    "category": "supermarket",
+    "active": true,
+    "priority": "high",
+    "notes": "Eslogan de Supermercados Líder"
+  },
+  {
+    "phrase": "calidad garantizada",
+    "brand": "Líder",
+    "category": "supermarket",
+    "active": true,
+    "priority": "medium",
+    "notes": "Término de calidad Líder"
+  },
+  {
+    "phrase": "jumbo te da más",
+    "brand": "Jumbo",
+    "category": "supermarket",
+    "active": true,
+    "priority": "high",
+    "notes": "Eslogan de Jumbo"
+  },
+  {
+    "phrase": "hipermercado",
+    "brand": "Jumbo",
+    "category": "supermarket",
+    "active": true,
+    "priority": "low",
+    "notes": "Término genérico pero asociado a Jumbo"
+  },
+  {
+    "phrase": "el reloj de la ahorra",
+    "brand": "La Polar",
+    "category": "retail",
+    "active": true,
+    "priority": "high",
+    "notes": "Campaña icónica de La Polar"
+  },
+  {
+    "phrase": "garantía de satisfacción",
+    "brand": "Ripley",
+    "category": "retail",
+    "active": true,
+    "priority": "medium",
+    "notes": "Política de Ripley"
+  },
+  {
+    "phrase": "todo en un solo lugar",
+    "brand": "Ripley",
+    "category": "retail",
+    "active": true,
+    "priority": "medium",
+    "notes": "Valor de propuesta Ripley"
+  },
+  {
+    "phrase": "crédito fácil",
+    "brand": "Generic",
+    "category": "financial",
+    "active": true,
+    "priority": "low",
+    "notes": "Término financiero común"
+  },
+  {
+    "phrase": "cuotas sin interés",
+    "brand": "Generic",
+    "category": "financial",
+    "active": true,
+    "priority": "low",
+    "notes": "Oferta común en retail"
+  },
+  {
+    "phrase": "descuento especial",
+    "brand": "Generic",
+    "category": "promotions",
+    "active": true,
+    "priority": "low",
+    "notes": "Término promocional genérico"
+  },
+  {
+    "phrase": "oferta limitada",
+    "brand": "Generic",
+    "category": "promotions",
+    "active": true,
+    "priority": "medium",
+    "notes": "Término de urgencia en publicidad"
+  }
+]

@@ -1,21 +1,60 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 import { hasPermission } from './lib/permissions';
+import { supabaseDirect } from './lib/supabase-direct';
+
+// Función para obtener token de la cookie auth-token
+function getAuthTokenFromCookie(req: any) {
+  const cookieHeader = req.headers.get('cookie');
+  if (!cookieHeader) return null;
+  
+  const match = cookieHeader.match(/auth-token=([^;]+)/);
+  return match ? match[1] : null;
+}
+
+// Función para verificar sesión directa usando Supabase
+async function verifyDirectSession(req: any) {
+  try {
+    const authToken = getAuthTokenFromCookie(req);
+    if (!authToken) return null;
+
+    // El token es el user_id (simple y directo)
+    const userId = authToken;
+    
+    // Verificar que el usuario existe y está activo
+    const users = await supabaseDirect.getUsers();
+    const user = users.find((u: any) => u.id === userId && u.active);
+    
+    if (!user) return null;
+    
+    // Devolver objeto compatible con NextAuth token
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name || 'Usuario',
+      role: user.role
+    };
+  } catch (error) {
+    console.error('Error verificando sesión directa:', error);
+    return null;
+  }
+}
 
 export default withAuth(
-  function middleware(req) {
+  async function middleware(req) {
     const { pathname } = req.nextUrl;
-    const token = req.nextauth?.token;
+    const nextAuthToken = req.nextauth?.token;
 
-    // Rutas públicas que no requieren autenticación (incluye endpoints públicos de API)
+    // Rutas públicas que no requieren autenticación
     const publicRoutes = [
       '/auth/signin',
       '/auth/signup',
       '/auth/error',
-      '/api/audios/list'
+      '/api/audios/list',
+      '/auth/test-login'
     ];
 
-    // Aceptar también prefijos públicos (ej: /api/audios/download?id=...)
+    // Aceptar prefijos públicos
     if (pathname.startsWith('/api/audios/download')) {
       return NextResponse.next();
     }
@@ -24,6 +63,15 @@ export default withAuth(
     if (publicRoutes.includes(pathname)) {
       return NextResponse.next();
     }
+
+    // Intentar obtener sesión del sistema directo si no hay NextAuth token
+    let directToken = null;
+    if (!nextAuthToken) {
+      directToken = await verifyDirectSession(req);
+    }
+
+    // Usar el token que esté disponible
+    const token = nextAuthToken || directToken;
 
     // Si el usuario está autenticado y trata de acceder a rutas de auth, redirigir al dashboard
     if (token && ['/auth/signin', '/auth/signup'].includes(pathname)) {
@@ -44,7 +92,7 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token, req }) => {
+      authorized: async ({ token, req }) => {
         const { pathname } = req.nextUrl;
 
         // Rutas públicas que no requieren autenticación
@@ -52,7 +100,8 @@ export default withAuth(
           '/auth/signin',
           '/auth/signup',
           '/auth/error',
-          '/api/audios/list'
+          '/api/audios/list',
+          '/auth/test-login'
         ];
 
         // Permitir acceso a rutas públicas sin token
@@ -60,8 +109,14 @@ export default withAuth(
           return true;
         }
 
-        // Para todas las demás rutas, requerir token
-        return !!token;
+        // Si hay token de NextAuth, usarlo
+        if (token) {
+          return true;
+        }
+
+        // Verificar si hay sesión directa
+        const directSession = await verifyDirectSession(req);
+        return !!directSession;
       },
     },
     pages: {

@@ -1,8 +1,11 @@
 
-import { prisma } from './db';
+import { supabaseDirect } from './supabase-direct';
 import { audioCaptureService } from './audio-capture';
 import { multiProviderTranscriptionService } from './transcription-providers';
 import { phraseDetectionService } from './phrase-detection';
+
+// 🔄 MIGRADO A SUPABASE DIRECT - Ya no usa Prisma
+console.log('🔄 JobQueueService migrado a Supabase Direct - Iniciando...');
 
 export interface JobPayload {
   sessionId: string;
@@ -55,17 +58,20 @@ export class JobQueueService {
    */
   async addAudioCaptureJob(payload: JobPayload, priority: number = 1): Promise<string> {
     try {
-      const job = await prisma.job.create({
-        data: {
-          type: 'AUDIO_CAPTURE',
-          payload,
-          priority,
-          status: 'PENDING'
-        }
+      const job = await supabaseDirect.createJob({
+        type: 'AUDIO_CAPTURE',
+        payload,
+        priority,
+        status: 'PENDING',
+        attempts: 0,
+        max_attempts: 3,
+        created_at: new Date().toISOString(),
+        scheduled_at: new Date().toISOString()
       });
 
-      console.log(`📋 Added audio capture job: ${job.id} for radio ${payload.radioName}`);
-      return job.id;
+      const jobId = job[0].id;
+      console.log(`📋 Added audio capture job: ${jobId} for radio ${payload.radioName}`);
+      return jobId;
     } catch (error) {
       console.error('❌ Error adding audio capture job:', error);
       throw error;
@@ -77,17 +83,20 @@ export class JobQueueService {
    */
   async addTranscriptionJob(payload: JobPayload, priority: number = 2): Promise<string> {
     try {
-      const job = await prisma.job.create({
-        data: {
-          type: 'TRANSCRIPTION',
-          payload,
-          priority,
-          status: 'PENDING'
-        }
+      const job = await supabaseDirect.createJob({
+        type: 'TRANSCRIPTION',
+        payload,
+        priority,
+        status: 'PENDING',
+        attempts: 0,
+        max_attempts: 3,
+        created_at: new Date().toISOString(),
+        scheduled_at: new Date().toISOString()
       });
 
-      console.log(`📋 Added transcription job: ${job.id}`);
-      return job.id;
+      const jobId = job[0].id;
+      console.log(`📋 Added transcription job: ${jobId}`);
+      return jobId;
     } catch (error) {
       console.error('❌ Error adding transcription job:', error);
       throw error;
@@ -99,17 +108,20 @@ export class JobQueueService {
    */
   async addPhraseDetectionJob(payload: JobPayload, priority: number = 3): Promise<string> {
     try {
-      const job = await prisma.job.create({
-        data: {
-          type: 'PHRASE_DETECTION',
-          payload,
-          priority,
-          status: 'PENDING'
-        }
+      const job = await supabaseDirect.createJob({
+        type: 'PHRASE_DETECTION',
+        payload,
+        priority,
+        status: 'PENDING',
+        attempts: 0,
+        max_attempts: 3,
+        created_at: new Date().toISOString(),
+        scheduled_at: new Date().toISOString()
       });
 
-      console.log(`📋 Added phrase detection job: ${job.id}`);
-      return job.id;
+      const jobId = job[0].id;
+      console.log(`📋 Added phrase detection job: ${jobId}`);
+      return jobId;
     } catch (error) {
       console.error('❌ Error adding phrase detection job:', error);
       throw error;
@@ -126,30 +138,30 @@ export class JobQueueService {
 
     try {
       // Obtener el próximo job pendiente con mayor prioridad
-      const job = await prisma.job.findFirst({
-        where: {
-          status: 'PENDING',
-          scheduledAt: {
-            lte: new Date()
-          }
-        },
-        orderBy: [
-          { priority: 'asc' },
-          { createdAt: 'asc' }
-        ]
+      const jobs = await supabaseDirect.getJobs({
+        status: 'PENDING',
+        limit: 1,
+        orderBy: 'priority.asc,created_at.asc'
       });
+
+      const job = jobs[0];
+      if (!job) {
+        return; // No hay jobs pendientes
+      }
+
+      // Verificar si el job está programado para ahora
+      if (new Date(job.scheduledAt) > new Date()) {
+        return; // Aún no es hora de ejecutar este job
+      }
 
       if (!job) {
         return; // No hay jobs pendientes
       }
 
       // Marcar job como en ejecución
-      await prisma.job.update({
-        where: { id: job.id },
-        data: {
-          status: 'RUNNING',
-          startedAt: new Date()
-        }
+      await supabaseDirect.updateJob(job.id, {
+        status: 'RUNNING',
+        started_at: new Date().toISOString()
       });
 
       this.activeJobs.add(job.id);
@@ -189,13 +201,10 @@ export class JobQueueService {
       }
 
       // Marcar job como completado
-      await prisma.job.update({
-        where: { id: job.id },
-        data: {
-          status: 'COMPLETED',
-          completedAt: new Date(),
-          result
-        }
+      await supabaseDirect.updateJob(job.id, {
+        status: 'COMPLETED',
+        completed_at: new Date().toISOString(),
+        result
       });
 
       const duration = Date.now() - startTime;
@@ -213,26 +222,20 @@ export class JobQueueService {
         const retryDelay = Math.pow(2, newAttempts) * 1000; // 2s, 4s, 8s, etc.
         const retryAt = new Date(Date.now() + retryDelay);
 
-        await prisma.job.update({
-          where: { id: job.id },
-          data: {
-            status: 'PENDING',
-            attempts: newAttempts,
-            error: error.message,
-            scheduledAt: retryAt
-          }
+        await supabaseDirect.updateJob(job.id, {
+          status: 'PENDING',
+          attempts: newAttempts,
+          error: error.message,
+          scheduled_at: retryAt.toISOString()
         });
 
         console.log(`🔄 Job ${job.id} scheduled for retry ${newAttempts}/${job.maxAttempts} in ${retryDelay}ms`);
       } else {
         // Marcar como fallido permanentemente
-        await prisma.job.update({
-          where: { id: job.id },
-          data: {
-            status: 'FAILED',
-            completedAt: new Date(),
-            error: error.message
-          }
+        await supabaseDirect.updateJob(job.id, {
+          status: 'FAILED',
+          completed_at: new Date().toISOString(),
+          error: error.message
         });
 
         console.log(`💀 Job ${job.id} permanently failed after ${newAttempts} attempts`);
@@ -280,16 +283,13 @@ export class JobQueueService {
 
     if (result.success && result.text) {
       // Actualizar captura con transcripción
-      await prisma.capture.update({
-        where: { id: payload.captureId },
-        data: {
-          transcriptionText: result.text,
-          confidence: result.confidence,
-          provider: result.provider,
-          processingTime: result.processingTime,
-          cost: result.cost,
-          status: 'TRANSCRIBED'
-        }
+      await supabaseDirect.updateCapture(payload.captureId, {
+        transcriptionText: result.text,
+        confidence: result.confidence,
+        provider: result.provider,
+        processingTime: result.processingTime,
+        cost: result.cost,
+        status: 'TRANSCRIBED'
       });
 
       // Crear job de detección de frases automáticamente
@@ -324,14 +324,9 @@ export class JobQueueService {
       );
 
       // Actualizar contadores de sesión
-      await prisma.monitoringSession.update({
-        where: { id: payload.sessionId },
-        data: {
-          totalDetections: {
-            increment: result.matches.length
-          },
-          lastDetectionAt: new Date()
-        }
+      await supabaseDirect.updateMonitoringSession(payload.sessionId, {
+        totalDetections: result.matches.length,
+        lastDetectionAt: new Date().toISOString()
       });
     }
 
@@ -344,24 +339,14 @@ export class JobQueueService {
   async getQueueStats(): Promise<any> {
     try {
       const [pending, running, completed, failed] = await Promise.all([
-        prisma.job.count({ where: { status: 'PENDING' } }),
-        prisma.job.count({ where: { status: 'RUNNING' } }),
-        prisma.job.count({ where: { status: 'COMPLETED' } }),
-        prisma.job.count({ where: { status: 'FAILED' } })
+        supabaseDirect.getJobs({ status: 'PENDING' }).then((j: any[]) => j.length),
+        supabaseDirect.getJobs({ status: 'RUNNING' }).then((j: any[]) => j.length),
+        supabaseDirect.getJobs({ status: 'COMPLETED' }).then((j: any[]) => j.length),
+        supabaseDirect.getJobs({ status: 'FAILED' }).then((j: any[]) => j.length)
       ]);
 
-      const recentJobs = await prisma.job.findMany({
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          type: true,
-          status: true,
-          createdAt: true,
-          startedAt: true,
-          completedAt: true,
-          attempts: true
-        }
+      const recentJobs = await supabaseDirect.getJobs({
+        limit: 10
       });
 
       return {
@@ -384,20 +369,23 @@ export class JobQueueService {
     try {
       const cutoffDate = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
       
-      const result = await prisma.job.deleteMany({
-        where: {
-          OR: [
-            { status: 'COMPLETED' },
-            { status: 'FAILED' }
-          ],
-          completedAt: {
-            lt: cutoffDate
-          }
-        }
+      // Obtener jobs antiguos para eliminar
+      const oldJobs = await supabaseDirect.getJobs();
+      const jobsToDelete = oldJobs.filter((job: any) => {
+        const completed_at = job.completed_at ? new Date(job.completed_at) : null;
+        return completed_at && completed_at < cutoffDate &&
+               (job.status === 'COMPLETED' || job.status === 'FAILED');
       });
 
-      console.log(`🧹 Cleaned up ${result.count} old jobs`);
-      return result.count;
+      // Eliminar jobs uno por uno (Supabase no soporta deleteMany con filtros complejos)
+      let deletedCount = 0;
+      for (const job of jobsToDelete) {
+        await supabaseDirect.deleteJob(job.id);
+        deletedCount++;
+      }
+
+      console.log(`🧹 Cleaned up ${deletedCount} old jobs`);
+      return deletedCount;
     } catch (error) {
       console.error('❌ Error cleaning up jobs:', error);
       return 0;
@@ -409,18 +397,17 @@ export class JobQueueService {
    */
   async pauseSessionJobs(sessionId: string): Promise<void> {
     try {
-      await prisma.job.updateMany({
-        where: {
-          status: 'PENDING',
-          payload: {
-            path: ['sessionId'],
-            equals: sessionId
-          }
-        },
-        data: {
-          status: 'CANCELLED'
+      // Obtener jobs de la sesión
+      const sessionJobs = await this.getSessionJobs(sessionId);
+      
+      // Actualizar jobs pendientes a cancelados
+      for (const job of sessionJobs) {
+        if (job.status === 'PENDING') {
+          await supabaseDirect.updateJob(job.id, {
+            status: 'CANCELLED'
+          });
         }
-      });
+      }
 
       console.log(`⏸️ Paused jobs for session ${sessionId}`);
     } catch (error) {
@@ -433,15 +420,10 @@ export class JobQueueService {
    */
   async getSessionJobs(sessionId: string): Promise<any[]> {
     try {
-      return await prisma.job.findMany({
-        where: {
-          payload: {
-            path: ['sessionId'],
-            equals: sessionId
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
+      const allJobs = await supabaseDirect.getJobs();
+      return allJobs.filter((job: any) =>
+        job.payload && job.payload.sessionId === sessionId
+      ).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     } catch (error) {
       console.error('❌ Error getting session jobs:', error);
       return [];

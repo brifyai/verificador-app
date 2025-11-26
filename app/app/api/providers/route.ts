@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +88,7 @@ function toApiProvider(c: any) {
 
 export async function GET() {
   try {
-    const configs = await prisma.apiConfiguration.findMany({ orderBy: { priority: 'asc' } });
+    const configs = await supabaseDirect.request('api_configurations?select=*&order=priority.asc');
     // Si no hay, devolver defaults deshabilitados
     if (configs.length === 0) {
       const providers = Object.entries(PROVIDER_DEFAULTS).map(([provider, def]) => ({
@@ -128,28 +128,57 @@ export async function POST(request: NextRequest) {
       headers: body.headers || undefined,
     };
 
-    const created = await prisma.apiConfiguration.upsert({
-      where: { provider: providerCode },
-      update: {
-        apiKey: body.apiKey || null, // texto plano temporal (para pruebas)
+    // Verificar si existe la configuración
+    const existingConfigs = await supabaseDirect.request(
+      `api_configurations?select=*&provider=eq.${providerCode}`
+    );
+
+    let created;
+    
+    if (existingConfigs.length > 0) {
+      // Actualizar existente
+      const updateData = {
+        api_key: body.apiKey || null,
         model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
         enabled: body.enabled ?? true,
         priority: body.priority ?? defaults.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
+        cost_per_unit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rate_limit: body.rateLimits?.requestsPerMinute ?? null,
         metadata,
-      },
-      create: {
+        updated_at: new Date().toISOString()
+      };
+
+      const updated = await supabaseDirect.request(
+        `api_configurations?provider=eq.${providerCode}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(updateData),
+          headers: { 'Prefer': 'return=representation' }
+        }
+      );
+      created = updated[0];
+    } else {
+      // Crear nuevo
+      const createData = {
         provider: providerCode,
-        apiKey: body.apiKey || null,
+        api_key: body.apiKey || null,
         model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
         enabled: body.enabled ?? true,
         priority: body.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
+        cost_per_unit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rate_limit: body.rateLimits?.requestsPerMinute ?? null,
         metadata,
-      },
-    });
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const newConfigs = await supabaseDirect.request('api_configurations', {
+        method: 'POST',
+        body: JSON.stringify(createData),
+        headers: { 'Prefer': 'return=representation' }
+      });
+      created = newConfigs[0];
+    }
 
     return NextResponse.json({ provider: toApiProvider(created) });
   } catch (error: any) {
@@ -161,14 +190,22 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
     const id = body.id as string | undefined;
-    const existing = id
-      ? await prisma.apiConfiguration.findUnique({ where: { id } })
-      : null;
+    
+    // Buscar configuración existente
+    let existing = null;
+    if (id) {
+      const existingConfigs = await supabaseDirect.request(
+        `api_configurations?select=*&id=eq.${id}`
+      );
+      existing = existingConfigs[0] || null;
+    }
 
     const providerCode = existing?.provider || NAME_TO_PROVIDER[body.name] || body.provider || 'custom';
     const defaults = PROVIDER_DEFAULTS[providerCode] || {};
 
-    const prev = existing || (await prisma.apiConfiguration.findUnique({ where: { provider: providerCode } }));
+    const prev = existing || (await supabaseDirect.request(
+      `api_configurations?select=*&provider=eq.${providerCode}`
+    ))[0];
     const prevMeta = (prev?.metadata as any) || {};
 
     const metadata = {
@@ -178,28 +215,57 @@ export async function PUT(request: NextRequest) {
       headers: body.headers ?? prevMeta.headers ?? undefined,
     };
 
-    const updated = await prisma.apiConfiguration.upsert({
-      where: id ? { id } : { provider: providerCode },
-      update: {
-        apiKey: body.apiKey !== undefined ? (body.apiKey || null) : prev?.apiKey || null,
+    // Verificar si existe para upsert
+    const existingConfigs = await supabaseDirect.request(
+      `api_configurations?select=*&provider=eq.${providerCode}`
+    );
+
+    let updated;
+    
+    if (existingConfigs.length > 0) {
+      // Actualizar existente
+      const updateData = {
+        api_key: body.apiKey !== undefined ? (body.apiKey || null) : prev?.api_key || null,
         model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || prev?.model || null,
         enabled: body.enabled ?? prev?.enabled ?? false,
         priority: body.priority ?? prev?.priority ?? defaults.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? prev?.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? prev?.rateLimit ?? null,
+        cost_per_unit: body.costPerUnit ?? prev?.cost_per_unit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rate_limit: body.rateLimits?.requestsPerMinute ?? prev?.rate_limit ?? null,
         metadata,
-      },
-      create: {
+        updated_at: new Date().toISOString()
+      };
+
+      const updateResult = await supabaseDirect.request(
+        `api_configurations?provider=eq.${providerCode}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(updateData),
+          headers: { 'Prefer': 'return=representation' }
+        }
+      );
+      updated = updateResult[0];
+    } else {
+      // Crear nuevo
+      const createData = {
         provider: providerCode,
-        apiKey: body.apiKey || null,
+        api_key: body.apiKey || null,
         model: Array.isArray(metadata.models) && metadata.models[0]?.id ? metadata.models[0].id : body.model || null,
         enabled: body.enabled ?? true,
         priority: body.priority ?? 99,
-        costPerUnit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
-        rateLimit: body.rateLimits?.requestsPerMinute ?? null,
+        cost_per_unit: body.costPerUnit ?? (metadata.models?.[0]?.costPerMinute ?? 0),
+        rate_limit: body.rateLimits?.requestsPerMinute ?? null,
         metadata,
-      },
-    });
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const newConfigs = await supabaseDirect.request('api_configurations', {
+        method: 'POST',
+        body: JSON.stringify(createData),
+        headers: { 'Prefer': 'return=representation' }
+      });
+      updated = newConfigs[0];
+    }
 
     return NextResponse.json({ provider: toApiProvider(updated) });
   } catch (error: any) {
@@ -213,7 +279,9 @@ export async function DELETE(request: NextRequest) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
 
-    await prisma.apiConfiguration.delete({ where: { id } });
+    await supabaseDirect.request(`api_configurations?id=eq.${id}`, {
+      method: 'DELETE'
+    });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error eliminando proveedor' }, { status: 500 });

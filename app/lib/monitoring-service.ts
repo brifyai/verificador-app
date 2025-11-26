@@ -4,7 +4,7 @@ import { transcriptionService, AdvertisementAnalysis } from './transcription';
 import { multiProviderTranscriptionService } from './transcription-providers';
 import { phraseDetectionService } from './phrase-detection';
 import { jobQueueService } from './job-queue';
-import { prisma } from './db';
+import { supabaseDirect } from './supabase-direct';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import path from 'path';
 
@@ -68,32 +68,38 @@ class MonitoringService {
    */
   async loadSessionsFromDatabase(): Promise<void> {
     try {
-      const sessions = await prisma.monitoringSession.findMany({
-        where: {
-          status: 'ACTIVE'
-        },
-        include: {
-          radio: true,
-          user: true
-        }
-      });
+      // Obtener sesiones activas desde Supabase Direct
+      const sessions = await supabaseDirect.request('monitoring_sessions?select=*&status=eq.ACTIVE');
+      
+      // Obtener radios relacionadas
+      const radioIds = [...new Set(sessions.map((s: any) => s.radio_id).filter(Boolean))];
+      const radios = radioIds.length > 0
+        ? await supabaseDirect.request(`radios?id=in.(${radioIds.join(',')})`)
+        : [];
 
       for (const session of sessions) {
+        const radio = radios.find((r: any) => r.id === session.radio_id);
+        
+        if (!radio) {
+          console.warn(`⚠️ Radio no encontrada para sesión ${session.id}`);
+          continue;
+        }
+
         const monitoringSession: MonitoringSession = {
           id: session.id,
-          radioId: session.radioId,
-          radioName: session.radio.name,
-          streamUrl: session.radio.streamUrl,
-          platform: session.radio.platform,
+          radioId: session.radio_id,
+          radioName: radio.name,
+          streamUrl: radio.stream_url,
+          platform: radio.platform,
           targetPhrases: [], // Se cargan dinámicamente desde la tabla de frases
           isActive: session.status === 'ACTIVE',
-          startTime: session.startTime,
-          captureInterval: session.captureInterval,
-          captureDuration: session.captureDuration,
-          totalCaptures: session.totalCaptures,
-          advertisementsFound: session.totalDetections,
-          lastCapture: session.lastCaptureAt || undefined,
-          lastAdvertisement: session.lastDetectionAt || undefined
+          startTime: new Date(session.start_time),
+          captureInterval: session.capture_interval,
+          captureDuration: session.capture_duration,
+          totalCaptures: session.total_captures || 0,
+          advertisementsFound: session.total_detections || 0,
+          lastCapture: session.last_capture_at ? new Date(session.last_capture_at) : undefined,
+          lastAdvertisement: session.last_detection_at ? new Date(session.last_detection_at) : undefined
         };
 
         this.activeSessions.set(session.id, monitoringSession);
@@ -114,48 +120,49 @@ class MonitoringService {
    * Inicia el monitoreo de una radio
    */
   async startMonitoring(
-    radioId: string, 
-    userId: string, 
-    captureInterval: number = 30, 
+    radioId: string,
+    userId: string,
+    captureInterval: number = 30,
     captureDuration: number = 10
   ): Promise<string> {
     try {
       // Verificar si ya existe una sesión activa para esta radio
-      const existingSession = await prisma.monitoringSession.findFirst({
-        where: {
-          radioId,
-          status: 'ACTIVE'
-        }
-      });
+      const existingSessions = await supabaseDirect.request(
+        `monitoring_sessions?select=*&radio_id=eq.${radioId}&status=eq.ACTIVE`
+      );
 
-      if (existingSession) {
-        throw new Error(`Ya existe una sesión activa para esta radio: ${existingSession.id}`);
+      if (existingSessions.length > 0) {
+        throw new Error(`Ya existe una sesión activa para esta radio: ${existingSessions[0].id}`);
       }
 
       // Obtener información de la radio
-      const radio = await prisma.radio.findUnique({
-        where: { id: radioId }
-      });
+      const radios = await supabaseDirect.request(`radios?id=eq.${radioId}`);
+      const radio = radios[0];
 
       if (!radio) {
         throw new Error(`Radio no encontrada: ${radioId}`);
       }
 
       // Crear sesión en la base de datos
-      const session = await prisma.monitoringSession.create({
-        data: {
-          radioId,
-          userId,
-          status: 'ACTIVE',
-          captureInterval,
-          captureDuration,
-          startTime: new Date(),
-          configuration: {
-            autoTranscribe: true,
-            language: 'es',
-            phraseDetection: true
-          }
-        }
+      const sessionData = {
+        radio_id: radioId,
+        user_id: userId,
+        status: 'ACTIVE',
+        capture_interval: captureInterval,
+        capture_duration: captureDuration,
+        start_time: new Date().toISOString(),
+        configuration: {
+          autoTranscribe: true,
+          language: 'es',
+          phraseDetection: true
+        },
+        total_captures: 0,
+        total_detections: 0
+      };
+
+      const session = await supabaseDirect.request('monitoring_sessions', {
+        method: 'POST',
+        body: JSON.stringify(sessionData)
       });
 
       // Crear sesión en memoria
@@ -229,12 +236,12 @@ class MonitoringService {
       session.lastCapture = new Date();
 
       // Actualizar en base de datos
-      await prisma.monitoringSession.update({
-        where: { id: session.id },
-        data: {
-          totalCaptures: session.totalCaptures,
-          lastCaptureAt: session.lastCapture
-        }
+      await supabaseDirect.request(`monitoring_sessions?id=eq.${session.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          total_captures: session.totalCaptures,
+          last_capture_at: session.lastCapture?.toISOString()
+        })
       });
 
       console.log(`✅ Capture job queued for session ${session.id}`);
@@ -262,12 +269,12 @@ class MonitoringService {
       await jobQueueService.pauseSessionJobs(sessionId);
 
       // Actualizar en base de datos
-      await prisma.monitoringSession.update({
-        where: { id: sessionId },
-        data: {
+      await supabaseDirect.request(`monitoring_sessions?id=eq.${sessionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
           status: 'STOPPED',
-          endTime: new Date()
-        }
+          end_time: new Date().toISOString()
+        })
       });
 
       // Remover de memoria
@@ -294,9 +301,11 @@ class MonitoringService {
       session.isActive = false;
       this.clearSessionInterval(sessionId);
 
-      await prisma.monitoringSession.update({
-        where: { id: sessionId },
-        data: { status: 'PAUSED' }
+      await supabaseDirect.request(`monitoring_sessions?id=eq.${sessionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'PAUSED'
+        })
       });
 
       console.log(`⏸️ Paused monitoring session ${sessionId}`);
@@ -320,9 +329,11 @@ class MonitoringService {
       session.isActive = true;
       this.scheduleCaptures(session);
 
-      await prisma.monitoringSession.update({
-        where: { id: sessionId },
-        data: { status: 'ACTIVE' }
+      await supabaseDirect.request(`monitoring_sessions?id=eq.${sessionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'ACTIVE'
+        })
       });
 
       console.log(`▶️ Resumed monitoring session ${sessionId}`);
@@ -357,14 +368,24 @@ class MonitoringService {
       const phraseCount = phraseDetectionService.getActivePhraseCount();
 
       // Estadísticas de detecciones recientes
-      const recentDetections = await prisma.detection.findMany({
-        take: 10,
-        orderBy: { timestamp: 'desc' },
-        include: {
-          phrase: true,
-          radio: true
-        }
-      });
+      const recentDetectionsRaw = await supabaseDirect.request(
+        'detections?select=*&order=timestamp.desc&limit=10'
+      );
+      
+      // Obtener datos relacionados
+      const phraseIds = [...new Set(recentDetectionsRaw.map((d: any) => d.phrase_id).filter(Boolean))];
+      const radioIds = [...new Set(recentDetectionsRaw.map((d: any) => d.radio_id).filter(Boolean))];
+      
+      const [phrases, radios] = await Promise.all([
+        phraseIds.length > 0 ? supabaseDirect.request(`phrases?id=in.(${phraseIds.join(',')})`) : [],
+        radioIds.length > 0 ? supabaseDirect.request(`radios?id=in.(${radioIds.join(',')})`) : []
+      ]);
+
+      const recentDetections = recentDetectionsRaw.map((d: any) => ({
+        ...d,
+        phrase: phrases.find((p: any) => p.id === d.phrase_id),
+        radio: radios.find((r: any) => r.id === d.radio_id)
+      }));
 
       // Estadísticas de transcripción
       const transcriptionStats = multiProviderTranscriptionService.getProviderStats();
@@ -376,7 +397,7 @@ class MonitoringService {
         activePhrases: phraseCount,
         queueStats,
         transcriptionProviders: transcriptionStats,
-        recentDetections: recentDetections.map(d => ({
+        recentDetections: recentDetections.map((d: any) => ({
           id: d.id,
           radioName: d.radio.name,
           phrase: d.phrase.phrase,
@@ -404,21 +425,41 @@ class MonitoringService {
    */
   async getRecentDetections(limit: number = 50): Promise<any[]> {
     try {
-      const detections = await prisma.detection.findMany({
-        take: limit,
-        orderBy: { timestamp: 'desc' },
-        include: {
-          phrase: true,
-          radio: true,
+      const detectionsRaw = await supabaseDirect.request(
+        `detections?select=*&order=timestamp.desc&limit=${limit}`
+      );
+      
+      // Obtener datos relacionados
+      const phraseIds = [...new Set(detectionsRaw.map((d: any) => d.phrase_id).filter(Boolean))];
+      const radioIds = [...new Set(detectionsRaw.map((d: any) => d.radio_id).filter(Boolean))];
+      const sessionIds = [...new Set(detectionsRaw.map((d: any) => d.session_id).filter(Boolean))];
+      
+      const [phrases, radios, sessions] = await Promise.all([
+        phraseIds.length > 0 ? supabaseDirect.request(`phrases?id=in.(${phraseIds.join(',')})`) : [],
+        radioIds.length > 0 ? supabaseDirect.request(`radios?id=in.(${radioIds.join(',')})`) : [],
+        sessionIds.length > 0 ? supabaseDirect.request(`monitoring_sessions?id=in.(${sessionIds.join(',')})`) : []
+      ]);
+
+      // Obtener usuarios de las sesiones
+      const userIds = [...new Set(sessions.map((s: any) => s.user_id).filter(Boolean))];
+      const users = userIds.length > 0 ? await supabaseDirect.request(`users?id=in.(${userIds.join(',')})`) : [];
+
+      const detections = detectionsRaw.map((d: any) => {
+        const session = sessions.find((s: any) => s.id === d.session_id);
+        const user = session ? users.find((u: any) => u.id === session.user_id) : null;
+        
+        return {
+          ...d,
+          phrase: phrases.find((p: any) => p.id === d.phrase_id),
+          radio: radios.find((r: any) => r.id === d.radio_id),
           session: {
-            include: {
-              user: true
-            }
+            ...session,
+            user: user
           }
-        }
+        };
       });
 
-      return detections.map(d => ({
+      return detections.map((d: any) => ({
         id: d.id,
         sessionId: d.sessionId,
         radioName: d.radio.name,

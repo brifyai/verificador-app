@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from "@/lib/db";
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,11 +20,11 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
 
     // Obtener el perfil de facturación del usuario
-    const billingProfile = await prisma.billingProfile.findUnique({
-      where: { userId: session.user.id }
-    });
+    const billingProfiles = await supabaseDirect.request(
+      `billing_profiles?select=*&user_id=eq.${session.user.id}`
+    );
 
-    if (!billingProfile) {
+    if (billingProfiles.length === 0) {
       // Devolver array vacío en lugar de 404 para compatibilidad con el frontend
       return NextResponse.json({
         invoices: [],
@@ -37,30 +37,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const where = {
-      billingProfileId: billingProfile.id,
-      ...(status && { status: status as any })
-    };
+    const billingProfile = billingProfiles[0];
 
-    const [invoices, total] = await Promise.all([
-      prisma.invoice.findMany({
-        where,
-        include: {
-          lineItems: {
-            include: {
-              radio: true,
-              session: true,
-              capture: true,
-              detection: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit
-      }),
-      prisma.invoice.count({ where })
-    ]);
+    // Construir query para invoices
+    let query = `invoices?select=*&billing_profile_id=eq.${billingProfile.id}`;
+    if (status) query += `&status=eq.${status}`;
+    query += `&order=created_at.desc&limit=${limit}&offset=${(page - 1) * limit}`;
+
+    const invoices = await supabaseDirect.request(query);
+
+    // Obtener total de invoices
+    const countQuery = `invoices?select=count&billing_profile_id=eq.${billingProfile.id}`;
+    const countResult = await supabaseDirect.request(countQuery);
+    const total = countResult[0]?.count || 0;
 
     return NextResponse.json({
       invoices,
@@ -94,57 +83,69 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Obtener el perfil de facturación del usuario
-    const billingProfile = await prisma.billingProfile.findUnique({
-      where: { userId: session.user.id }
-    });
+    const billingProfiles = await supabaseDirect.request(
+      `billing_profiles?select=*&user_id=eq.${session.user.id}`
+    );
 
-    if (!billingProfile) {
+    if (billingProfiles.length === 0) {
       return NextResponse.json(
         { error: 'No se encontró perfil de facturación' },
         { status: 404 }
       );
     }
 
+    const billingProfile = billingProfiles[0];
+
     // Generar número de factura único
-    const invoiceCount = await prisma.invoice.count();
+    const countResult = await supabaseDirect.request('invoices?select=count');
+    const invoiceCount = countResult[0]?.count || 0;
     const invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(3, '0')}`;
 
-    const invoice = await prisma.invoice.create({
-      data: {
-        billingProfileId: billingProfile.id,
-        invoiceNumber,
-        issueDate: new Date(body.issueDate || Date.now()),
-        dueDate: new Date(body.dueDate),
-        status: body.status || 'PENDING',
-        subtotal: body.subtotal,
-        tax: body.tax,
-        total: body.total,
-        currency: body.currency || 'CLP',
-        notes: body.notes,
-        lineItems: {
-          create: body.lineItems?.map((item: any) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            total: item.total,
-            radioId: item.radioId,
-            sessionId: item.sessionId,
-            captureId: item.captureId,
-            detectionId: item.detectionId
-          })) || []
-        }
-      },
-      include: {
-        lineItems: {
-          include: {
-            radio: true,
-            session: true,
-            capture: true,
-            detection: true
-          }
-        }
-      }
+    // Crear invoice en Supabase
+    const invoiceData = {
+      billing_profile_id: billingProfile.id,
+      invoice_number: invoiceNumber,
+      issue_date: new Date(body.issueDate || Date.now()).toISOString(),
+      due_date: new Date(body.dueDate).toISOString(),
+      status: body.status || 'PENDING',
+      subtotal: body.subtotal,
+      tax: body.tax,
+      total: body.total,
+      currency: body.currency || 'CLP',
+      notes: body.notes,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const newInvoices = await supabaseDirect.request('invoices', {
+      method: 'POST',
+      body: JSON.stringify(invoiceData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const invoice = newInvoices[0];
+
+    // Crear line items si existen
+    if (body.lineItems && body.lineItems.length > 0) {
+      const lineItemsData = body.lineItems.map((item: any) => ({
+        invoice_id: invoice.id,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        total: item.total,
+        radio_id: item.radioId,
+        session_id: item.sessionId,
+        capture_id: item.captureId,
+        detection_id: item.detectionId,
+        created_at: new Date().toISOString()
+      }));
+
+      await supabaseDirect.request('invoice_line_items', {
+        method: 'POST',
+        body: JSON.stringify(lineItemsData),
+        headers: { 'Prefer': 'return=representation' }
+      });
+    }
 
     return NextResponse.json(invoice, { status: 201 });
   } catch (error) {

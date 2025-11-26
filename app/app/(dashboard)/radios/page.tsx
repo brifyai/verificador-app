@@ -52,7 +52,7 @@ export default function RadiosPage() {
   useEffect(() => {
     const fetchRadios = async () => {
       try {
-        const res = await fetch('/api/radios?limit=500');
+        const res = await fetch('/api/radios-direct?limit=500');
         if (!res.ok) throw new Error('Error al cargar radios');
         const json = await res.json();
         if (Array.isArray(json.data)) {
@@ -412,7 +412,7 @@ export default function RadiosPage() {
         }
       }
       
-      const importResponse = await fetch('/api/radios/import-bulk', {
+      const importResponse = await fetch('/api/radios-direct/import-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jsonData)
@@ -426,7 +426,7 @@ export default function RadiosPage() {
         // Recargar radios
         setLoading(true);
         try {
-          const res = await fetch('/api/radios?limit=500');
+          const res = await fetch('/api/radios-direct?limit=500');
           if (!res.ok) throw new Error('Error al cargar radios');
           const json = await res.json();
           if (Array.isArray(json.data)) {
@@ -513,7 +513,7 @@ export default function RadiosPage() {
       setBulkVerifying(true);
       toast.info('Iniciando verificación masiva...');
       
-      const response = await fetch('/api/radios/verify-bulk', {
+      const response = await fetch('/api/radios-direct/verify-bulk', {
         method: 'POST',
       });
 

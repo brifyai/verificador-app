@@ -1,5 +1,5 @@
 
-import { prisma } from './db';
+import { supabaseDirect } from './supabase-direct';
 import similarity from 'string-similarity';
 import Fuse from 'fuse.js';
 import natural from 'natural';
@@ -52,24 +52,22 @@ export class PhraseDetectionService {
   }
 
   /**
-   * Carga las frases activas desde la base de datos
+   * Carga las frases activas desde la base de datos usando Supabase Direct
    */
   async loadPhrasesFromDatabase(): Promise<void> {
     try {
-      console.log('📝 Loading phrases from database...');
+      console.log('📝 Loading phrases from database (Supabase Direct)...');
       
-      const phrases = await prisma.phrase.findMany({
-        where: { active: true },
-        include: {
-          variants: true
-        },
-        orderBy: [
-          { priority: 'asc' },
-          { confidence: 'desc' }
-        ]
-      });
+      // Obtener frases activas
+      const phrases = await supabaseDirect.request('phrases?select=*&active=eq.true&order=priority.asc,confidence.desc');
+      
+      // Obtener variantes para cada frase
+      const phraseIds = phrases.map((p: any) => p.id);
+      const variants = phraseIds.length > 0
+        ? await supabaseDirect.request(`phrase_variants?select=*&phrase_id=in.(${phraseIds.join(',')})`)
+        : [];
 
-      this.phrases = phrases.map(phrase => ({
+      this.phrases = phrases.map((phrase: any) => ({
         id: phrase.id,
         phrase: phrase.phrase,
         brand: phrase.brand,
@@ -78,7 +76,9 @@ export class PhraseDetectionService {
         confidence: phrase.confidence,
         priority: phrase.priority,
         active: phrase.active,
-        variants: phrase.variants.map(v => v.variant)
+        variants: variants
+          .filter((v: any) => v.phrase_id === phrase.id)
+          .map((v: any) => v.variant)
       }));
 
       // Configurar Fuse.js para búsqueda difusa
@@ -411,7 +411,7 @@ export class PhraseDetectionService {
   }
 
   /**
-   * Obtiene estadísticas de detección
+   * Obtiene estadísticas de detección usando Supabase Direct
    */
   async getDetectionStats(timeRange: 'day' | 'week' | 'month' = 'day'): Promise<any> {
     try {
@@ -430,27 +430,35 @@ export class PhraseDetectionService {
           break;
       }
 
-      const detections = await prisma.detection.findMany({
-        where: {
-          timestamp: {
-            gte: startDate
-          }
-        },
-        include: {
-          phrase: true,
-          radio: true
-        }
-      });
+      // Obtener detecciones desde Supabase Direct
+      const startDateISO = startDate.toISOString();
+      const detections = await supabaseDirect.request(`detections?select=*&timestamp=gte.${startDateISO}&order=timestamp.desc&limit=1000`);
+      
+      // Obtener datos relacionados
+      const phraseIds = [...new Set(detections.map((d: any) => d.phrase_id).filter(Boolean))];
+      const radioIds = [...new Set(detections.map((d: any) => d.radio_id).filter(Boolean))];
+      
+      const [phrases, radios] = await Promise.all([
+        phraseIds.length > 0 ? supabaseDirect.request(`phrases?id=in.(${phraseIds.join(',')})`) : [],
+        radioIds.length > 0 ? supabaseDirect.request(`radios?id=in.(${radioIds.join(',')})`) : []
+      ]);
+
+      // Combinar datos
+      const detectionsWithRelations = detections.map((detection: any) => ({
+        ...detection,
+        phrase: phrases.find((p: any) => p.id === detection.phrase_id),
+        radio: radios.find((r: any) => r.id === detection.radio_id)
+      }));
 
       return {
-        total: detections.length,
-        byBrand: this.groupBy(detections, d => d.phrase.brand),
-        byRadio: this.groupBy(detections, d => d.radio.name),
-        byHour: this.groupByHour(detections),
-        averageConfidence: detections.length > 0 
-          ? detections.reduce((sum, d) => sum + d.confidence, 0) / detections.length 
+        total: detectionsWithRelations.length,
+        byBrand: this.groupBy(detectionsWithRelations, (d: any) => d.phrase?.brand || 'Unknown'),
+        byRadio: this.groupBy(detectionsWithRelations, (d: any) => d.radio?.name || 'Unknown'),
+        byHour: this.groupByHour(detectionsWithRelations),
+        averageConfidence: detectionsWithRelations.length > 0
+          ? detectionsWithRelations.reduce((sum: number, d: any) => sum + d.confidence, 0) / detectionsWithRelations.length
           : 0,
-        topPhrases: this.getTopPhrases(detections)
+        topPhrases: this.getTopPhrases(detectionsWithRelations)
       };
     } catch (error) {
       console.error('❌ Error getting detection stats:', error);

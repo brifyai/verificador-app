@@ -1,218 +1,181 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const period = searchParams.get('period') || 'today'; // today, week, month
-
-    // Calcular rango de fechas
+    // Get date ranges
     const now = new Date();
-    let startDate = new Date();
-    
-    switch (period) {
-      case 'today':
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case 'week':
-        startDate.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-    }
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // 1. Resumen general
-    const [
-      totalDetections,
-      todayDetections,
-      weekDetections,
-      monthDetections,
-      activeSessions,
-      totalRadios,
-      totalPhrases,
-      totalCaptures
-    ] = await Promise.all([
-      prisma.detection.count(),
-      prisma.detection.count({
-        where: { timestamp: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } }
-      }),
-      prisma.detection.count({
-        where: { timestamp: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } }
-      }),
-      prisma.detection.count({
-        where: { timestamp: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }
-      }),
-      prisma.monitoringSession.count({
-        where: { status: 'ACTIVE' }
-      }),
-      prisma.radio.count({ where: { status: 'ACTIVE' } }),
-      prisma.phrase.count({ where: { active: true } }),
-      prisma.capture.count()
-    ]);
-
-    // 2. Detecciones por hora (últimas 24 horas)
-    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const detectionsByHour = await prisma.$queryRaw<Array<{ hour: number; count: bigint }>>`
-      SELECT 
-        EXTRACT(HOUR FROM timestamp) as hour,
-        COUNT(*) as count
-      FROM detections
-      WHERE timestamp >= ${last24Hours}
-      GROUP BY EXTRACT(HOUR FROM timestamp)
-      ORDER BY hour
-    `;
-
-    // 3. Top 5 radios con más detecciones
-    const topRadios = await prisma.detection.groupBy({
-      by: ['radioId'],
-      _count: { id: true },
-      orderBy: { _count: { id: 'desc' } },
-      take: 5
-    });
-
-    const topRadiosWithDetails = await Promise.all(
-      topRadios.map(async (item) => {
-        const radio = await prisma.radio.findUnique({
-          where: { id: item.radioId },
-          select: { id: true, name: true, region: true }
-        });
-        return {
-          ...radio,
-          detectionCount: item._count.id
-        };
-      })
-    );
-
-    // 4. Top 5 frases más detectadas
-    const topPhrases = await prisma.detection.groupBy({
-      by: ['phraseId'],
-      _count: { id: true },
-      orderBy: { _count: { id: 'desc' } },
-      take: 5
-    });
-
-    const topPhrasesWithDetails = await Promise.all(
-      topPhrases.map(async (item) => {
-        const phrase = await prisma.phrase.findUnique({
-          where: { id: item.phraseId },
-          select: { id: true, phrase: true, brand: true }
-        });
-        return {
-          ...phrase,
-          detectionCount: item._count.id
-        };
-      })
-    );
-
-    // 5. Detecciones por región
-    const detectionsByRegion = await prisma.$queryRaw<Array<{ region: string; count: bigint }>>`
-      SELECT 
-        r.region,
-        COUNT(d.id) as count
-      FROM detections d
-      JOIN radios r ON d."radioId" = r.id
-      WHERE r.region IS NOT NULL
-      GROUP BY r.region
-      ORDER BY count DESC
-    `;
-
-    // 6. Sesiones activas con detalles
-    const activeSessionsDetails = await prisma.monitoringSession.findMany({
-      where: { status: 'ACTIVE' },
+    // Get all detections for time-based filtering
+    const allDetections = await prisma.detection.findMany({
       include: {
-        radio: {
-          select: { id: true, name: true, region: true }
-        }
+        radio: true,
+        phrase: true,
       },
-      orderBy: { startTime: 'desc' },
-      take: 10
     });
 
-    // 7. Últimas 10 detecciones
+    // Time-based detection counts
+    const todayDetections = allDetections.filter(d => new Date(d.timestamp) >= today).length;
+    const weekDetections = allDetections.filter(d => new Date(d.timestamp) >= weekAgo).length;
+    const monthDetectionsCount = allDetections.filter(d => new Date(d.timestamp) >= monthAgo).length;
+
+    // Total counts
+    const totalDetections = allDetections.length;
+    const totalRadios = await prisma.radio.count();
+    const totalPhrases = await prisma.phrase.count();
+
+    // Recent activity (last 24 hours)
+    const recent24hDetections = allDetections.filter(d => new Date(d.timestamp) >= last24Hours);
+    
+    // Hourly distribution for last 24 hours
+    const hourlyData = Array.from({ length: 24 }, (_, i) => {
+      const hour = new Date(now.getTime() - (23 - i) * 60 * 60 * 1000).getHours();
+      const hourStart = new Date(now.getTime() - (23 - i) * 60 * 60 * 1000);
+      hourStart.setMinutes(0, 0, 0);
+      const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
+      
+      return {
+        hour,
+        detections: recent24hDetections.filter(d => {
+          const detectionTime = new Date(d.timestamp);
+          return detectionTime >= hourStart && detectionTime < hourEnd;
+        }).length,
+      };
+    });
+
+    // Top phrases (last 7 days)
+    const weekAgoDetections = allDetections.filter(d => new Date(d.timestamp) >= weekAgo);
+    const phraseCounts = new Map();
+    
+    weekAgoDetections.forEach(detection => {
+      const phraseId = detection.phraseId;
+      phraseCounts.set(phraseId, (phraseCounts.get(phraseId) || 0) + 1);
+    });
+
+    const topPhrases = Array.from(phraseCounts.entries())
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([phraseId, count]) => {
+        const phrase = weekAgoDetections.find(d => d.phraseId === phraseId)?.phrase;
+        return {
+          id: phraseId,
+          phrase: phrase?.phrase || 'Unknown',
+          count,
+        };
+      });
+
+    // Top radios (last 7 days)
+    const radioCounts = new Map();
+    const radios = await prisma.radio.findMany();
+    const radioRegionMap = new Map(radios.map(r => [r.id, r.region]));
+
+    weekAgoDetections.forEach(detection => {
+      const radioId = detection.radioId;
+      radioCounts.set(radioId, (radioCounts.get(radioId) || 0) + 1);
+    });
+
+    const topRadios = Array.from(radioCounts.entries())
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([radioId, count]) => {
+        const radio = radios.find(r => r.id === radioId);
+        return {
+          id: radioId,
+          name: radio?.name || 'Unknown',
+          region: radio?.region || 'Unknown',
+          count,
+        };
+      });
+
+    // Regional distribution (last 7 days)
+    const regionCountMap = new Map();
+    weekAgoDetections.forEach(detection => {
+      const region = radioRegionMap.get(detection.radioId) || 'Unknown';
+      regionCountMap.set(region, (regionCountMap.get(region) || 0) + 1);
+    });
+
+    const regionData = Array.from(regionCountMap.entries()).map(([region, count]) => ({
+      region,
+      count,
+    }));
+
+    // Recent detections (last 10)
     const recentDetections = await prisma.detection.findMany({
       take: 10,
       orderBy: { timestamp: 'desc' },
       include: {
-        radio: {
-          select: { name: true, region: true }
-        },
-        phrase: {
-          select: { phrase: true, brand: true }
-        }
-      }
+        radio: true,
+        phrase: true,
+      },
     });
 
-    // 8. Calcular costos del mes
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const detectionCosts = await prisma.detection.aggregate({
-      where: { timestamp: { gte: monthStart } },
-      _sum: { cost: true }
-    });
-
-    const captureCosts = await prisma.capture.aggregate({
-      where: { capturedAt: { gte: monthStart } },
-      _sum: { cost: true }
-    });
-
-    const totalCosts = (detectionCosts._sum.cost || 0) + (captureCosts._sum.cost || 0);
-
-    // 9. Tasa de verificación
-    const verifiedDetections = await prisma.detection.count({
-      where: { verified: true }
-    });
-    const verificationRate = totalDetections > 0 ? (verifiedDetections / totalDetections) * 100 : 0;
-
-    // 10. Alertas (detecciones de alta confianza sin verificar)
-    const unverifiedHighConfidence = await prisma.detection.count({
+    // Cost calculations (current month)
+    const monthDetectionsList = allDetections.filter(d => new Date(d.timestamp) >= monthStart);
+    const detectionCosts = monthDetectionsList.reduce((sum, d) => sum + (d.cost || 0), 0);
+    
+    const captures = await prisma.capture.findMany({
       where: {
-        verified: false,
-        confidence: { gte: 0.9 }
-      }
+        capturedAt: {
+          gte: monthStart,
+        },
+      },
     });
+    
+    const captureCosts = captures.reduce((sum, c) => sum + (c.cost || 0), 0);
+    const totalCosts = detectionCosts + captureCosts;
+
+    // Verification stats
+    const verifiedDetectionsCount = allDetections.filter(d => d.verified).length;
+    const unverifiedHighConfidence = allDetections.filter(
+      d => !d.verified && d.confidence >= 0.8
+    ).length;
 
     return NextResponse.json({
-      success: true,
-      data: {
-        summary: {
-          totalDetections,
-          todayDetections,
-          weekDetections,
-          monthDetections,
-          activeSessions,
-          totalRadios,
-          totalPhrases,
-          totalCaptures,
-          verificationRate: verificationRate.toFixed(1),
-          monthCosts: totalCosts
-        },
-        detectionsByHour: detectionsByHour.map(d => ({
-          hour: Number(d.hour),
-          count: Number(d.count)
-        })),
-        topRadios: topRadiosWithDetails,
-        topPhrases: topPhrasesWithDetails,
-        detectionsByRegion: detectionsByRegion.map(d => ({
-          region: d.region,
-          count: Number(d.count)
-        })),
-        activeSessions: activeSessionsDetails,
-        recentDetections,
-        alerts: {
-          unverifiedHighConfidence
-        }
-      }
-    });
-
-  } catch (error: any) {
-    console.error('❌ Error getting dashboard stats:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || 'Error obteniendo estadísticas'
+      overview: {
+        totalDetections,
+        todayDetections,
+        weekDetections,
+        monthDetections: monthDetectionsCount,
+        totalRadios,
+        totalPhrases,
       },
+      activity: {
+        hourlyData,
+        recentDetections: recentDetections.map(d => ({
+          id: d.id,
+          phrase: d.phrase?.phrase || 'Unknown',
+          radio: d.radio?.name || 'Unknown',
+          timestamp: d.timestamp,
+          confidence: d.confidence,
+          verified: d.verified,
+        })),
+      },
+      rankings: {
+        topPhrases,
+        topRadios,
+        regionData,
+      },
+      costs: {
+        totalCosts,
+        detectionCosts,
+        captureCosts,
+        costPerDetection: totalDetections > 0 ? totalCosts / totalDetections : 0,
+      },
+      verification: {
+        verifiedDetections: verifiedDetectionsCount,
+        unverifiedHighConfidence,
+        verificationRate: totalDetections > 0 ? (verifiedDetectionsCount / totalDetections) * 100 : 0,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch dashboard statistics' },
       { status: 500 }
     );
   }

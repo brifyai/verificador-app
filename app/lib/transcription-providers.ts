@@ -1,6 +1,6 @@
 
 import { TranscriptionResult } from './transcription';
-import { prisma } from './db';
+import { supabaseDirect } from './supabase-direct';
 import OpenAI from 'openai';
 import axios from 'axios';
 import FormData from 'form-data';
@@ -32,22 +32,21 @@ export class MultiProviderTranscriptionService {
    */
   async loadProvidersFromDatabase(): Promise<void> {
     try {
-      const configs = await prisma.apiConfiguration.findMany({
-        where: { enabled: true },
-        orderBy: { priority: 'asc' }
-      });
+      const configs = await supabaseDirect.request(
+        'api_configurations?select=*&enabled=eq.true&order=priority.asc'
+      );
 
       this.providers.clear();
       for (const config of configs) {
         this.providers.set(config.provider, {
           id: config.id,
           provider: config.provider,
-          apiKey: config.apiKey || undefined,
+          apiKey: config.api_key || undefined,
           model: config.model || undefined,
           enabled: config.enabled,
           priority: config.priority,
-          costPerUnit: config.costPerUnit,
-          rateLimit: config.rateLimit || undefined,
+          costPerUnit: config.cost_per_unit,
+          rateLimit: config.rate_limit || undefined,
           metadata: config.metadata
         });
       }

@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
@@ -15,23 +15,19 @@ export async function GET() {
       );
     }
 
-    const paymentMethods = await prisma.paymentMethod.findMany({
-      where: {
-        userId: session.user.id
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
+    // Obtener métodos de pago de Supabase
+    const paymentMethods = await supabaseDirect.request(
+      `payment_methods?select=*&user_id=eq.${session.user.id}&order=created_at.desc`
+    );
 
     // Transformar los datos para que coincidan con la interfaz del frontend
     const formattedMethods = paymentMethods.map(method => ({
       id: method.id,
       type: method.type.toLowerCase().replace('_', '_') as 'credit_card' | 'bank_transfer' | 'mercado_pago',
       name: method.name,
-      lastDigits: method.lastDigits,
-      expiryDate: method.expiryDate,
-      isDefault: method.isDefault,
+      lastDigits: method.last_digits,
+      expiryDate: method.expiry_date,
+      isDefault: method.is_default,
       status: method.status.toLowerCase() as 'active' | 'expired' | 'pending'
     }));
 
@@ -68,40 +64,45 @@ export async function POST(request: NextRequest) {
 
     // Si es el método por defecto, desactivar los otros
     if (body.isDefault) {
-      await prisma.paymentMethod.updateMany({
-        where: {
-          userId: session.user.id,
-          isDefault: true
-        },
-        data: {
-          isDefault: false
-        }
+      await supabaseDirect.request(`payment_methods?user_id=eq.${session.user.id}&is_default=eq.true`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_default: false }),
+        headers: { 'Prefer': 'return=representation' }
       });
     }
 
     // Convertir el tipo al formato de la base de datos
     const dbType = body.type.toUpperCase().replace('_', '_');
 
-    const newPaymentMethod = await prisma.paymentMethod.create({
-      data: {
-        userId: session.user.id,
-        type: dbType,
-        name: body.name,
-        lastDigits: body.lastDigits,
-        expiryDate: body.expiryDate,
-        isDefault: body.isDefault || false,
-        status: 'ACTIVE'
-      }
+    // Crear método de pago en Supabase
+    const paymentMethodData = {
+      user_id: session.user.id,
+      type: dbType,
+      name: body.name,
+      last_digits: body.lastDigits,
+      expiry_date: body.expiryDate,
+      is_default: body.isDefault || false,
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const newPaymentMethods = await supabaseDirect.request('payment_methods', {
+      method: 'POST',
+      body: JSON.stringify(paymentMethodData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const newPaymentMethod = newPaymentMethods[0];
 
     // Transformar la respuesta
     const formattedMethod = {
       id: newPaymentMethod.id,
       type: newPaymentMethod.type.toLowerCase().replace('_', '_') as 'credit_card' | 'bank_transfer' | 'mercado_pago',
       name: newPaymentMethod.name,
-      lastDigits: newPaymentMethod.lastDigits,
-      expiryDate: newPaymentMethod.expiryDate,
-      isDefault: newPaymentMethod.isDefault,
+      lastDigits: newPaymentMethod.last_digits,
+      expiryDate: newPaymentMethod.expiry_date,
+      isDefault: newPaymentMethod.is_default,
       status: newPaymentMethod.status.toLowerCase() as 'active' | 'expired' | 'pending'
     };
     
@@ -140,29 +141,27 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Verificar que el método pertenece al usuario
-    const method = await prisma.paymentMethod.findFirst({
-      where: {
-        id: methodId,
-        userId: session.user.id
-      }
-    });
+    const methods = await supabaseDirect.request(
+      `payment_methods?select=*&id=eq.${methodId}&user_id=eq.${session.user.id}`
+    );
     
-    if (!method) {
+    if (methods.length === 0) {
       return NextResponse.json(
         { error: 'Método de pago no encontrado' },
         { status: 404 }
       );
     }
 
+    const method = methods[0];
+
     // Contar métodos de pago del usuario
-    const methodCount = await prisma.paymentMethod.count({
-      where: {
-        userId: session.user.id
-      }
-    });
+    const countResult = await supabaseDirect.request(
+      `payment_methods?select=count&user_id=eq.${session.user.id}`
+    );
+    const methodCount = countResult[0]?.count || 0;
 
     // No permitir eliminar el método por defecto si es el único
-    if (method.isDefault && methodCount === 1) {
+    if (method.is_default && methodCount === 1) {
       return NextResponse.json(
         { error: 'No se puede eliminar el último método de pago' },
         { status: 400 }
@@ -170,31 +169,22 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Eliminar el método
-    await prisma.paymentMethod.delete({
-      where: {
-        id: methodId
-      }
+    await supabaseDirect.request(`payment_methods?id=eq.${methodId}`, {
+      method: 'DELETE'
     });
 
     // Si era el método por defecto, hacer que otro sea el por defecto
-    if (method.isDefault && methodCount > 1) {
-      const firstMethod = await prisma.paymentMethod.findFirst({
-        where: {
-          userId: session.user.id
-        },
-        orderBy: {
-          createdAt: 'asc'
-        }
-      });
+    if (method.is_default && methodCount > 1) {
+      const firstMethods = await supabaseDirect.request(
+        `payment_methods?select=*&user_id=eq.${session.user.id}&order=created_at.asc&limit=1`
+      );
 
-      if (firstMethod) {
-        await prisma.paymentMethod.update({
-          where: {
-            id: firstMethod.id
-          },
-          data: {
-            isDefault: true
-          }
+      if (firstMethods.length > 0) {
+        const firstMethod = firstMethods[0];
+        await supabaseDirect.request(`payment_methods?id=eq.${firstMethod.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ is_default: true }),
+          headers: { 'Prefer': 'return=representation' }
         });
       }
     }

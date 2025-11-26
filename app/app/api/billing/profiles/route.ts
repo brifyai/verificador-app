@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 export async function GET() {
   try {
@@ -14,35 +14,37 @@ export async function GET() {
       );
     }
 
-    const billingProfile = await prisma.billingProfile.findUnique({
-      where: { userId: session.user.id },
-      include: {
-        subscription: true,
-        invoices: {
-          orderBy: { createdAt: 'desc' },
-          take: 5
-        }
-      }
-    });
+    // Obtener perfil de facturación de Supabase
+    const billingProfiles = await supabaseDirect.request(
+      `billing_profiles?select=*&user_id=eq.${session.user.id}`
+    );
 
     // Si no existe perfil, devolver estructura vacía compatible con el frontend
-    if (!billingProfile) {
+    if (billingProfiles.length === 0) {
       return NextResponse.json([]);
     }
+
+    const billingProfile = billingProfiles[0];
+
+    // Obtener suscripción e invoices relacionadas
+    const [subscriptions, invoices] = await Promise.all([
+      supabaseDirect.request(`subscriptions?select=*&billing_profile_id=eq.${billingProfile.id}`),
+      supabaseDirect.request(`invoices?select=*&billing_profile_id=eq.${billingProfile.id}&order=created_at.desc&limit=5`)
+    ]);
 
     // Mapear campos de la base de datos a los esperados por el frontend
     const mappedProfile = {
       id: billingProfile.id,
-      companyName: billingProfile.companyName,
-      legalName: billingProfile.legalName || billingProfile.companyName,
-      taxId: billingProfile.taxId,
+      companyName: billingProfile.company_name,
+      legalName: billingProfile.legal_name || billingProfile.company_name,
+      taxId: billingProfile.tax_id,
       address: billingProfile.address,
       city: billingProfile.city,
       region: billingProfile.region,
-      postalCode: billingProfile.postalCode || '',
-      billingEmail: billingProfile.billingEmail,
-      subscription: billingProfile.subscription,
-      invoices: billingProfile.invoices
+      postalCode: billingProfile.postal_code || '',
+      billingEmail: billingProfile.billing_email,
+      subscription: subscriptions[0] || null,
+      invoices: invoices
     };
 
     return NextResponse.json([mappedProfile]);
@@ -80,42 +82,51 @@ export async function POST(request: NextRequest) {
     }
 
     // Verificar si ya existe un perfil de facturación
-    const existingProfile = await prisma.billingProfile.findUnique({
-      where: { userId: session.user.id }
-    });
+    const existingProfiles = await supabaseDirect.request(
+      `billing_profiles?select=*&user_id=eq.${session.user.id}`
+    );
 
-    if (existingProfile) {
+    if (existingProfiles.length > 0) {
       return NextResponse.json(
         { error: 'Ya existe un perfil de facturación para este usuario' },
         { status: 400 }
       );
     }
 
-    const billingProfile = await prisma.billingProfile.create({
-      data: {
-        userId: session.user.id,
-        companyName: body.companyName,
-        legalName: body.legalName || body.companyName,
-        taxId: body.taxId,
-        billingEmail: body.billingEmail,
-        address: body.address,
-        city: body.city,
-        region: body.region,
-        postalCode: body.postalCode || ''
-      }
+    // Crear perfil en Supabase
+    const profileData = {
+      user_id: session.user.id,
+      company_name: body.companyName,
+      legal_name: body.legalName || body.companyName,
+      tax_id: body.taxId,
+      billing_email: body.billingEmail,
+      address: body.address,
+      city: body.city,
+      region: body.region,
+      postal_code: body.postalCode || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const newProfiles = await supabaseDirect.request('billing_profiles', {
+      method: 'POST',
+      body: JSON.stringify(profileData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const billingProfile = newProfiles[0];
 
     // Devolver el perfil mapeado para el frontend
     const mappedProfile = {
       id: billingProfile.id,
-      companyName: billingProfile.companyName,
-      legalName: billingProfile.legalName,
-      taxId: billingProfile.taxId,
+      companyName: billingProfile.company_name,
+      legalName: billingProfile.legal_name,
+      taxId: billingProfile.tax_id,
       address: billingProfile.address,
       city: billingProfile.city,
       region: billingProfile.region,
-      postalCode: billingProfile.postalCode,
-      billingEmail: billingProfile.billingEmail
+      postalCode: billingProfile.postal_code,
+      billingEmail: billingProfile.billing_email
     };
 
     return NextResponse.json(mappedProfile, { status: 201 });
@@ -142,68 +153,65 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
 
     // Verificar si el perfil de facturación existe
-    const existingProfile = await prisma.billingProfile.findUnique({
-      where: { userId: session.user.id }
-    });
+    const existingProfiles = await supabaseDirect.request(
+      `billing_profiles?select=*&user_id=eq.${session.user.id}`
+    );
 
     let billingProfile;
 
-    if (existingProfile) {
-      // Actualizar perfil existente usando solo campos que existen en el esquema
-      billingProfile = await prisma.billingProfile.update({
-        where: { userId: session.user.id },
-        data: {
-          companyName: body.companyName,
-          legalName: body.legalName || body.companyName,
-          taxId: body.taxId,
-          billingEmail: body.billingEmail,
-          address: body.address,
-          city: body.city,
-          region: body.region,
-          postalCode: body.postalCode || ''
+    const profileData = {
+      company_name: body.companyName,
+      legal_name: body.legalName || body.companyName,
+      tax_id: body.taxId,
+      billing_email: body.billingEmail,
+      address: body.address,
+      city: body.city,
+      region: body.region,
+      postal_code: body.postalCode || '',
+      updated_at: new Date().toISOString()
+    };
+
+    if (existingProfiles.length > 0) {
+      // Actualizar perfil existente
+      const updatedProfiles = await supabaseDirect.request(
+        `billing_profiles?user_id=eq.${session.user.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(profileData),
+          headers: { 'Prefer': 'return=representation' }
         }
-      });
+      );
+      billingProfile = updatedProfiles[0];
     } else {
       // Crear nuevo perfil si no existe
-      billingProfile = await prisma.billingProfile.create({
-        data: {
-          userId: session.user.id,
-          companyName: body.companyName,
-          legalName: body.legalName || body.companyName,
-          taxId: body.taxId,
-          billingEmail: body.billingEmail,
-          address: body.address,
-          city: body.city,
-          region: body.region,
-          postalCode: body.postalCode || ''
-        }
+      const newProfiles = await supabaseDirect.request('billing_profiles', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...profileData,
+          user_id: session.user.id,
+          created_at: new Date().toISOString()
+        }),
+        headers: { 'Prefer': 'return=representation' }
       });
+      billingProfile = newProfiles[0];
     }
 
     // Devolver el perfil mapeado para el frontend
     const mappedProfile = {
       id: billingProfile.id,
-      companyName: billingProfile.companyName,
-      legalName: billingProfile.legalName,
-      taxId: billingProfile.taxId,
+      companyName: billingProfile.company_name,
+      legalName: billingProfile.legal_name,
+      taxId: billingProfile.tax_id,
       address: billingProfile.address,
       city: billingProfile.city,
       region: billingProfile.region,
-      postalCode: billingProfile.postalCode,
-      billingEmail: billingProfile.billingEmail
+      postalCode: billingProfile.postal_code,
+      billingEmail: billingProfile.billing_email
     };
 
     return NextResponse.json(mappedProfile);
   } catch (error) {
     console.error('Error actualizando perfil de facturación:', error);
-    
-    // Manejar específicamente el error P2025 (registro no encontrado)
-    if (error.code === 'P2025') {
-      return NextResponse.json(
-        { error: 'Perfil de facturación no encontrado. Se creará uno nuevo.' },
-        { status: 404 }
-      );
-    }
     
     return NextResponse.json(
       { error: 'Error interno del servidor' },

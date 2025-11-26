@@ -2,7 +2,7 @@
 import bcrypt from 'bcryptjs';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { NextAuthOptions } from 'next-auth';
-import { prisma } from '@/lib/db'; // ✅ Usar instancia centralizada
+import { supabaseDirect } from '@/lib/supabase-direct'; // ✅ Usar cliente directo de Supabase
 import { logger } from '@/lib/logger';
 
 export const authOptions: NextAuthOptions = {
@@ -27,18 +27,15 @@ export const authOptions: NextAuthOptions = {
 
         try {
           logger.auth('AUTHORIZE - Buscando usuario en BD...');
-          // Buscar usuario en la base de datos
-          const user = await prisma.user.findUnique({
-            where: {
-              email: credentials.email
-            }
-          });
+          // Buscar usuario en la base de datos usando Supabase Direct
+          const users = await supabaseDirect.getUsers();
+          const user = users.find(u => u.email === credentials.email);
 
-          logger.auth('AUTHORIZE - Usuario encontrado', { 
-            exists: !!user, 
+          logger.auth('AUTHORIZE - Usuario encontrado', {
+            exists: !!user,
             active: user?.active,
             email: user?.email,
-            role: user?.role 
+            role: user?.role
           });
 
           // Si no existe el usuario o no está activo
@@ -136,41 +133,17 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // Si es una URL relativa, convertirla a absoluta
-      if (url.startsWith('/')) {
-        url = `${baseUrl}${url}`;
-      }
-
-      // Verificar si la URL pertenece al mismo dominio
-      try {
-        const urlObj = new URL(url);
-        const baseUrlObj = new URL(baseUrl);
-        
-        if (urlObj.origin !== baseUrlObj.origin) {
-          return `${baseUrl}/dashboard`;
-        }
-      } catch {
-        return `${baseUrl}/dashboard`;
-      }
-
-      // Si la URL es exactamente la página de signin, redirigir al dashboard
-      const urlObj = new URL(url);
-      if (urlObj.pathname === '/auth/signin') {
+      // Siempre redirigir al dashboard después de login exitoso
+      if (url === baseUrl || url.startsWith(baseUrl)) {
         return `${baseUrl}/dashboard`;
       }
       
-      // Después del logout, redirigir al signin
-      if (urlObj.pathname === '/auth/signout') {
-        return `${baseUrl}/auth/signin`;
+      // Si es una URL relativa, convertirla a absoluta
+      if (url.startsWith('/')) {
+        return `${baseUrl}${url}`;
       }
 
-      // Verificar si es una ruta protegida válida
-      const protectedRoutes = ['/dashboard', '/profile', '/settings'];
-      if (protectedRoutes.some(route => urlObj.pathname.startsWith(route))) {
-        return url;
-      }
-
-      // Para cualquier otra URL, redirigir al dashboard por defecto
+      // Por defecto, redirigir al dashboard
       return `${baseUrl}/dashboard`;
     }
   },

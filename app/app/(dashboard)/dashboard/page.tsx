@@ -45,14 +45,50 @@ export default function Dashboard() {
   const fetchStats = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/dashboard/stats');
+      const response = await fetch('/api/dashboard/stats-direct');
+      console.log('📡 Response status:', response.status);
+      
       if (response.ok) {
         const result = await response.json();
-        setStats(result.data);
-        setLastUpdate(new Date());
+        console.log('📊 Datos recibidos:', result);
+        
+        // Verificar si los datos tienen el formato correcto
+        if (result && result.overview) {
+          // Transformar los datos de la API al formato esperado por el componente
+          const transformedStats: DashboardStats = {
+            summary: {
+              totalDetections: result.overview.totalDetections || 0,
+              todayDetections: result.overview.todayDetections || 0,
+              weekDetections: result.overview.weekDetections || 0,
+              monthDetections: result.overview.monthDetections || 0,
+              activeSessions: result.overview.activeSessions || 0,
+              totalRadios: result.overview.totalRadios || 0,
+              totalPhrases: result.overview.totalPhrases || 0,
+              verificationRate: result.verification?.verificationRate || '0',
+              monthCosts: result.costs?.totalCosts || 0,
+            },
+            detectionsByHour: result.activity?.hourlyData || [],
+            topRadios: result.rankings?.topRadios || [],
+            topPhrases: result.rankings?.topPhrases || [],
+            detectionsByRegion: result.rankings?.regionData || [],
+            activeSessions: result.activity?.activeSessions || [],
+            recentDetections: result.activity?.recentDetections || [],
+            alerts: {
+              unverifiedHighConfidence: result.verification?.unverifiedHighConfidence || 0,
+            },
+          };
+          
+          console.log('✅ Datos transformados:', transformedStats);
+          setStats(transformedStats);
+          setLastUpdate(new Date());
+        } else {
+          console.error('❌ Formato de datos incorrecto - falta overview:', result);
+        }
+      } else {
+        console.error('❌ Error en la respuesta:', response.status);
       }
     } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
+      console.error('❌ Error fetching dashboard stats:', error);
     } finally {
       setIsLoading(false);
     }

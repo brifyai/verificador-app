@@ -1,0 +1,629 @@
+{
+  "collections": [
+    {
+      "name": "radios",
+      "type": "base",
+      "schema": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "options": {
+            "min": 1,
+            "max": 200
+          }
+        },
+        {
+          "name": "url",
+          "type": "url",
+          "required": true,
+          "options": {}
+        },
+        {
+          "name": "region",
+          "type": "text",
+          "required": true,
+          "options": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "name": "city",
+          "type": "text",
+          "required": false,
+          "options": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "options": {
+            "values": ["active", "inactive", "maintenance"]
+          }
+        },
+        {
+          "name": "format",
+          "type": "text",
+          "required": false,
+          "options": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "name": "frequency",
+          "type": "text",
+          "required": false,
+          "options": {
+            "min": 1,
+            "max": 50
+          }
+        },
+        {
+          "name": "coverage",
+          "type": "select",
+          "required": false,
+          "options": {
+            "values": ["local", "regional", "national"]
+          }
+        },
+        {
+          "name": "reliability",
+          "type": "number",
+          "required": false,
+          "options": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "options": {
+            "max": 500
+          }
+        }
+      ],
+      "listRule": "1 = 1",
+      "viewRule": "1 = 1",
+      "createRule": "@request.auth.id != \"\"",
+      "updateRule": "@request.auth.id != \"\"",
+      "deleteRule": "@request.auth.id != \"\"",
+      "data": [
+        {
+          "name": "Radio Bio-Bio Concepción",
+          "url": "https://unlimited1-cl-isp.dps.live/radiobiobioconcepcion/aac/icecast.audio",
+          "region": "Concepción",
+          "city": "Concepción",
+          "status": "active",
+          "format": "News/Talk",
+          "frequency": "90.1 FM",
+          "coverage": "regional",
+          "reliability": 95,
+          "notes": "Principal emisora de la región del Biobío"
+        },
+        {
+          "name": "Radio Cooperativa",
+          "url": "https://unlimited1-cl-isp.dps.live/radiocooperativa/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "News/Talk",
+          "frequency": "660 AM",
+          "coverage": "national",
+          "reliability": 98,
+          "notes": "Radio noticias nacional, líder en audiencia"
+        },
+        {
+          "name": "Radio ADN",
+          "url": "https://unlimited1-cl-isp.dps.live/radioadn/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "News/Talk",
+          "frequency": "91.7 FM",
+          "coverage": "national",
+          "reliability": 96,
+          "notes": "Radio juvenil con enfoque en noticias"
+        },
+        {
+          "name": "Radio Agricultura",
+          "url": "https://unlimited1-cl-isp.dps.live/radioagricultura/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "News/Talk",
+          "frequency": "92.1 FM",
+          "coverage": "national",
+          "reliability": 97,
+          "notes": "Radio histórica de Chile"
+        },
+        {
+          "name": "Radio Infinita",
+          "url": "https://unlimited1-cl-isp.dps.live/radioinfinita/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "Rock/Pop",
+          "frequency": "100.5 FM",
+          "coverage": "regional",
+          "reliability": 94,
+          "notes": "Radio musical con programación rock"
+        },
+        {
+          "name": "Radio Pudahuel",
+          "url": "https://unlimited1-cl-isp.dps.live/radiopudahuel/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "Adult Contemporary",
+          "frequency": "90.5 FM",
+          "coverage": "national",
+          "reliability": 98,
+          "notes": "Radio musical adulta contemporánea"
+        },
+        {
+          "name": "Radio Carolina",
+          "url": "https://unlimited1-cl-isp.dps.live/radiocarolina/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "Pop/Top 40",
+          "frequency": "99.3 FM",
+          "coverage": "national",
+          "reliability": 97,
+          "notes": "Radio juvenil con música pop"
+        },
+        {
+          "name": "Radio Rock & Pop",
+          "url": "https://unlimited1-cl-isp.dps.live/radiorockpop/aac/icecast.audio",
+          "region": "Santiago",
+          "city": "Santiago",
+          "status": "active",
+          "format": "Rock/Pop",
+          "frequency": "94.1 FM",
+          "coverage": "national",
+          "reliability": 95,
+          "notes": "Radio rock nacional"
+        },
+        {
+          "name": "Radio Imagina",
+          "url": "https://unlimited1-cl-isp.dps.live/radioimagina/aac/icecast.audio",
+          "region": "Concepción",
+          "city": "Concepción",
+          "status": "active",
+          "format": "Adult Contemporary",
+          "frequency": "88.5 FM",
+          "coverage": "regional",
+          "reliability": 93,
+          "notes": "Radio local de Concepción"
+        },
+        {
+          "name": "Radio Universidad de Concepción",
+          "url": "https://unlimited1-cl-isp.dps.live/radioudec/aac/icecast.audio",
+          "region": "Concepción",
+          "city": "Concepción",
+          "status": "active",
+          "format": "University Radio",
+          "frequency": "102.5 FM",
+          "coverage": "regional",
+          "reliability": 92,
+          "notes": "Radio universitaria con programación variada"
+        }
+      ]
+    },
+    {
+      "name": "phrases",
+      "type": "base",
+      "schema": [
+        {
+          "name": "phrase",
+          "type": "text",
+          "required": true,
+          "options": {
+            "min": 1,
+            "max": 500
+          }
+        },
+        {
+          "name": "brand",
+          "type": "text",
+          "required": true,
+          "options": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "name": "category",
+          "type": "select",
+          "required": true,
+          "options": {
+            "values": ["retail", "supermarket", "financial", "promotions", "automotive", "telecom", "services"]
+          }
+        },
+        {
+          "name": "active",
+          "type": "bool",
+          "required": true,
+          "options": {}
+        },
+        {
+          "name": "priority",
+          "type": "select",
+          "required": true,
+          "options": {
+            "values": ["high", "medium", "low"]
+          }
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "options": {
+            "max": 500
+          }
+        }
+      ],
+      "listRule": "1 = 1",
+      "viewRule": "1 = 1",
+      "createRule": "@request.auth.id != \"\"",
+      "updateRule": "@request.auth.id != \"\"",
+      "deleteRule": "@request.auth.id != \"\"",
+      "data": [
+        {
+          "phrase": "precio bajo garantizado",
+          "brand": "Falabella",
+          "category": "retail",
+          "active": true,
+          "priority": "high",
+          "notes": "Eslogan principal de Falabella"
+        },
+        {
+          "phrase": "do it all",
+          "brand": "Falabella",
+          "category": "retail",
+          "active": true,
+          "priority": "high",
+          "notes": "Campaña reciente de Falabella"
+        },
+        {
+          "phrase": "la vida es hoy",
+          "brand": "París",
+          "category": "retail",
+          "active": true,
+          "priority": "high",
+          "notes": "Eslogan de París"
+        },
+        {
+          "phrase": "tienda oficial",
+          "brand": "París",
+          "category": "retail",
+          "active": true,
+          "priority": "medium",
+          "notes": "Término común en publicidad"
+        },
+        {
+          "phrase": "precios bajos siempre",
+          "brand": "Líder",
+          "category": "supermarket",
+          "active": true,
+          "priority": "high",
+          "notes": "Eslogan de Supermercados Líder"
+        },
+        {
+          "phrase": "calidad garantizada",
+          "brand": "Líder",
+          "category": "supermarket",
+          "active": true,
+          "priority": "medium",
+          "notes": "Término de calidad Líder"
+        },
+        {
+          "phrase": "jumbo te da más",
+          "brand": "Jumbo",
+          "category": "supermarket",
+          "active": true,
+          "priority": "high",
+          "notes": "Eslogan de Jumbo"
+        },
+        {
+          "phrase": "hipermercado",
+          "brand": "Jumbo",
+          "category": "supermarket",
+          "active": true,
+          "priority": "low",
+          "notes": "Término genérico pero asociado a Jumbo"
+        },
+        {
+          "phrase": "el reloj de la ahorra",
+          "brand": "La Polar",
+          "category": "retail",
+          "active": true,
+          "priority": "high",
+          "notes": "Campaña icónica de La Polar"
+        },
+        {
+          "phrase": "garantía de satisfacción",
+          "brand": "Ripley",
+          "category": "retail",
+          "active": true,
+          "priority": "medium",
+          "notes": "Política de Ripley"
+        },
+        {
+          "phrase": "todo en un solo lugar",
+          "brand": "Ripley",
+          "category": "retail",
+          "active": true,
+          "priority": "medium",
+          "notes": "Valor de propuesta Ripley"
+        },
+        {
+          "phrase": "crédito fácil",
+          "brand": "Generic",
+          "category": "financial",
+          "active": true,
+          "priority": "low",
+          "notes": "Término financiero común"
+        },
+        {
+          "phrase": "cuotas sin interés",
+          "brand": "Generic",
+          "category": "financial",
+          "active": true,
+          "priority": "low",
+          "notes": "Oferta común en retail"
+        },
+        {
+          "phrase": "descuento especial",
+          "brand": "Generic",
+          "category": "promotions",
+          "active": true,
+          "priority": "low",
+          "notes": "Término promocional genérico"
+        },
+        {
+          "phrase": "oferta limitada",
+          "brand": "Generic",
+          "category": "promotions",
+          "active": true,
+          "priority": "medium",
+          "notes": "Término de urgencia en publicidad"
+        }
+      ]
+    },
+    {
+      "name": "detections",
+      "type": "base",
+      "schema": [
+        {
+          "name": "radio",
+          "type": "relation",
+          "required": true,
+          "options": {
+            "maxSelect": 1
+          }
+        },
+        {
+          "name": "phrase",
+          "type": "relation",
+          "required": true,
+          "options": {
+            "maxSelect": 1
+          }
+        },
+        {
+          "name": "timestamp",
+          "type": "datetime",
+          "required": true,
+          "options": {}
+        },
+        {
+          "name": "confidence",
+          "type": "number",
+          "required": true,
+          "options": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "verified",
+          "type": "bool",
+          "required": false,
+          "options": {}
+        },
+        {
+          "name": "correct",
+          "type": "bool",
+          "required": false,
+          "options": {}
+        },
+        {
+          "name": "cost",
+          "type": "number",
+          "required": false,
+          "options": {
+            "min": 0
+          }
+        },
+        {
+          "name": "audio_url",
+          "type": "url",
+          "required": false,
+          "options": {}
+        },
+        {
+          "name": "transcript",
+          "type": "text",
+          "required": false,
+          "options": {
+            "max": 2000
+          }
+        }
+      ],
+      "listRule": "1 = 1",
+      "viewRule": "1 = 1",
+      "createRule": "@request.auth.id != \"\"",
+      "updateRule": "@request.auth.id != \"\"",
+      "deleteRule": "@request.auth.id != \"\"",
+      "data": [
+        {
+          "timestamp": "2025-11-25T17:30:00.000Z",
+          "confidence": 0.95,
+          "verified": true,
+          "correct": true,
+          "cost": 0.05,
+          "audio_url": "https://pocket.brifyai.com/api/files/detections/audio1.mp3",
+          "transcript": "En Falabella tenemos precio bajo garantizado para ti"
+        },
+        {
+          "timestamp": "2025-11-25T16:30:00.000Z",
+          "confidence": 0.87,
+          "verified": true,
+          "correct": true,
+          "cost": 0.04,
+          "audio_url": "https://pocket.brifyai.com/api/files/detections/audio2.mp3",
+          "transcript": "La vida es hoy, disfrútala al máximo"
+        },
+        {
+          "timestamp": "2025-11-25T15:30:00.000Z",
+          "confidence": 0.92,
+          "verified": false,
+          "cost": 0.05,
+          "audio_url": "https://pocket.brifyai.com/api/files/detections/audio3.mp3",
+          "transcript": "Precios bajos siempre en Líder"
+        },
+        {
+          "timestamp": "2025-11-25T14:30:00.000Z",
+          "confidence": 0.89,
+          "verified": true,
+          "correct": true,
+          "cost": 0.04,
+          "audio_url": "https://pocket.brifyai.com/api/files/detections/audio4.mp3",
+          "transcript": "Jumbo te da más por tu dinero"
+        },
+        {
+          "timestamp": "2025-11-25T13:30:00.000Z",
+          "confidence": 0.94,
+          "verified": true,
+          "correct": true,
+          "cost": 0.05,
+          "audio_url": "https://pocket.brifyai.com/api/files/detections/audio5.mp3",
+          "transcript": "El reloj de la ahorra está sonando en La Polar"
+        }
+      ]
+    },
+    {
+      "name": "captures",
+      "type": "base",
+      "schema": [
+        {
+          "name": "radio",
+          "type": "relation",
+          "required": true,
+          "options": {
+            "maxSelect": 1
+          }
+        },
+        {
+          "name": "capturedAt",
+          "type": "datetime",
+          "required": true,
+          "options": {}
+        },
+        {
+          "name": "duration",
+          "type": "number",
+          "required": true,
+          "options": {
+            "min": 0
+          }
+        },
+        {
+          "name": "file_url",
+          "type": "url",
+          "required": true,
+          "options": {}
+        },
+        {
+          "name": "file_size",
+          "type": "number",
+          "required": true,
+          "options": {
+            "min": 0
+          }
+        },
+        {
+          "name": "cost",
+          "type": "number",
+          "required": false,
+          "options": {
+            "min": 0
+          }
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "options": {
+            "values": ["processing", "completed", "failed"]
+          }
+        }
+      ],
+      "listRule": "1 = 1",
+      "viewRule": "1 = 1",
+      "createRule": "@request.auth.id != \"\"",
+      "updateRule": "@request.auth.id != \"\"",
+      "deleteRule": "@request.auth.id != \"\"",
+      "data": [
+        {
+          "capturedAt": "2025-11-25T17:30:00.000Z",
+          "duration": 30,
+          "file_url": "https://pocket.brifyai.com/api/files/captures/sample1.mp3",
+          "file_size": 720000,
+          "cost": 0.03,
+          "status": "completed"
+        },
+        {
+          "capturedAt": "2025-11-25T16:30:00.000Z",
+          "duration": 45,
+          "file_url": "https://pocket.brifyai.com/api/files/captures/sample2.mp3",
+          "file_size": 1080000,
+          "cost": 0.05,
+          "status": "completed"
+        },
+        {
+          "capturedAt": "2025-11-25T15:30:00.000Z",
+          "duration": 60,
+          "file_url": "https://pocket.brifyai.com/api/files/captures/sample3.mp3",
+          "file_size": 1440000,
+          "cost": 0.06,
+          "status": "processing"
+        }
+      ]
+    }
+  ],
+  "import_instructions": {
+    "step1": "1. Eliminar colecciones existentes (radios, phrases, detections, captures)",
+    "step2": "2. Crear cada colección con su schema correspondiente",
+    "step3": "3. Configurar permisos: listRule='1 = 1', viewRule='1 = 1'",
+    "step4": "4. Importar los datos de cada sección 'data'",
+    "step5": "5. Establecer relaciones: detections.radio -> radios, detections.phrase -> phrases",
+    "step6": "6. Verificar que todos los campos sean accesibles"
+  },
+  "pocketbase_info": {
+    "url": "https://pocket.brifyai.com",
+    "admin_url": "https://pocket.brifyai.com/_/",
+    "credentials": {
+      "email": "camiloalegriabarra@gmail.com",
+      "password": "Aintelligence2025$"
+    }
+  }
+}

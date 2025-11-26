@@ -84,7 +84,7 @@ export default function NuevoMonitoreoPage() {
         setRadios(radiosData);
         
         // Cargar frases
-        const phrasesResponse = await fetch("/api/phrases");
+        const phrasesResponse = await fetch("/api/phrases-direct");
         if (!phrasesResponse.ok) throw new Error("Error al cargar frases");
         const phrasesData = await phrasesResponse.json();
         setPhrases(phrasesData);

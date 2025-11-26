@@ -94,7 +94,7 @@ export default function Frases() {
       ...(statusFilter !== 'all' && { status: statusFilter }),
     });
 
-      const response = await fetch(`/api/phrases?${params}`);
+      const response = await fetch(`/api/phrases-direct?${params}`);
       
       if (!response.ok) {
         throw new Error('Error al cargar las frases');
@@ -131,7 +131,7 @@ export default function Frases() {
     }
 
     try {
-      const response = await fetch('/api/phrases', {
+      const response = await fetch('/api/phrases-direct', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -167,7 +167,7 @@ export default function Frases() {
     if (!phrase) return;
 
     try {
-      const response = await fetch('/api/phrases', {
+      const response = await fetch('/api/phrases-direct', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -213,7 +213,7 @@ export default function Frases() {
     }
 
     try {
-      const response = await fetch('/api/phrases', {
+      const response = await fetch('/api/phrases-direct', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -254,7 +254,7 @@ export default function Frases() {
     }
 
     try {
-      const response = await fetch(`/api/phrases?id=${id}`, {
+      const response = await fetch(`/api/phrases-direct?id=${id}`, {
         method: 'DELETE'
       });
 

@@ -1,4 +1,5 @@
 // Script para crear un usuario administrador
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 

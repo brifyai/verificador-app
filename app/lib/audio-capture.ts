@@ -5,7 +5,7 @@ import { writeFileSync, existsSync, mkdirSync, createWriteStream, statSync } fro
 import { pipeline } from 'stream';
 import path from 'path';
 import fetch from 'node-fetch';
-import { prisma } from './db';
+import { supabaseDirect } from './supabase-direct';
 
 const execAsync = promisify(exec);
 const pipelineAsync = promisify(pipeline);
@@ -57,17 +57,20 @@ export class AudioCaptureService {
     const timestamp = new Date();
     
     try {
-      // Crear registro en base de datos
-      const capture = await prisma.capture.create({
-        data: {
-          sessionId: config.sessionId,
-          duration: config.duration,
-          format: config.format || 'mp3',
-          bitrate: config.bitrate ? parseInt(config.bitrate) : 128,
-          sampleRate: config.sampleRate || 44100,
-          status: 'PROCESSING',
-          capturedAt: timestamp
-        }
+      // Crear registro en base de datos usando Supabase Direct
+      const captureData = {
+        session_id: config.sessionId,
+        duration: config.duration,
+        format: config.format || 'mp3',
+        bitrate: config.bitrate ? parseInt(config.bitrate) : 128,
+        sample_rate: config.sampleRate || 44100,
+        status: 'PROCESSING',
+        captured_at: timestamp.toISOString()
+      };
+
+      const capture = await supabaseDirect.request('captures', {
+        method: 'POST',
+        body: JSON.stringify(captureData)
       });
 
       console.log(`🎵 Starting audio capture for ${config.radioName} (${config.duration}s)`);
@@ -91,31 +94,31 @@ export class AudioCaptureService {
           break;
       }
 
-      // Actualizar registro en base de datos
+      // Actualizar registro en base de datos usando Supabase Direct
       if (result.success && result.filePath) {
         const fileStats = statSync(result.filePath);
         
-        await prisma.capture.update({
-          where: { id: capture.id },
-          data: {
-            audioPath: result.filePath,
-            fileSize: BigInt(fileStats.size),
+        await supabaseDirect.request(`captures?id=eq.${capture.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            audio_path: result.filePath,
+            file_size: fileStats.size,
             status: 'COMPLETED',
-            processedAt: new Date(),
-            processingTime: Date.now() - startTime
-          }
+            processed_at: new Date().toISOString(),
+            processing_time: Date.now() - startTime
+          })
         });
 
         result.captureId = capture.id;
         console.log(`✅ Audio captured successfully: ${result.filePath} (${fileStats.size} bytes)`);
       } else {
-        await prisma.capture.update({
-          where: { id: capture.id },
-          data: {
+        await supabaseDirect.request(`captures?id=eq.${capture.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
             status: 'FAILED',
-            processedAt: new Date(),
-            processingTime: Date.now() - startTime
-          }
+            processed_at: new Date().toISOString(),
+            processing_time: Date.now() - startTime
+          })
         });
         console.error(`❌ Audio capture failed: ${result.error}`);
       }
@@ -316,10 +319,10 @@ export class AudioCaptureService {
         process.kill('SIGTERM');
         this.activeCaptures.delete(captureId);
         
-        // Actualizar en base de datos
-        await prisma.capture.update({
-          where: { id: captureId },
-          data: { status: 'COMPLETED' }
+        // Actualizar en base de datos usando Supabase Direct
+        await supabaseDirect.request(`captures?id=eq.${captureId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'COMPLETED' })
         });
         
         return true;
@@ -349,18 +352,16 @@ export class AudioCaptureService {
         }
       }
 
-      // Marcar capturas abandonadas como fallidas
-      await prisma.capture.updateMany({
-        where: {
-          status: 'PROCESSING',
-          capturedAt: {
-            lt: new Date(Date.now() - 5 * 60 * 1000) // 5 minutos atrás
-          }
-        },
-        data: {
-          status: 'FAILED'
+      // Marcar capturas abandonadas como fallidas usando Supabase Direct
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      
+      await supabaseDirect.request(
+        `captures?status=eq.PROCESSING&captured_at=lt.${fiveMinutesAgo}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'FAILED' })
         }
-      });
+      );
     } catch (error) {
       console.error('Error in cleanup:', error);
     }

@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -48,6 +49,7 @@ const PRICE_PER_RADIO = 15; // $15 por radio/mes
 
 export default function ConfigurarAnalisisPage() {
   const router = useRouter();
+  const { user } = useAuth();
 
   // --- Estados del componente ---
   const [radios, setRadios] = useState<Radio[]>([]);
@@ -83,9 +85,9 @@ export default function ConfigurarAnalisisPage() {
     const fetchData = async () => {
       try {
         const [radiosRes, phrasesRes, apiConfigsRes] = await Promise.all([
-          fetch("/api/radios?limit=1000"),
-          fetch("/api/phrases"),
-          fetch("/api/api-configurations?enabled=true"), // Solo APIs habilitadas
+          fetch("/api/radios-direct?limit=1000"),
+          fetch("/api/phrases-direct"),
+          fetch("/api/api-configurations-direct?enabled=true"), // Solo APIs habilitadas
         ]);
         if (!radiosRes.ok || !phrasesRes.ok || !apiConfigsRes.ok) {
           throw new Error("Error al cargar datos iniciales");
@@ -246,8 +248,15 @@ export default function ConfigurarAnalisisPage() {
 
       const selectedConfig = apiConfigurations.find(c => c.id === selectedApiConfigId);
 
+      // Verificar que el usuario esté autenticado
+      if (!user?.id) {
+        toast.error("❌ Error: Usuario no autenticado. Por favor, inicia sesión nuevamente.");
+        setIsSubmitting(false);
+        return;
+      }
+
       const requestData = {
-        userId: 'user123', // TODO: Obtener del contexto de autenticación
+        userId: user.id, // ✅ Usuario autenticado desde el contexto
         radioIds: Array.from(selectedRadioIds),
         phraseId: selectedPhraseId,
         days: daysAsNumbers.length > 0 ? daysAsNumbers : [1, 2, 3, 4, 5, 6, 0], // Si no hay días, usar todos

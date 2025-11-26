@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 // Configuración de la VPS
 const VPS_CONFIG = {
@@ -82,17 +82,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Obtener datos de las radios desde la base de datos
-    const radios = await prisma.radio.findMany({
-      where: {
-        id: { in: body.radioIds }
-      },
-      select: {
-        id: true,
-        name: true,
-        streamUrl: true
-      }
-    });
+    // Obtener datos de las radios desde Supabase
+    const radios = await supabaseDirect.request(
+      `radios?select=*&id=in.(${body.radioIds.join(',')})`
+    );
 
     if (radios.length === 0) {
       return NextResponse.json(
@@ -115,7 +108,7 @@ export async function POST(request: NextRequest) {
       radios: radios.map(radio => ({
         id: radio.id,
         name: radio.name,
-        streamUrl: radio.streamUrl
+        streamUrl: radio.stream_url
       })),
       days: body.days,
       schedule: {

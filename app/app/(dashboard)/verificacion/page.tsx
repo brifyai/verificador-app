@@ -30,7 +30,7 @@ export default function Verificacion() {
   useEffect(() => {
     const fetchItems = async () => {
       try {
-        const response = await fetch("/api/verificacion");
+        const response = await fetch("/api/verificacion-direct");
         if (!response.ok) {
           throw new Error("Error al cargar los elementos de verificación");
         }
@@ -52,7 +52,7 @@ export default function Verificacion() {
         setItems(formattedItems);
         
         // Obtener el número de verificaciones de hoy
-        const todayVerified = await fetch("/api/verificacion/stats");
+        const todayVerified = await fetch("/api/verificacion-direct/stats");
         if (todayVerified.ok) {
           const stats = await todayVerified.json();
           setVerifiedToday(stats.verifiedToday || 0);
@@ -70,14 +70,14 @@ export default function Verificacion() {
 
   const handleVerify = async (id: string, isValid: boolean = true) => {
     try {
-      const response = await fetch('/api/verificacion', {
+      const response = await fetch('/api/verificacion-direct', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           id,
-          falsePositive: !isValid 
+          falsePositive: !isValid
         }),
       });
 
