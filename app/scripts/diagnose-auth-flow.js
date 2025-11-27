@@ -1,160 +1,102 @@
-require('dotenv').config();
+const { supabaseDirect } = require('../lib/supabase-direct');
 
 async function diagnoseAuthFlow() {
-  console.log('🔍 DIAGNÓSTICO COMPLETO DE FLUJO DE AUTENTICACIÓN');
-  console.log('==================================================');
-  
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const bcrypt = require('bcryptjs');
-  
-  console.log('\n📋 1. VERIFICANDO CONFIGURACIÓN');
-  console.log('================================');
-  console.log('Supabase URL:', SUPABASE_URL);
-  console.log('Supabase API Key:', SUPABASE_ANON_KEY ? '✅ Configurado' : '❌ No configurado');
-  
-  console.log('\n🔐 2. VERIFICANDO USUARIO EN SUPABASE');
-  console.log('======================================');
+  console.log('🔍 DIAGNÓSTICO DE FLUJO DE AUTENTICACIÓN\n');
   
   try {
-    // Obtener usuario directamente
-    const userResponse = await fetch(`${SUPABASE_URL}/rest/v1/users?email=eq.admin@verificador.com`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      }
-    });
-    
-    if (!userResponse.ok) {
-      console.log('❌ Error obteniendo usuario:', await userResponse.text());
-      return;
-    }
-    
-    const users = await userResponse.json();
-    console.log('Usuarios encontrados:', users.length);
+    // 1. Verificar usuario admin existe
+    console.log('1. Verificando usuario admin en Supabase...');
+    const users = await supabaseDirect.getUsers({ email: 'admin@verificador.com' });
     
     if (users.length === 0) {
-      console.log('❌ No hay usuarios en la base de datos');
+      console.log('❌ Usuario admin no encontrado');
+      console.log('💡 Solución: Ejecuta node scripts/setup-admin.js');
       return;
     }
     
-    const user = users[0];
-    console.log('📋 Usuario encontrado:');
-    console.log('   - ID:', user.id);
-    console.log('   - Email:', user.email);
-    console.log('   - Name:', user.name);
-    console.log('   - Role:', user.role);
-    console.log('   - Active:', user.active);
-    console.log('   - Password (hash):', user.password.substring(0, 20) + '...');
+    const adminUser = users[0];
+    console.log('✅ Usuario admin encontrado:');
+    console.log(`   - ID: ${adminUser.id}`);
+    console.log(`   - Email: ${adminUser.email}`);
+    console.log(`   - Activo: ${adminUser.active}`);
+    console.log(`   - Rol: ${adminUser.role}`);
     
-    console.log('\n🔑 3. VERIFICANDO CONTRASEÑA');
-    console.log('============================');
+    // 2. Verificar endpoints de auth
+    console.log('\n2. Verificando endpoints de autenticación...');
     
-    // Verificar contraseña
-    const password = 'admin123';
-    const isValid = await bcrypt.compare(password, user.password);
-    console.log('Contraseña "admin123" válida:', isValid ? '✅ SÍ' : '❌ NO');
+    const endpoints = [
+      { path: '/api/auth/me', method: 'GET' },
+      { path: '/api/auth/login-direct', method: 'POST' },
+      { path: '/api/auth/logout', method: 'POST' }
+    ];
     
-    if (!isValid) {
-      console.log('⚠️ La contraseña no coincide. Generando nuevo hash...');
-      const newHash = await bcrypt.hash(password, 10);
-      console.log('Nuevo hash generado:', newHash.substring(0, 20) + '...');
-      
-      // Actualizar contraseña
-      const updateResponse = await fetch(`${SUPABASE_URL}/rest/v1/users?id=eq.${user.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify({ password: newHash })
-      });
-      
-      if (updateResponse.ok) {
-        console.log('✅ Contraseña actualizada en la base de datos');
-      } else {
-        console.log('❌ Error actualizando contraseña:', await updateResponse.text());
+    for (const endpoint of endpoints) {
+      try {
+        const baseUrl = 'http://localhost:3000';
+        const url = `${baseUrl}${endpoint.path}`;
+        
+        const options = {
+          method: endpoint.method,
+          headers: { 'Content-Type': 'application/json' }
+        };
+        
+        // Para login-direct, agregar body
+        if (endpoint.path === '/api/auth/login-direct') {
+          options.body = JSON.stringify({
+            email: 'admin@verificador.com',
+            password: 'admin123'
+          });
+        }
+        
+        const response = await fetch(url, options);
+        console.log(`   ✅ ${endpoint.method} ${endpoint.path} - Status: ${response.status}`);
+        
+        // Para login-direct, mostrar si setea cookie
+        if (endpoint.path === '/api/auth/login-direct' && response.status === 200) {
+          const cookies = response.headers.get('set-cookie');
+          if (cookies && cookies.includes('auth-token')) {
+            console.log('      🍪 Cookie auth-token seteada correctamente');
+          } else {
+            console.log('      ⚠️  Cookie auth-token NO encontrada en respuesta');
+          }
+        }
+        
+      } catch (error) {
+        console.log(`   ❌ ${endpoint.method} ${endpoint.path} - Error: ${error.message}`);
       }
     }
     
-    console.log('\n🌐 4. PROBANDO ENDPOINT DE AUTH');
-    console.log('================================');
-    
-    // Probar endpoint de auth
-    const csrfResponse = await fetch('http://localhost:3000/api/auth/csrf');
-    const csrfData = await csrfResponse.json();
-    console.log('CSRF Token obtenido:', csrfData.csrfToken ? '✅ SÍ' : '❌ NO');
-    
-    console.log('\n🚀 5. PROBANDO LOGIN COMPLETO');
-    console.log('==============================');
-    
-    // Probar login completo
-    const loginResponse = await fetch('http://localhost:3000/api/auth/callback/credentials', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        email: 'admin@verificador.com',
-        password: 'admin123',
-        callbackUrl: 'http://localhost:3000/dashboard',
-        csrfToken: csrfData.csrfToken,
-        json: 'true'
-      })
-    });
-    
-    console.log('Respuesta del login:', loginResponse.status, loginResponse.statusText);
-    
-    if (loginResponse.ok) {
-      const loginData = await loginResponse.json();
-      console.log('Datos del login:', loginData);
-      
-      if (loginData.url) {
-        console.log('✅ Login exitoso - URL de redirección:', loginData.url);
-      }
-    } else {
-      console.log('❌ Login falló:', await loginResponse.text());
+    // 3. Verificar tabla de sesiones (si existe)
+    console.log('\n3. Verificando tabla de sesiones...');
+    try {
+      const sessions = await supabaseDirect.request('sessions?select=*&limit=5');
+      console.log(`   ✅ Tabla sessions accesible - ${sessions.length} registros encontrados`);
+    } catch (error) {
+      console.log(`   ℹ️  Tabla sessions no existe o no es accesible (esto es normal)`);
     }
     
-    console.log('\n📊 6. VERIFICANDO SESIÓN');
-    console.log('=======================');
+    // 4. Verificar cookies en el navegador
+    console.log('\n4. INSTRUCCIONES PARA VERIFICAR COOKIES:');
+    console.log('   1. Abre Chrome DevTools (F12)');
+    console.log('   2. Ve a la pestaña "Application"');
+    console.log('   3. En la sección "Storage", selecciona "Cookies"');
+    console.log('   4. Verifica que exista una cookie llamada "auth-token"');
+    console.log('   5. El valor debe ser el user_id del admin');
+    console.log(`   6. User ID esperado: ${adminUser.id}`);
     
-    // Verificar sesión después del login
-    const sessionResponse = await fetch('http://localhost:3000/api/auth/session', {
-      credentials: 'include'
-    });
+    // 5. Verificar localStorage
+    console.log('\n5. INSTRUCCIONES PARA VERIFICAR LOCALSTORAGE:');
+    console.log('   1. Abre Chrome DevTools (F12)');
+    console.log('   2. Ve a la pestaña "Application"');
+    console.log('   3. En la sección "Storage", selecciona "Local Storage"');
+    console.log('   4. Verifica que exista una clave llamada "auth-token"');
+    console.log('   5. El valor debe coincidir con la cookie');
     
-    const sessionData = await sessionResponse.json();
-    console.log('Sesión activa:', sessionData.user ? '✅ SÍ' : '❌ NO');
-    
-    if (sessionData.user) {
-      console.log('Usuario en sesión:', sessionData.user.email);
-    }
-    
-    console.log('\n🎯 DIAGNÓSTICO COMPLETO');
-    console.log('======================');
-    console.log('✅ Supabase URL:', SUPABASE_URL ? 'Configurado' : 'No configurado');
-    console.log('✅ Supabase Key:', SUPABASE_ANON_KEY ? 'Configurado' : 'No configurado');
-    console.log('✅ Usuario existe:', users.length > 0 ? 'Sí' : 'No');
-    console.log('✅ Contraseña válida:', isValid ? 'Sí' : 'No (corregida)');
-    console.log('✅ CSRF Token:', csrfData.csrfToken ? 'Obtenido' : 'No obtenido');
-    console.log('✅ Login endpoint:', loginResponse.ok ? 'Respondiendo' : 'Error');
-    console.log('✅ Sesión:', sessionData.user ? 'Establecida' : 'No establecida');
-    
-    console.log('\n🎉 RESULTADO FINAL');
-    console.log('==================');
-    
-    if (isValid && loginResponse.ok && sessionData.user) {
-      console.log('✅ TODO ESTÁ FUNCIONANDO CORRECTAMENTE');
-      console.log('🚀 La aplicación está lista para usar');
-      console.log('📧 Credenciales: admin@verificador.com / admin123');
-      console.log('🌐 URL: http://localhost:3000/auth/signin');
-    } else {
-      console.log('❌ HAY PROBLEMAS EN EL FLUJO');
-      console.log('🔧 Revisa los puntos marcados arriba');
-    }
+    console.log('\n✅ DIAGNÓSTICO COMPLETADO');
+    console.log('\n💡 SI EL LOGIN FALLA DESPUÉS DE VER ESTO:');
+    console.log('   1. Limpia cookies y localStorage');
+    console.log('   2. Reinicia el servidor: npm run dev');
+    console.log('   3. Intenta login nuevamente');
     
   } catch (error) {
     console.error('❌ Error en diagnóstico:', error.message);

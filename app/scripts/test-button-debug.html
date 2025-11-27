@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Botón Escuchar - Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .log {
+            margin: 2px 0;
+            padding: 5px;
+            border-left: 3px solid #00ff00;
+            background: rgba(0, 255, 0, 0.05);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .error {
+            border-left-color: #ff0000;
+            background: rgba(255, 0, 0, 0.1);
+            color: #ff6666;
+        }
+        .warning {
+            border-left-color: #ffff00;
+            background: rgba(255, 255, 0, 0.1);
+            color: #ffff66;
+        }
+        .info {
+            border-left-color: #0080ff;
+            background: rgba(0, 128, 255, 0.1);
+            color: #66b3ff;
+        }
+        h1 {
+            color: #00ff00;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        button {
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 10px 20px;
+            margin: 0 5px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover {
+            background: #00ff00;
+            color: #000;
+        }
+        #logs {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            padding: 15px;
+            height: 500px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐛 Debug Botón Escuchar - Consola del Navegador</h1>
+        
+        <div class="status">
+            <p>📍 Abre la página de radios en otra pestaña y presiona el botón "Escuchar"</p>
+            <p>🔍 Los logs aparecerán aquí automáticamente</p>
+        </div>
+        
+        <div class="controls">
+            <button onclick="clearLogs()">🗑️ Limpiar Logs</button>
+            <button onclick="exportLogs()">💾 Exportar Logs</button>
+            <button onclick="testConnection()">🔄 Probar Conexión</button>
+        </div>
+        
+        <div id="logs"></div>
+    </div>
+
+    <script>
+        let logCount = 0;
+        const maxLogs = 1000;
+        
+        function addLog(message, type = 'log') {
+            logCount++;
+            const logsDiv = document.getElementById('logs');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString('es-CL');
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            
+            // Limitar número de logs
+            if (logsDiv.children.length > maxLogs) {
+                logsDiv.removeChild(logsDiv.firstChild);
+            }
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            logCount = 0;
+            addLog('🗑️ Logs limpiados', 'info');
+        }
+        
+        function exportLogs() {
+            const logs = Array.from(document.getElementById('logs').children)
+                .map(div => div.textContent)
+                .join('\n');
+            
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `debug-logs-${new Date().toISOString().slice(0, 19)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            addLog('💾 Logs exportados', 'info');
+        }
+        
+        function testConnection() {
+            addLog('🔄 Probando conexión con el servidor...', 'info');
+            
+            fetch('http://localhost:3000/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    addLog(`✅ Servidor responde: ${JSON.stringify(data)}`, 'log');
+                })
+                .catch(error => {
+                    addLog(`❌ Error conectando al servidor: ${error.message}`, 'error');
+                });
+        }
+        
+        // Interceptar logs de la consola
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        const originalInfo = console.info;
+        
+        console.log = function(...args) {
+            addLog(args.join(' '), 'log');
+            originalLog.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            addLog(args.join(' '), 'error');
+            originalError.apply(console, args);
+        };
+        
+        console.warn = function(...args) {
+            addLog(args.join(' '), 'warning');
+            originalWarn.apply(console, args);
+        };
+        
+        console.info = function(...args) {
+            addLog(args.join(' '), 'info');
+            originalInfo.apply(console, args);
+        };
+        
+        // Escuchar errores globales
+        window.addEventListener('error', function(event) {
+            addLog(`🚨 Error global: ${event.message} en ${event.filename}:${event.lineno}:${event.colno}`, 'error');
+        });
+        
+        // Escuchar promesas rechazadas
+        window.addEventListener('unhandledrejection', function(event) {
+            addLog(`🚨 Promesa rechazada: ${event.reason}`, 'error');
+        });
+        
+        // Inicializar
+        addLog('🚀 Sistema de debug iniciado', 'info');
+        addLog('📍 Abre http://localhost:3000/radios en otra pestaña y presiona "Escuchar"', 'info');
+        
+        // Verificar periodicamente si hay nuevos logs
+        setInterval(() => {
+            // Esta función se ejecutará cada segundo para capturar cualquier log nuevo
+        }, 1000);
+    </script>
+</body>
+</html>

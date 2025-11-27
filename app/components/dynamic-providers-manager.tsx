@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
@@ -174,6 +174,10 @@ export default function DynamicProvidersManager() {
       const endpoint = '/api/providers';
       const method = isEdit ? 'PUT' : 'POST';
 
+      console.log('🔍 Frontend DEBUG - Enviando provider:', JSON.stringify(provider, null, 2));
+      console.log('🔍 Frontend DEBUG - provider.apiKey:', provider.apiKey);
+      console.log('🔍 Frontend DEBUG - Método:', method);
+
       const response = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -187,6 +191,7 @@ export default function DynamicProvidersManager() {
         resetForm();
       } else {
         const error = await response.json();
+        console.error('🔍 Frontend DEBUG - Error response:', error);
         alert(`Error: ${error.error}`);
       }
     } catch (error) {
@@ -206,8 +211,24 @@ export default function DynamicProvidersManager() {
       if (response.ok) {
         await loadProviders();
       } else {
-        const error = await response.json();
-        alert(`Error: ${error.error}`);
+        // Manejar respuestas de error que pueden no ser JSON
+        const contentType = response.headers.get('content-type');
+        let errorMessage = 'Error desconocido al eliminar proveedor';
+        
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            const error = await response.json();
+            errorMessage = error.error || errorMessage;
+          } catch (e) {
+            // Si no se puede parsear JSON, usar texto plano
+            errorMessage = await response.text() || errorMessage;
+          }
+        } else {
+          // Si no es JSON, usar texto plano
+          errorMessage = await response.text() || errorMessage;
+        }
+        
+        alert(`Error: ${errorMessage}`);
       }
     } catch (error) {
       console.error('Error eliminando proveedor:', error);
@@ -284,6 +305,37 @@ export default function DynamicProvidersManager() {
         
         <div className="flex gap-2">
           <Button
+            onClick={async () => {
+              if (confirm('⚠️ ¿Estás seguro de eliminar TODOS los proveedores? Esta acción no se puede deshacer.')) {
+                if (confirm('🚨 CONFIRMACIÓN FINAL: ¿Realmente deseas eliminar TODOS los registros de proveedores?')) {
+                  try {
+                    const response = await fetch('/api/providers?all=true&confirm=true', {
+                      method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                      const result = await response.json();
+                      alert(`✅ ${result.message}`);
+                      await loadProviders(); // Recargar la lista
+                    } else {
+                      const error = await response.json();
+                      alert(`❌ Error: ${error.error}`);
+                    }
+                  } catch (error) {
+                    console.error('Error eliminando todos los proveedores:', error);
+                    alert('❌ Error de conectividad');
+                  }
+                }
+              }
+            }}
+            variant="outline"
+            className="text-red-400 border-red-400 hover:bg-red-900/20"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Eliminar Todos
+          </Button>
+          
+          <Button
             onClick={() => {
               const enabledProviders = providers.filter(p => p.enabled).map(p => p.id);
               if (enabledProviders.length === 0) {
@@ -297,7 +349,7 @@ export default function DynamicProvidersManager() {
               });
             }}
             variant="outline"
-            className="text-green-400 border-green-400"
+            className="text-black border-black"
           >
             <TestTube className="h-4 w-4 mr-2" />
             Probar Todos
@@ -315,6 +367,9 @@ export default function DynamicProvidersManager() {
                 <DialogTitle className="text-white">
                   {editingProvider ? 'Editar Proveedor' : 'Nuevo Proveedor de API'}
                 </DialogTitle>
+                <DialogDescription className="text-gray-300">
+                  Configura los detalles de tu proveedor de API de transcripción
+                </DialogDescription>
               </DialogHeader>
               
               <div className="space-y-4 max-h-96 overflow-y-auto">
@@ -586,7 +641,7 @@ export default function DynamicProvidersManager() {
                       variant="outline"
                       onClick={() => testProvider(provider)}
                       disabled={testingProvider === provider.id}
-                      className="text-green-400 border-green-400"
+                      className="text-black border-black"
                     >
                       {testingProvider === provider.id ? (
                         <>
@@ -605,7 +660,7 @@ export default function DynamicProvidersManager() {
                       size="sm"
                       variant="outline"
                       onClick={() => toggleProvider(provider)}
-                      className={provider.enabled ? 'text-yellow-400' : 'text-green-400'}
+                      className={provider.enabled ? 'text-black' : 'text-black'}
                     >
                       {provider.enabled ? 'Desactivar' : 'Activar'}
                     </Button>

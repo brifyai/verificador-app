@@ -1,0 +1,370 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { 
+  Radio, Download, Play, Square, Circle, Loader, RefreshCw, Clock, Volume2 
+} from 'lucide-react';
+import { recordingService } from '@/lib/recording-service';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
+import { useAudioPlayer } from '@/hooks/useAudioPlayer';
+import { getPlatformIcon, getPlatformName } from '@/lib/platform-utils';
+import { recordingStateManager } from '@/lib/recording-state-manager';
+
+interface RecordingSession {
+  radioId: string;
+  radioName: string;
+  status: 'recording' | 'paused' | 'stopped';
+  startTime: Date;
+  recordingId?: string;
+}
+
+export default function GrabacionesPage() {
+  const [activeRecordings, setActiveRecordings] = useState<RecordingSession[]>([]);
+  const [availableRecordings, setAvailableRecordings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const toast = useEnhancedToast();
+  const { playingRadio, isLoading, handlePlay } = useAudioPlayer();
+
+  // Sistema de estado persistente para grabaciones
+  useEffect(() => {
+    let isMounted = true;
+    
+    // Suscribirse al estado persistente de grabaciones
+    const unsubscribe = recordingStateManager.subscribe((recordings) => {
+      if (!isMounted) return;
+      
+      // Convertir Map a array de sesiones
+      const sessions: RecordingSession[] = Array.from(recordings.entries()).map(([radioId, data]) => ({
+        radioId,
+        radioName: data.radioName || `Radio ${radioId}`,
+        status: data.status,
+        startTime: data.startTime || new Date(),
+        recordingId: data.recording_id
+      }));
+      
+      setActiveRecordings(sessions);
+    });
+
+    // Cargar datos iniciales
+    const loadInitialData = async () => {
+      try {
+        await Promise.all([
+          recordingStateManager.forceUpdate(),
+          loadAvailableRecordings()
+        ]);
+      } catch (error) {
+        console.error('Error cargando datos iniciales:', error);
+        toast.error('Error al cargar datos de grabaciones');
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadInitialData();
+    
+    // Cleanup
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const loadAvailableRecordings = async () => {
+    try {
+      const result = await recordingService.getRecordingsList();
+      if (result.status === 'success' && result.recordings) {
+        // Ordenar por fecha (más recientes primero)
+        const sorted = result.recordings.sort((a: any, b: any) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        setAvailableRecordings(sorted);
+      }
+    } catch (error) {
+      console.error('Error cargando grabaciones disponibles:', error);
+    }
+  };
+
+  const handleStopRecording = async (radioId: string) => {
+    try {
+      const result = await recordingService.stopRecording(radioId);
+      if (result.status === 'success') {
+        toast.success('⏹️ Grabación detenida');
+        await recordingStateManager.forceUpdate();
+        await loadAvailableRecordings();
+      } else {
+        toast.error(`Error: ${result.message}`);
+      }
+    } catch (error) {
+      toast.error('Error al detener grabación');
+      console.error('Error:', error);
+    }
+  };
+
+  const handleDownloadRecording = async (filename: string) => {
+    try {
+      const result = await recordingService.downloadRecording(filename);
+      if (result.status === 'success') {
+        toast.success('📥 Descarga iniciada');
+      } else {
+        toast.error(`Error: ${result.message}`);
+      }
+    } catch (error) {
+      toast.error('Error al descargar grabación');
+      console.error('Error:', error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        recordingStateManager.forceUpdate(),
+        loadAvailableRecordings()
+      ]);
+    } catch (error) {
+      console.error('Error actualizando datos:', error);
+      toast.error('Error al actualizar datos');
+    } finally {
+      setRefreshing(false);
+      toast.success('Datos actualizados');
+    }
+  };
+
+  const formatDuration = (startTime: Date) => {
+    const now = new Date();
+    let diff = now.getTime() - startTime.getTime();
+    
+    // CORRECCIÓN: Manejar diferencias de zona horaria
+    // Si la diferencia es negativa (tiempo futuro), usar 0
+    if (diff < 0) {
+      console.log('⚠️ Diferencia de tiempo negativa detectada, usando 0');
+      diff = 0;
+    }
+    
+    // Si la diferencia es mayor a 24 horas, podría ser un problema de zona horaria
+    if (diff > 24 * 60 * 60 * 1000) {
+      console.log('⚠️ Diferencia de tiempo mayor a 24 horas, podría ser problema de zona horaria');
+      // Usar una diferencia razonable (1 hora) como fallback
+      diff = 60 * 60 * 1000;
+    }
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'recording': return 'bg-red-500';
+      case 'paused': return 'bg-yellow-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'recording': return 'Grabando';
+      case 'paused': return 'Pausada';
+      default: return 'Detenida';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex items-center justify-center h-64">
+          <Loader className="h-8 w-8 animate-spin text-blue-400" />
+          <span className="ml-2 text-gray-400">Cargando grabaciones...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-white">Centro de Grabaciones</h2>
+          <p className="text-muted-foreground">
+            Monitorea y gestiona las grabaciones de audio desde tu VPS
+          </p>
+        </div>
+        <Button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          variant="outline"
+          className="bg-gray-800 border-gray-700 text-white hover:bg-gray-700"
+        >
+          {refreshing ? (
+            <Loader className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          <span className="ml-2">Actualizar</span>
+        </Button>
+      </div>
+
+      {/* Grabaciones Activas */}
+      {activeRecordings.length > 0 && (
+        <Card className="bg-gray-900 border-gray-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center space-x-2">
+              <Circle className="h-5 w-5 text-red-500 animate-pulse" />
+              <span>Grabaciones Activas</span>
+              <Badge variant="secondary" className="bg-red-500/20 text-red-400">
+                {activeRecordings.length}
+              </Badge>
+            </CardTitle>
+            <CardDescription className="text-gray-400">
+              Estas radios están siendo grabadas en tiempo real
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {activeRecordings.map((session) => (
+                <div
+                  key={session.radioId}
+                  className="flex items-center justify-between bg-gray-800/50 rounded-lg p-4 border border-gray-700"
+                >
+                  <div className="flex items-center space-x-4">
+                    <div className={`w-3 h-3 rounded-full ${getStatusColor(session.status)} animate-pulse`} />
+                    <div>
+                      <div className="text-white font-medium">{session.radioName}</div>
+                      <div className="text-sm text-gray-400 flex items-center space-x-2">
+                        <Clock className="h-3 w-3" />
+                        <span>{formatDuration(session.startTime)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handlePlay({ id: session.radioId, name: session.radioName } as any)}
+                      className="bg-gray-700 border-gray-600 text-white hover:bg-gray-600"
+                    >
+                      <Volume2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleStopRecording(session.radioId)}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      <Square className="h-4 w-4 mr-1" />
+                      Detener
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Grabaciones Disponibles */}
+      <Card className="bg-gray-900 border-gray-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center space-x-2">
+            <Download className="h-5 w-5 text-green-400" />
+            <span>Grabaciones Disponibles</span>
+            <Badge variant="secondary" className="bg-green-500/20 text-green-400">
+              {availableRecordings.length}
+            </Badge>
+          </CardTitle>
+          <CardDescription className="text-gray-400">
+            Archivos de audio grabados y listos para descargar
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {availableRecordings.length === 0 ? (
+            <div className="text-center py-8">
+              <Radio className="mx-auto h-12 w-12 mb-4 text-gray-500" />
+              <p className="text-gray-400">No hay grabaciones disponibles</p>
+              <p className="text-sm text-gray-500 mt-2">
+                Las grabaciones aparecerán aquí cuando se completen las sesiones de grabación
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {availableRecordings.map((recording, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 transition-colors"
+                >
+                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white text-sm font-medium truncate">
+                        {recording.filename}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {(recording.size / 1024 / 1024).toFixed(2)} MB • {new Date(recording.created_at).toLocaleString('es-CL')}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleDownloadRecording(recording.filename)}
+                    className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                    title="Descargar grabación"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Estado del Servidor */}
+      <Card className="bg-gray-900 border-gray-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center space-x-2">
+            <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+            <span>Estado del Servidor de Grabación</span>
+          </CardTitle>
+          <CardDescription className="text-gray-400">
+            Conexión con VPS: {recordingService['API_BASE'] || 'http://213.199.39.147:5000/api'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-blue-400">{activeRecordings.length}</div>
+              <div className="text-sm text-gray-400">Grabaciones Activas</div>
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-green-400">{availableRecordings.length}</div>
+              <div className="text-sm text-gray-400">Archivos Disponibles</div>
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-purple-400">
+                {(availableRecordings.reduce((total, rec) => total + (rec.size || 0), 0) / (1024 * 1024)).toFixed(1)} MB
+              </div>
+              <div className="text-sm text-gray-400">Espacio Total</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

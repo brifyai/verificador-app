@@ -339,8 +339,8 @@ export default function AudiosPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-2 w-full max-w-md bg-slate-700">
-          <TabsTrigger value="browse">Explorar</TabsTrigger>
-          <TabsTrigger value="player">Reproductor</TabsTrigger>
+          <TabsTrigger value="browse" className="text-white data-[state=inactive]:text-white">Explorar</TabsTrigger>
+          <TabsTrigger value="player" className="text-white data-[state=inactive]:text-white">Reproductor</TabsTrigger>
         </TabsList>
 
         {/* Pestaña Explorar */}

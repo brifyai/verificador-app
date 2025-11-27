@@ -19,10 +19,10 @@ export const ROLE_PERMISSIONS = {
   '/frases': ['USER', 'ADMIN'] as UserRole[],
   '/reportes': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
   '/audios': ['USER', 'ADMIN'] as UserRole[],
+  '/grabaciones': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
   
   // Páginas para analista (moderador)
   '/inteligencia': ['MODERATOR', 'ADMIN'] as UserRole[],
-  '/reportes': ['USER', 'MODERATOR', 'ADMIN'] as UserRole[],
   
   // Páginas solo para administrador
   '/radios': ['ADMIN'] as UserRole[],

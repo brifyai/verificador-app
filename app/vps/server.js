@@ -244,6 +244,95 @@ app.get('/api/schedules', (req, res) => {
   }
 });
 
+// Endpoint para listar grabaciones completadas
+app.get('/api/recordings', (req, res) => {
+  try {
+    // Verificar si el directorio de grabaciones existe
+    if (!fs.existsSync(RECORDINGS_DIR)) {
+      return res.json({
+        status: 'success',
+        recordings: [],
+        message: 'No hay grabaciones disponibles'
+      });
+    }
+
+    // Leer archivos del directorio
+    const files = fs.readdirSync(RECORDINGS_DIR)
+      .filter(file => file.endsWith('.mp3')) // Solo archivos MP3
+      .map(file => {
+        const filePath = path.join(RECORDINGS_DIR, file);
+        const stats = fs.statSync(filePath);
+        
+        return {
+          filename: file,
+          size: stats.size,
+          created_at: stats.birthtime.toISOString(),
+          // Extraer información del nombre del archivo
+          radio_name: file.split('_')[0] || 'Unknown',
+          duration: 'unknown' // Podrías extraer esto de metadata si es necesario
+        };
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()); // Más recientes primero
+
+    console.log(`📁 Encontradas ${files.length} grabaciones`);
+    
+    res.json({
+      status: 'success',
+      recordings: files,
+      total: files.length,
+      directory: RECORDINGS_DIR
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo grabaciones:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Error obteniendo grabaciones',
+      details: error.message
+    });
+  }
+});
+
+// Endpoint para descargar una grabación específica
+app.get('/api/download/:filename', (req, res) => {
+  try {
+    const { filename } = req.params;
+    
+    // Validar el nombre del archivo para evitar path traversal
+    if (!filename.endsWith('.mp3') || filename.includes('..')) {
+      return res.status(400).json({
+        error: 'Nombre de archivo inválido'
+      });
+    }
+    
+    const filePath = path.join(RECORDINGS_DIR, filename);
+    
+    // Verificar que el archivo existe
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: 'Archivo no encontrado'
+      });
+    }
+    
+    // Enviar el archivo
+    res.download(filePath, filename, (err) => {
+      if (err) {
+        console.error('❌ Error descargando archivo:', err);
+        res.status(500).json({
+          error: 'Error al descargar archivo'
+        });
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en endpoint de descarga:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
+  }
+});
+
 // Endpoint de estado
 app.get('/', (req, res) => {
   res.json({

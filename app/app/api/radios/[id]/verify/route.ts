@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 import { logger } from '@/lib/logger';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
 
@@ -23,47 +23,47 @@ export async function POST(
     const { id } = params;
 
     // Buscar la radio
-    const radio = await prisma.radio.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        streamUrl: true,
-        region: true,
-      },
-    });
+    const radios = await supabaseDirect.request(
+      `radios?select=id,name,stream_url,region&id=eq.${id}`
+    );
 
-    if (!radio) {
+    if (radios.length === 0) {
       return NextResponse.json(
         { success: false, error: 'Radio no encontrada' },
         { status: 404 }
       );
     }
 
+    const radio = radios[0];
+
     // Verificar el stream
     logger.info(`Manual verification requested for radio: ${radio.name} (${id})`);
-    const verification = await verifyStreamStatus(radio.streamUrl);
+    const verification = await verifyStreamStatus(radio.stream_url);
     logger.info(
       `Verification result for ${radio.name}: ${verification.status} - ${verification.details}`
     );
 
     // Actualizar la base de datos con el resultado
-    const updatedRadio = await prisma.radio.update({
-      where: { id },
-      data: {
-        lastVerificationStatus: verification.status,
-        lastVerifiedAt: new Date(),
-      },
+    const updatedRadios = await supabaseDirect.request(`radios?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        last_verification_status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
+        last_verified_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const updatedRadio = updatedRadios[0];
 
     return NextResponse.json({
       success: true,
       data: {
         radioId: id,
         radioName: radio.name,
-        status: verification.status,
+        status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
         details: verification.details,
-        verifiedAt: updatedRadio.lastVerifiedAt,
+        verifiedAt: updatedRadio.last_verified_at,
       },
     });
   } catch (error: any) {

@@ -70,9 +70,13 @@ export async function GET(request: NextRequest) {
         website: metadata.website || '',
         isActive: radio.status === 'ACTIVE',
         genre: radio.description || 'Música',
+        priority: radio.priority || 1,
+        costPerHour: radio.cost_per_hour || 0.0,
         lastMonitored: metadata.last_monitored || 'Nunca',
         lastVerificationStatus: radio.last_verification_status || null,
         lastVerifiedAt: radio.last_verified_at || null,
+        createdAt: radio.created_at,
+        updatedAt: radio.updated_at,
       };
     });
 
@@ -140,6 +144,8 @@ export async function POST(request: NextRequest) {
       region: validated.region,
       status: validated.isActive ? 'ACTIVE' : 'INACTIVE',
       description: validated.genre || 'Música',
+      priority: (validated as any).priority || 1,
+      cost_per_hour: (validated as any).costPerHour || 0.0,
       last_verification_status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
       last_verified_at: new Date().toISOString(),
       metadata,
@@ -166,9 +172,13 @@ export async function POST(request: NextRequest) {
       website: metadata.website,
       isActive: newRadio[0].status === 'ACTIVE',
       genre: newRadio[0].description,
+      priority: newRadio[0].priority,
+      costPerHour: newRadio[0].cost_per_hour,
       lastMonitored: (metadata as any).lastMonitored || 'Nunca',
       lastVerificationStatus: newRadio[0].last_verification_status,
       lastVerifiedAt: newRadio[0].last_verified_at,
+      createdAt: newRadio[0].created_at,
+      updatedAt: newRadio[0].updated_at,
     };
 
     return NextResponse.json({ success: true, data: transformedRadio }, { status: 201 });

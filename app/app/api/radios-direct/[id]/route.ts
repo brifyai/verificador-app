@@ -58,9 +58,13 @@ export async function GET(
       website: metadata.website || '',
       isActive: radio.status === 'ACTIVE',
       genre: radio.description || 'Música',
+      priority: radio.priority || 1,
+      costPerHour: radio.cost_per_hour || 0.0,
       lastMonitored: metadata.lastMonitored || 'Nunca',
       lastVerificationStatus: radio.last_verification_status || null,
       lastVerifiedAt: radio.last_verified_at || null,
+      createdAt: radio.created_at,
+      updatedAt: radio.updated_at,
     };
 
     return NextResponse.json({ success: true, data: transformedRadio });
@@ -125,10 +129,12 @@ export async function PUT(
       ...(validated.streamUrl && { stream_url: validated.streamUrl }),
       ...(validated.streamPlatform && { platform: mapPlatformToEnum(validated.streamPlatform) }),
       ...(validated.region && { region: validated.region }),
-      ...(validated.isActive !== undefined && { 
-        status: validated.isActive ? 'ACTIVE' : 'INACTIVE' 
+      ...(validated.isActive !== undefined && {
+        status: validated.isActive ? 'ACTIVE' : 'INACTIVE'
       }),
       ...(validated.genre && { description: validated.genre }),
+      ...((validated as any).priority && { priority: (validated as any).priority }),
+      ...((validated as any).costPerHour !== undefined && { cost_per_hour: (validated as any).costPerHour }),
       ...verificationData,
       metadata: {
         programadora: validated.programadora || existingMetadata.programadora || '',
@@ -166,9 +172,13 @@ export async function PUT(
       website: metadata.website || '',
       isActive: updatedRadio.status === 'ACTIVE',
       genre: updatedRadio.description || 'Música',
+      priority: updatedRadio.priority,
+      costPerHour: updatedRadio.cost_per_hour,
       lastMonitored: metadata.lastMonitored || 'Nunca',
       lastVerificationStatus: updatedRadio.last_verification_status,
       lastVerifiedAt: updatedRadio.last_verified_at,
+      createdAt: updatedRadio.created_at,
+      updatedAt: updatedRadio.updated_at,
     };
     
     return NextResponse.json({ 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { DatabaseRole } from '@/lib/types'
-import { prisma } from '@/lib/db'
+import { supabaseDirect } from '@/lib/supabase-direct'
 
 // Schema de validación para crear usuario
 const createUserSchema = z.object({
@@ -20,11 +20,9 @@ export async function POST(request: NextRequest) {
     const validatedData = createUserSchema.parse(body)
     
     // Verificar si el email ya existe
-    const existingUser = await prisma.user.findUnique({
-      where: { email: validatedData.email }
-    })
+    const existingUsers = await supabaseDirect.request(`users?select=*&email=eq.${validatedData.email}`)
     
-    if (existingUser) {
+    if (existingUsers.length > 0) {
       return NextResponse.json(
         { error: 'El email ya está registrado' },
         { status: 400 }
@@ -35,24 +33,35 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await bcrypt.hash(validatedData.password, 12)
     
     // Crear usuario
-    const user = await prisma.user.create({
-      data: {
-        name: validatedData.name,
-        email: validatedData.email,
-        password: hashedPassword,
-        role: validatedData.role as DatabaseRole
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        active: true,
-        createdAt: true
-      }
+    const userData = {
+      name: validatedData.name,
+      email: validatedData.email,
+      password: hashedPassword,
+      role: validatedData.role as DatabaseRole,
+      active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+
+    const newUsers = await supabaseDirect.request('users', {
+      method: 'POST',
+      body: JSON.stringify(userData),
+      headers: { 'Prefer': 'return=representation' }
     })
+
+    const user = newUsers[0]
     
-    return NextResponse.json(user, { status: 201 })
+    // Transformar respuesta para que coincida con el formato esperado
+    const transformedUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      active: user.active,
+      createdAt: user.created_at
+    }
+    
+    return NextResponse.json(transformedUser, { status: 201 })
     
   } catch (error) {
     console.error('Error creating user:', error)
@@ -73,22 +82,20 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    })
+    const users = await supabaseDirect.request('users?select=*&order=created_at.desc&limit=1000')
     
-    return NextResponse.json(users)
+    // Transformar respuesta para que coincida con el formato esperado
+    const transformedUsers = users.map((user: any) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      active: user.active,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at
+    }))
+    
+    return NextResponse.json(transformedUsers)
     
   } catch (error) {
     console.error('Error fetching users:', error)

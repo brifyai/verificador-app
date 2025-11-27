@@ -578,7 +578,7 @@ export default function ConfigurarAnalisisPage() {
               >
                 Seleccionar Mostradas
               </Button>
-              <Button size="sm" variant="destructive" onClick={deselectAllRadios}>
+              <Button size="sm" variant="destructive" onClick={deselectAllRadios} className="text-white">
                 Ninguna
               </Button>
             </div>
@@ -628,17 +628,16 @@ export default function ConfigurarAnalisisPage() {
 
               {/* Botón Limpiar Filtros */}
               <div className="flex items-end">
-                <Button
-                  variant="outline"
+                <button
                   onClick={() => {
                     setSearchTerm('');
                     setFilterRegion('all');
                   }}
-                  className="w-full border-slate-600 text-slate-300 hover:bg-slate-700"
+                  className="w-full h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-slate-600 border border-slate-600 hover:bg-slate-700 text-white"
                   disabled={searchTerm === '' && filterRegion === 'all'}
                 >
                   Limpiar Filtros
-                </Button>
+                </button>
               </div>
             </div>
           </div>
@@ -654,7 +653,7 @@ export default function ConfigurarAnalisisPage() {
                   setSearchTerm('');
                   setFilterRegion('all');
                 }}
-                className="border-slate-600 text-slate-300"
+                className="bg-slate-600 border-slate-600 !text-white hover:bg-slate-700 hover:text-white"
               >
                 Limpiar filtros
               </Button>
@@ -957,7 +956,7 @@ export default function ConfigurarAnalisisPage() {
       </Card>
 
       <div className="flex justify-end gap-4 pt-4">
-        <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-slate-300 hover:bg-slate-700">Cancelar</Button>
+        <Button variant="outline" onClick={() => router.back()} className="border-slate-600 text-black hover:bg-slate-700 hover:text-white">Cancelar</Button>
         <Button 
           onClick={handleValidateAndShowConfirm} 
           disabled={isSubmitting || selectedRadioIds.size === 0 || !selectedPhraseId || !selectedApiConfigId} 
@@ -1084,7 +1083,7 @@ export default function ConfigurarAnalisisPage() {
             <Button
               variant="outline"
               onClick={() => setShowConfirmModal(false)}
-              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+              className="border-slate-600 text-black hover:bg-slate-700 hover:text-white"
             >
               Volver a Editar
             </Button>
@@ -1285,7 +1284,7 @@ export default function ConfigurarAnalisisPage() {
                 setSelectedSession(null);
                 setSessionDetails(null);
               }}
-              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+              className="border-slate-600 text-black hover:bg-slate-700 hover:text-white"
             >
               Cerrar
             </Button>

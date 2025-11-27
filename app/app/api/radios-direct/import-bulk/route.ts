@@ -90,6 +90,8 @@ export async function POST(request: NextRequest) {
             stream_url: streamUrl,
             platform: mapPlatform(streamUrl),
             status: streamUrl ? 'ACTIVE' : 'INACTIVE',
+            priority: radio.priority || 1,
+            cost_per_hour: radio.costPerHour || 0.0,
             metadata,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -115,7 +117,7 @@ export async function POST(request: NextRequest) {
             });
             return { success: true, type: 'created', id: created[0].id };
           }
-        } catch (error) {
+        } catch (error: any) {
           logger.error(`Error procesando radio ${radio.name}:`, error);
           return { success: false, error: error.message, radio: radio.name };
         }

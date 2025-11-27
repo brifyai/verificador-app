@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 import { logger } from '@/lib/logger';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
-import { RadioStatus } from '@prisma/client';
 
 /**
  * POST /api/radios/verify-bulk
@@ -19,20 +18,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Obtener todas las radios activas
-    const radios = await prisma.radio.findMany({
-      where: {
-        status: RadioStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-        name: true,
-        streamUrl: true,
-        region: true,
-      },
-      orderBy: {
-        name: 'asc',
-      },
-    });
+    const radios = await supabaseDirect.request(
+      'radios?select=id,name,stream_url,region&status=eq.ACTIVE&order=name.asc'
+    );
 
     if (radios.length === 0) {
       return NextResponse.json({
@@ -59,17 +47,19 @@ export async function POST(request: NextRequest) {
       const batch = radios.slice(i, i + BATCH_SIZE);
       
       const batchResults = await Promise.all(
-        batch.map(async (radio) => {
+        batch.map(async (radio: any) => {
           try {
-            const verification = await verifyStreamStatus(radio.streamUrl);
+            const verification = await verifyStreamStatus(radio.stream_url);
             
             // Actualizar en la base de datos
-            await prisma.radio.update({
-              where: { id: radio.id },
-              data: {
-                lastVerificationStatus: verification.status,
-                lastVerifiedAt: new Date(),
-              },
+            await supabaseDirect.request(`radios?id=eq.${radio.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                last_verification_status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
+                last_verified_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }),
+              headers: { 'Prefer': 'return=representation' }
             });
 
             // Contar resultados
@@ -83,7 +73,7 @@ export async function POST(request: NextRequest) {
               radioId: radio.id,
               radioName: radio.name,
               region: radio.region,
-              status: verification.status,
+              status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
               details: verification.details,
             };
           } catch (error: any) {

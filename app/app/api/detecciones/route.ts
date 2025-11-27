@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,64 +25,94 @@ export async function GET(request: NextRequest) {
     const brand = searchParams.get('brand');
     const campaign = searchParams.get('campaign');
 
-    const where: any = {};
-
-    if (radioId) where.radioId = radioId;
-    if (phraseId) where.phraseId = phraseId;
+    // Construir query para Supabase
+    let query = `detections?select=*&order=timestamp.desc&limit=${limit}&offset=${skip}`;
+    
+    if (radioId) query += `&radio_id=eq.${radioId}`;
+    if (phraseId) query += `&phrase_id=eq.${phraseId}`;
     if (verified !== null && verified !== undefined) {
-      where.verified = verified === 'true';
+      query += `&verified=eq.${verified === 'true'}`;
     }
-    if (dateFrom || dateTo) {
-      where.timestamp = {};
-      if (dateFrom) where.timestamp.gte = new Date(dateFrom);
-      if (dateTo) where.timestamp.lte = new Date(dateTo);
-    }
+    if (dateFrom) query += `&timestamp=gte.${new Date(dateFrom).toISOString()}`;
+    if (dateTo) query += `&timestamp=lte.${new Date(dateTo).toISOString()}`;
+
+    // Para filtros de brand y campaign, necesitamos hacer join con phrases
+    let additionalFilters = '';
     if (brand || campaign) {
-      where.phrase = {};
-      if (brand) where.phrase.brand = { contains: brand, mode: 'insensitive' };
-      if (campaign) where.phrase.campaign = { contains: campaign, mode: 'insensitive' };
+      if (brand) additionalFilters += `&brand.ilike.*${brand}*`;
+      if (campaign) additionalFilters += `&campaign.ilike.*${campaign}*`;
     }
 
     // Obtener el total de registros para la paginación
-    const totalDetections = await prisma.detection.count({ where });
+    let countQuery = `detections?select=count${query.includes('?') ? query.split('?')[1] : ''}`;
+    const countResult = await supabaseDirect.request(countQuery);
+    const totalDetections = countResult[0]?.count || 0;
 
-    // Obtener las detecciones con relaciones
-    const detections = await prisma.detection.findMany({
-      where,
-      include: {
-        phrase: true,
-        radio: true,
-        capture: true,
-        session: true
-      },
-      orderBy: {
-        timestamp: 'desc'
-      },
-      skip,
-      take: limit
-    });
+    // Obtener las detecciones
+    const detections = await supabaseDirect.request(query);
+
+    // Obtener datos relacionados
+    const phraseIds = [...new Set(detections.map((d: any) => d.phrase_id).filter(Boolean))];
+    const radioIds = [...new Set(detections.map((d: any) => d.radio_id).filter(Boolean))];
+    const captureIds = [...new Set(detections.map((d: any) => d.capture_id).filter(Boolean))];
+    const sessionIds = [...new Set(detections.map((d: any) => d.session_id).filter(Boolean))];
+
+    const [phrases, radios, captures, sessions] = await Promise.all([
+      phraseIds.length > 0 ? supabaseDirect.request(`phrases?select=*&id=in.(${phraseIds.join(',')})`) : [],
+      radioIds.length > 0 ? supabaseDirect.request(`radios?select=*&id=in.(${radioIds.join(',')})`) : [],
+      captureIds.length > 0 ? supabaseDirect.request(`captures?select=*&id=in.(${captureIds.join(',')})`) : [],
+      sessionIds.length > 0 ? supabaseDirect.request(`sessions?select=*&id=in.(${sessionIds.join(',')})`) : []
+    ]);
+
+    // Aplicar filtros adicionales de brand/campaign si es necesario
+    let filteredDetections = detections;
+    if (brand || campaign) {
+      filteredDetections = detections.filter((detection: any) => {
+        const phrase = phrases.find((p: any) => p.id === detection.phrase_id);
+        if (!phrase) return false;
+        if (brand && !phrase.brand?.toLowerCase().includes(brand.toLowerCase())) return false;
+        if (campaign && !phrase.campaign?.toLowerCase().includes(campaign.toLowerCase())) return false;
+        return true;
+      });
+    }
+
+    // Enriquecer detecciones con datos relacionados
+    const enrichedDetections = filteredDetections.map((detection: any) => ({
+      ...detection,
+      phrase: phrases.find((p: any) => p.id === detection.phrase_id),
+      radio: radios.find((r: any) => r.id === detection.radio_id),
+      capture: captures.find((c: any) => c.id === detection.capture_id),
+      session: sessions.find((s: any) => s.id === detection.session_id)
+    }));
 
     // Transformar los datos al formato esperado por el frontend
-    const transformedDetections = detections.map((detection) => ({
-      id: detection.id,
-      date: detection.timestamp.toLocaleDateString('es-CL'),
-      time: detection.timestamp.toLocaleTimeString('es-CL'),
-      programadora: detection.radio?.metadata?.programadora || 'No especificada',
-      radio: detection.radio?.name || 'Radio desconocida',
-      region: detection.radio?.region || 'No especificada',
-      comuna: detection.radio?.metadata?.city || 'No especificada',
-      marca: detection.phrase?.brand || 'No especificada',
-      campaña: detection.phrase?.campaign || 'No especificada',
-      status: detection.verified ? 'Finalizada' : (detection.falsePositive ? 'Solucionado' : 'Pendiente'),
-      detectedText: detection.detectedText,
-      confidence: detection.confidence,
-      similarity: detection.similarity,
-      cost: detection.cost,
-      audioPath: detection.capture?.audioPath,
-      timestamp: detection.timestamp,
-      verified: detection.verified,
-      falsePositive: detection.falsePositive
-    }));
+    const transformedDetections = enrichedDetections.map((detection: any) => {
+      const radio = detection.radio;
+      const phrase = detection.phrase;
+      const capture = detection.capture;
+      const metadata = radio?.metadata || {};
+      
+      return {
+        id: detection.id,
+        date: new Date(detection.timestamp).toLocaleDateString('es-CL'),
+        time: new Date(detection.timestamp).toLocaleTimeString('es-CL'),
+        programadora: metadata.programadora || 'No especificada',
+        radio: radio?.name || 'Radio desconocida',
+        region: radio?.region || 'No especificada',
+        comuna: metadata.city || 'No especificada',
+        marca: phrase?.brand || 'No especificada',
+        campaña: phrase?.campaign || 'No especificada',
+        status: detection.verified ? 'Finalizada' : (detection.false_positive ? 'Solucionado' : 'Pendiente'),
+        detectedText: detection.detected_text,
+        confidence: detection.confidence,
+        similarity: detection.similarity,
+        cost: detection.cost,
+        audioPath: capture?.audio_path,
+        timestamp: detection.timestamp,
+        verified: detection.verified,
+        falsePositive: detection.false_positive
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -123,28 +153,44 @@ export async function POST(request: NextRequest) {
     }
 
     // Crear nueva detección
-    const newDetection = await prisma.detection.create({
-      data: {
-        phraseId: body.phraseId,
-        radioId: body.radioId,
-        sessionId: body.sessionId,
-        captureId: body.captureId,
-        detectedText: body.detectedText || '',
-        confidence: body.confidence || 0.75,
-        similarity: body.similarity || 0.8,
-        cost: body.cost || 0,
-        verified: body.verified || false,
-        falsePositive: body.falsePositive || false,
-        timestamp: body.timestamp ? new Date(body.timestamp) : new Date(),
-        metadata: body.metadata || {}
-      },
-      include: {
-        phrase: true,
-        radio: true,
-        capture: true,
-        session: true
-      }
+    const detectionData = {
+      phrase_id: body.phraseId,
+      radio_id: body.radioId,
+      session_id: body.sessionId,
+      capture_id: body.captureId,
+      detected_text: body.detectedText || '',
+      confidence: body.confidence || 0.75,
+      similarity: body.similarity || 0.8,
+      cost: body.cost || 0,
+      verified: body.verified || false,
+      false_positive: body.falsePositive || false,
+      timestamp: body.timestamp ? new Date(body.timestamp).toISOString() : new Date().toISOString(),
+      metadata: body.metadata || {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const newDetections = await supabaseDirect.request('detections', {
+      method: 'POST',
+      body: JSON.stringify(detectionData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const newDetection = newDetections[0];
+
+    // Obtener datos relacionados para la respuesta
+    const [phraseData, radioData, captureData, sessionData] = await Promise.all([
+      supabaseDirect.request(`phrases?select=*&id=eq.${body.phraseId}`),
+      supabaseDirect.request(`radios?select=*&id=eq.${body.radioId}`),
+      supabaseDirect.request(`captures?select=*&id=eq.${body.captureId}`),
+      supabaseDirect.request(`sessions?select=*&id=eq.${body.sessionId}`)
+    ]);
+
+    // Enriquecer la respuesta
+    newDetection.phrase = phraseData[0];
+    newDetection.radio = radioData[0];
+    newDetection.capture = captureData[0];
+    newDetection.session = sessionData[0];
 
     return NextResponse.json({ 
       success: true, 
@@ -177,25 +223,38 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Actualizar detección
-    const updatedDetection = await prisma.detection.update({
-      where: { id: body.id },
-      data: {
-        detectedText: body.detectedText,
-        confidence: body.confidence,
-        similarity: body.similarity,
-        cost: body.cost,
-        verified: body.verified,
-        falsePositive: body.falsePositive,
-        metadata: body.metadata
-      },
-      include: {
-        phrase: true,
-        radio: true,
-        capture: true,
-        session: true
-      }
+    const updateData = {
+      detected_text: body.detectedText,
+      confidence: body.confidence,
+      similarity: body.similarity,
+      cost: body.cost,
+      verified: body.verified,
+      false_positive: body.falsePositive,
+      metadata: body.metadata,
+      updated_at: new Date().toISOString()
+    };
+
+    const updatedDetections = await supabaseDirect.request(`detections?id=eq.${body.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updateData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const updatedDetection = updatedDetections[0];
+
+    // Obtener datos relacionados para la respuesta
+    const [phraseData, radioData, captureData, sessionData] = await Promise.all([
+      supabaseDirect.request(`phrases?select=*&id=eq.${updatedDetection.phrase_id}`),
+      supabaseDirect.request(`radios?select=*&id=eq.${updatedDetection.radio_id}`),
+      supabaseDirect.request(`captures?select=*&id=eq.${updatedDetection.capture_id}`),
+      supabaseDirect.request(`sessions?select=*&id=eq.${updatedDetection.session_id}`)
+    ]);
+
+    // Enriquecer la respuesta
+    updatedDetection.phrase = phraseData[0];
+    updatedDetection.radio = radioData[0];
+    updatedDetection.capture = captureData[0];
+    updatedDetection.session = sessionData[0];
 
     return NextResponse.json({ 
       success: true, 
@@ -229,7 +288,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await prisma.detection.delete({ where: { id } });
+    await supabaseDirect.request(`detections?id=eq.${id}`, {
+      method: 'DELETE'
+    });
 
     return NextResponse.json({ 
       success: true, 

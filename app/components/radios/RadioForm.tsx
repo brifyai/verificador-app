@@ -65,7 +65,7 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
   const isEditing = !!radio;
   const toast = useEnhancedToast();
   
-  const [formData, setFormData] = useState<Omit<Radio, 'id'>>({
+  const [formData, setFormData] = useState<Omit<Radio, 'id'> & { priority?: number; costPerHour?: number }>({
     name: radio?.name || '',
     programadora: radio?.programadora || '',
     frequency: radio?.frequency || '',
@@ -77,7 +77,9 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
     website: radio?.website || '',
     isActive: radio?.isActive ?? true,
     genre: radio?.genre || 'Música',
-    lastMonitored: radio?.lastMonitored || 'Nunca'
+    lastMonitored: radio?.lastMonitored || 'Nunca',
+    priority: (radio as any)?.priority || 1,
+    costPerHour: (radio as any)?.costPerHour || 0.0
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -142,6 +144,8 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
         frequency: formData.frequency,
         city: formData.city,
         website: formData.website,
+        priority: formData.priority,
+        costPerHour: formData.costPerHour,
       };
       
       onSubmit(radioData);
@@ -279,6 +283,37 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
             className="bg-gray-800 border-gray-700 text-white"
             required
           />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="priority" className="text-white">Prioridad (1-10)</Label>
+          <Input
+            id="priority"
+            type="number"
+            min="1"
+            max="10"
+            placeholder="1"
+            value={formData.priority}
+            onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 1 }))}
+            className="bg-gray-800 border-gray-700 text-white"
+          />
+          <p className="text-xs text-gray-400">Mayor número = mayor prioridad en el monitoreo</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="costPerHour" className="text-white">Costo por Hora (USD)</Label>
+          <Input
+            id="costPerHour"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="0.00"
+            value={formData.costPerHour}
+            onChange={(e) => setFormData(prev => ({ ...prev, costPerHour: parseFloat(e.target.value) || 0.0 }))}
+            className="bg-gray-800 border-gray-700 text-white"
+          />
+          <p className="text-xs text-gray-400">Costo operativo por hora de monitoreo</p>
         </div>
       </div>
 

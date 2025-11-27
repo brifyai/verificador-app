@@ -127,7 +127,7 @@ export default function Dashboard() {
             onClick={fetchStats}
             variant="outline"
             size="sm"
-            className="border-slate-600 text-slate-300"
+            className="border-slate-600 bg-white text-black hover:bg-slate-100"
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar

@@ -3,19 +3,20 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  BarChart3, 
-  MessageSquare, 
-  CheckCircle, 
-  Brain, 
-  Users, 
+import {
+  BarChart3,
+  MessageSquare,
+  CheckCircle,
+  Brain,
+  Users,
   Menu,
   X,
   Radio,
   Activity,
   Settings,
   FileAudio,
-  User
+  User,
+  Download
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ const navigation: NavigationItem[] = [
   { name: 'Reportes', href: '/reportes', icon: BarChart3, roles: ['USER', 'MODERATOR', 'ADMIN'] },
   { name: 'Mis Frases', href: '/frases', icon: MessageSquare, roles: ['USER', 'MODERATOR', 'ADMIN'] },
   { name: 'Radios', href: '/radios', icon: Radio, roles: ['USER', 'MODERATOR', 'ADMIN'] },
+  { name: 'Grabaciones', href: '/grabaciones', icon: Download, roles: ['USER', 'MODERATOR', 'ADMIN'] },
   { name: 'Audios', href: '/audios', icon: FileAudio, roles: ['USER', 'MODERATOR', 'ADMIN'] },
   { name: 'Monitoreo', href: '/monitoreo', icon: Activity, roles: ['USER', 'MODERATOR', 'ADMIN'] },
   { name: 'Verificación', href: '/verificacion', icon: CheckCircle, roles: ['USER', 'MODERATOR', 'ADMIN'] },

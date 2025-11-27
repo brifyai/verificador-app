@@ -1,29 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 import { authOptions } from '@/lib/auth';
 import { getServerSession } from 'next-auth';
-import { Platform, RadioStatus } from '@prisma/client';
 import { logger } from '@/lib/logger';
 import { RadioUpdateSchema } from '@/lib/schemas/radio.schema';
 import { z } from 'zod';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
 
-// Función auxiliar (sin cambios, solo la movemos arriba por convención)
-const mapPlatformToEnum = (platform: string): Platform => {
-  const platformMap: Record<string, Platform> = {
-    youtube: Platform.YOUTUBE,
-    twitch: Platform.TWITCH,
-    facebook: Platform.FACEBOOK,
-    icecast: Platform.ICECAST,
-    shoutcast: Platform.ICECAST,
-    direct: Platform.HTTP_STREAM,
-    http: Platform.HTTP_STREAM,
-    rtmp: Platform.RTMP,
-    centova: Platform.ICECAST,
-    sonicpanel: Platform.ICECAST,
-    azuracast: Platform.ICECAST,
+// Función auxiliar para mapear plataformas a valores del enum de Supabase
+const mapPlatformToEnum = (platform: string): string => {
+  const platformMap: Record<string, string> = {
+    youtube: 'YOUTUBE',
+    twitch: 'TWITCH',
+    facebook: 'FACEBOOK',
+    icecast: 'ICECAST',
+    shoutcast: 'SHOUTCAST',
+    direct: 'HTTP_STREAM',
+    http: 'HTTP_STREAM',
+    rtmp: 'RTMP',
+    centova: 'ICECAST',
+    sonicpanel: 'ICECAST',
+    azuracast: 'ICECAST',
   };
-  return platformMap[platform.toLowerCase()] || Platform.OTHER;
+  return platformMap[platform.toLowerCase()] || 'OTHER';
 };
 
 
@@ -56,47 +55,55 @@ export async function PUT(
     const validated = validationResult.data;
 
     // Verificar que la radio existe
-    const existingRadio = await prisma.radio.findUnique({ where: { id } });
-    if (!existingRadio) {
+    const existingRadios = await supabaseDirect.request(`radios?select=*&id=eq.${id}`);
+    if (existingRadios.length === 0) {
       return NextResponse.json({ success: false, error: 'Radio no encontrada' }, { status: 404 });
     }
+    
+    const existingRadio = existingRadios[0];
 
     // 2. Verificar el stream SOLO si la URL cambió
     let verificationData = {};
-    if (validated.streamUrl && validated.streamUrl !== existingRadio.streamUrl) {
+    if (validated.streamUrl && validated.streamUrl !== existingRadio.stream_url) {
       const verification = await verifyStreamStatus(validated.streamUrl);
       logger.info(`Stream verification for ${validated.name || existingRadio.name}: ${verification.status} - ${verification.details}`);
       verificationData = {
-        lastVerificationStatus: verification.status,
-        lastVerifiedAt: new Date(),
+        last_verification_status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
+        last_verified_at: new Date().toISOString(),
       };
     }
 
     // 3. Actualizar radio con datos validados
     const existingMetadata = existingRadio.metadata as Record<string, any> || {};
     
-    const updatedRadio = await prisma.radio.update({
-      where: { id },
-      data: {
-        ...(validated.name && { name: validated.name }),
-        ...(validated.streamUrl && { streamUrl: validated.streamUrl }),
-        ...(validated.streamPlatform && { platform: mapPlatformToEnum(validated.streamPlatform) }),
-        ...(validated.region && { region: validated.region }),
-        ...(validated.isActive !== undefined && { 
-          status: validated.isActive ? RadioStatus.ACTIVE : RadioStatus.INACTIVE 
-        }),
-        ...(validated.genre && { description: validated.genre }),
-        ...verificationData,
-        metadata: {
-          programadora: validated.programadora || existingMetadata.programadora || '',
-          frequency: validated.frequency || existingMetadata.frequency || '',
-          city: validated.city || existingMetadata.city || '',
-          website: validated.website || existingMetadata.website || '',
-          streamPlatform: validated.streamPlatform || existingMetadata.streamPlatform || 'direct',
-          lastMonitored: validated.lastMonitored || existingMetadata.lastMonitored || 'Nunca',
-        },
+    const updateData = {
+      ...(validated.name && { name: validated.name }),
+      ...(validated.streamUrl && { stream_url: validated.streamUrl }),
+      ...(validated.streamPlatform && { platform: mapPlatformToEnum(validated.streamPlatform) }),
+      ...(validated.region && { region: validated.region }),
+      ...(validated.isActive !== undefined && {
+        status: validated.isActive ? 'ACTIVE' : 'INACTIVE'
+      }),
+      ...(validated.genre && { description: validated.genre }),
+      ...verificationData,
+      metadata: {
+        programadora: validated.programadora || existingMetadata.programadora || '',
+        frequency: validated.frequency || existingMetadata.frequency || '',
+        city: validated.city || existingMetadata.city || '',
+        website: validated.website || existingMetadata.website || '',
+        streamPlatform: validated.streamPlatform || existingMetadata.streamPlatform || 'direct',
+        lastMonitored: validated.lastMonitored || existingMetadata.lastMonitored || 'Nunca',
       },
+      updated_at: new Date().toISOString()
+    };
+
+    const updatedRadios = await supabaseDirect.request(`radios?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updateData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const updatedRadio = updatedRadios[0];
 
     // 4. DEVOLVEMOS EL OBJETO REAL DE LA BASE DE DATOS
     // Es más consistente y predecible. El frontend puede adaptarlo si es necesario.
@@ -106,16 +113,16 @@ export async function PUT(
       name: updatedRadio.name,
       programadora: metadata.programadora || '',
       frequency: metadata.frequency || '',
-      streamUrl: updatedRadio.streamUrl,
+      streamUrl: updatedRadio.stream_url,
       streamPlatform: metadata.streamPlatform || updatedRadio.platform.toLowerCase(),
       region: updatedRadio.region,
       city: metadata.city || '',
       website: metadata.website || '',
-      isActive: updatedRadio.status === RadioStatus.ACTIVE,
+      isActive: updatedRadio.status === 'ACTIVE',
       genre: updatedRadio.description || 'Música',
       lastMonitored: metadata.lastMonitored || 'Nunca',
-      lastVerificationStatus: updatedRadio.lastVerificationStatus,
-      lastVerifiedAt: updatedRadio.lastVerifiedAt,
+      lastVerificationStatus: updatedRadio.last_verification_status,
+      lastVerifiedAt: updatedRadio.last_verified_at,
     };
     
     return NextResponse.json({ 
@@ -144,14 +151,16 @@ export async function DELETE(
 
     const { id } = params;
 
-    // Tu lógica de validación de existencia ya es correcta.
-    const existingRadio = await prisma.radio.findUnique({ where: { id } });
-    if (!existingRadio) {
+    // Verificar que la radio existe
+    const existingRadios = await supabaseDirect.request(`radios?select=*&id=eq.${id}`);
+    if (existingRadios.length === 0) {
       return NextResponse.json({ success: false, error: 'Radio no encontrada' }, { status: 404 });
     }
 
     // 2. ELIMINAMOS LA RADIO
-    await prisma.radio.delete({ where: { id } });
+    await supabaseDirect.request(`radios?id=eq.${id}`, {
+      method: 'DELETE'
+    });
     return NextResponse.json({ 
       success: true, 
       message: 'Radio eliminada exitosamente' 
@@ -159,7 +168,7 @@ export async function DELETE(
   } catch (error: any) {
     logger.error('Error eliminando radio:', error);
     // Manejo de error por si la radio tiene relaciones que impiden borrarla
-    if (error?.code === 'P2003') {
+    if (error.message?.includes('foreign key constraint') || error.message?.includes('violates foreign key')) {
         return NextResponse.json({ success: false, error: 'No se puede eliminar la radio porque tiene sesiones de monitoreo asociadas.' }, { status: 409 });
     }
     return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });

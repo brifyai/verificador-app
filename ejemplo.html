@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Grabador de Radio</title>
+    <style>
+        .radio-item, .recording-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .status-recording { color: green; font-weight: bold; }
+        .status-paused { color: orange; font-weight: bold; }
+        .status-stopped { color: red; font-weight: bold; }
+        button { margin: 5px; padding: 8px 15px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>🎙️ Grabador de Radios</h1>
+    
+    <div id="radios-container">
+        <h2>📻 Radios Disponibles</h2>
+    </div>
+    
+    <div id="recordings-container">
+        <h2>📁 Grabaciones</h2>
+    </div>
+
+    <script src="radio-api-client.js"></script>
+</body>
+</html>

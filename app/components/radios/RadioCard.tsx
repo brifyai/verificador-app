@@ -7,9 +7,16 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Radio } from '@/lib/mock-data';
 import { MONITORING_CAPABILITIES } from '@/lib/streaming-platforms';
-import { 
-  Play, Pause, Edit, Trash2, Globe, MapPin, Zap, Clock, 
-  Volume2, Settings, DollarSign, Loader, RefreshCw 
+import { recordingService } from '@/lib/recording-service';
+import { streamVerifierVPS } from '@/lib/stream-verifier-vps';
+import { streamVerifierBrowser } from '@/lib/stream-verifier-browser';
+import { streamVerifierCombined } from '@/lib/stream-verifier-combined';
+import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
+import { fixVpsTimezone } from '@/lib/timer-fix-improved';
+import { useState, useEffect } from 'react';
+import {
+  Play, Pause, Edit, Trash2, Globe, MapPin, Zap, Clock,
+  Volume2, Settings, DollarSign, Loader, RefreshCw, Circle, Square
 } from 'lucide-react';
 
 interface RadioCardProps {
@@ -39,6 +46,399 @@ export function RadioCard({
   getPlatformIcon,
   getPlatformName,
 }: RadioCardProps) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingLoading, setRecordingLoading] = useState(false);
+  const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState('00:00');
+  const [streamStatus, setStreamStatus] = useState<'checking' | 'online' | 'offline' | 'error' | null>(null);
+  const [lastRecordingStart, setLastRecordingStart] = useState<Date | null>(null);
+  const toast = useEnhancedToast();
+
+  // Verificar estado de grabación al montar
+  useEffect(() => {
+    checkRecordingStatus();
+  }, [radio.id]);
+
+  // Verificar streaming cuando se reproduce
+  useEffect(() => {
+    if (isPlaying && radio.isActive) {
+      verifyStreamStatus();
+    }
+  }, [isPlaying, radio.isActive, radio.id]);
+
+  // Temporizador para actualizar duración de grabación
+  useEffect(() => {
+    console.log('⏰ Temporizador useEffect ejecutado:', {
+      isRecording,
+      recordingStartTime,
+      hasStartTime: !!recordingStartTime
+    });
+
+    let interval: NodeJS.Timeout;
+    
+    if (isRecording && recordingStartTime) {
+      console.log('⏰ Iniciando temporizador con startTime:', recordingStartTime);
+      
+      // Actualizar inmediatamente antes de iniciar el intervalo
+      const updateDuration = () => {
+        const now = new Date();
+        let diff = now.getTime() - recordingStartTime.getTime();
+        
+        console.log('⏰ DEBUG Temporizador:', {
+          now: now.toISOString(),
+          nowTime: now.getTime(),
+          recordingStartTime: recordingStartTime.toISOString(),
+          recordingStartTimeTime: recordingStartTime.getTime(),
+          diff: diff,
+          diffSeconds: diff / 1000
+        });
+        
+        // SOLUCIÓN MEJORADA: Ser más permisivo con los desfases
+        
+        // Caso 1: Solo corregir diferencias MUY negativas (más de 30 segundos en el futuro)
+        if (diff < -30000) {
+          console.warn('⚠️ Diferencia MUY negativa detectada (>30s):', diff);
+          console.log('🔧 Usando tiempo actual del navegador');
+          // Crear un nuevo tiempo de inicio basado en el tiempo actual
+          const correctedStartTime = new Date(now.getTime() - 1000); // 1 segundo atrás para que empiece en 00:01
+          setRecordingStartTime(correctedStartTime);
+          diff = 1000; // 1 segundo de diferencia
+        }
+        // Caso 2: Pequeñas diferencias negativas (hasta 30 segundos) - PERMITIR que avancen
+        else if (diff < 0 && diff >= -30000) {
+          console.log('ℹ️ Pequeña diferencia negativa permitida:', diff);
+          // Convertir a positivo para que el tiempo avance desde 0
+          diff = Math.abs(diff);
+          console.log('🔧 Convertido a positivo:', diff);
+        }
+        // Caso 3: Diferencias normales (positivas) - procesar normalmente
+        else if (diff >= 0) {
+          console.log('✅ Diferencia normal, procesando:', diff);
+          // No hacer nada, procesar normalmente
+        }
+        
+        // Caso 4: Diferencia demasiado grande (más de 24 horas) - limitar
+        if (diff > 24 * 60 * 60 * 1000) {
+          console.warn('⚠️ Diferencia demasiado grande (>24h), limitando a 24h');
+          diff = 24 * 60 * 60 * 1000;
+        }
+        
+        const minutes = Math.floor(diff / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        const newDuration = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        console.log('⏰ Actualizando duración:', newDuration, { now, diff, minutes, seconds });
+        setRecordingDuration(newDuration);
+      };
+
+      // Actualizar inmediatamente
+      updateDuration();
+      
+      // Luego iniciar el intervalo
+      interval = setInterval(updateDuration, 1000);
+      
+      console.log('⏰ Temporizador iniciado con intervalo de 1 segundo');
+    } else {
+      console.log('⏰ Temporizador detenido o condiciones no cumplidas');
+      setRecordingDuration('00:00');
+    }
+    
+    return () => {
+      if (interval) {
+        console.log('⏰ Limpiando temporizador');
+        clearInterval(interval);
+      }
+    };
+  }, [isRecording, recordingStartTime]);
+
+  const handleStopRecording = async () => {
+    if (!isRecording) return;
+    
+    setRecordingLoading(true);
+    try {
+      const result = await recordingService.stopRecording(radio.id);
+      
+      if (result.status === 'success') {
+        setIsRecording(false);
+        setRecordingStartTime(null);
+        setRecordingDuration('00:00');
+        toast.success('⏹️ Grabación detenida');
+      } else {
+        toast.error(`Error al detener grabación: ${result.message}`);
+      }
+    } catch (error) {
+      toast.error('Error al detener grabación');
+      console.error('Error:', error);
+    } finally {
+      setRecordingLoading(false);
+    }
+  };
+
+  // Detener grabación cuando la radio se desactiva
+  useEffect(() => {
+    if (!radio.isActive && isRecording) {
+      handleStopRecording();
+    }
+  }, [radio.isActive, isRecording]);
+
+  const verifyStreamStatus = async () => {
+    if (!radio.streamUrl) {
+      console.log('⚠️ Radio sin URL de stream:', radio.id);
+      setStreamStatus('error');
+      return;
+    }
+
+    console.log('🔍 Verificando streaming para radio:', radio.id);
+    setStreamStatus('checking');
+
+    try {
+      const response = await fetch(`/api/radios/${radio.id}/verify-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+      console.log('🔍 Resultado de verificación de streaming:', result);
+
+      if (result.success) {
+        setStreamStatus('online');
+        toast.success(`✅ Streaming funcionando: ${result.data.details}`);
+      } else {
+        setStreamStatus('offline');
+        toast.warning(`⚠️ Streaming no disponible: ${result.details || result.error}`);
+      }
+    } catch (error) {
+      console.error('❌ Error verificando streaming:', error);
+      setStreamStatus('error');
+      toast.error('Error al verificar el streaming');
+    }
+  };
+
+  const checkRecordingStatus = async () => {
+    console.log('🔍 Verificando estado de grabación para radio:', radio.id);
+    
+    try {
+      const result = await recordingService.getActiveRecordings();
+      console.log('🔍 Resultado de grabaciones activas:', result);
+      
+      const status = recordingService.isRecording(radio.id);
+      const recordingData = recordingService.getRecordingStatus(radio.id);
+      
+      console.log('🔍 Estado de grabación para esta radio:', {
+        radioId: radio.id,
+        isRecording: status,
+        recordingData: recordingData,
+        allRecordings: recordingService.getLocalRecordingState()
+      });
+      
+      setIsRecording(status);
+      
+      if (status && recordingData?.startTime) {
+        console.log('🔍 Estableciendo tiempo de inicio:', recordingData.startTime);
+        console.log('🔍 Tipo de startTime:', typeof recordingData.startTime);
+        console.log('🔍 Valor de startTime:', recordingData.startTime);
+        
+        // Asegurarse de que sea un objeto Date válido
+        let startTimeDate: Date;
+        if (recordingData.startTime instanceof Date) {
+          startTimeDate = recordingData.startTime;
+        } else if (typeof recordingData.startTime === 'string') {
+          // CORRECCIÓN: Aplicar fix de zona horaria para el VPS
+          startTimeDate = fixVpsTimezone(recordingData.startTime);
+        } else if (typeof recordingData.startTime === 'number') {
+          startTimeDate = new Date(recordingData.startTime);
+        } else {
+          console.warn('⚠️ Tipo de startTime no reconocido, usando fecha actual');
+          startTimeDate = new Date();
+        }
+        
+        console.log('🔍 Fecha final establecida:', startTimeDate.toISOString());
+        setRecordingStartTime(startTimeDate);
+      } else {
+        // IMPORTANTE: No limpiar si acabamos de iniciar grabación recientemente
+        const timeSinceLastStart = lastRecordingStart ? new Date().getTime() - lastRecordingStart.getTime() : Infinity;
+        const isRecentStart = timeSinceLastStart < 5000; // 5 segundos
+        
+        if (!isRecentStart) {
+          console.log('🔍 Limpiando tiempo de inicio (no es inicio reciente)');
+          setRecordingStartTime(null);
+          setRecordingDuration('00:00');
+        } else {
+          console.log('🔍 Manteniendo tiempo de inicio (inicio reciente detectado)');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error verificando estado de grabación:', error);
+    }
+  };
+
+  // Detener grabación cuando la radio se desactiva
+  useEffect(() => {
+    if (!radio.isActive && isRecording) {
+      handleStopRecording();
+    }
+  }, [radio.isActive, isRecording]);
+
+  const handlePlayWithRecording = async () => {
+    console.log('🎯 === INICIO handlePlayWithRecording ===');
+    console.log('🎵 Botón Escuchar presionado:', {
+      radioId: radio.id,
+      radioName: radio.name,
+      isActive: radio.isActive,
+      isRecording,
+      isPlaying,
+      streamStatus,
+      hasStreamUrl: !!radio.streamUrl,
+      streamUrl: radio.streamUrl,
+      timestamp: new Date().toISOString(),
+      recordingServiceAvailable: !!recordingService,
+      streamVerifierAvailable: !!streamVerifierVPS,
+      onPlayAvailable: !!onPlay,
+      onPlayFunction: typeof onPlay,
+      onPlayToString: onPlay.toString()
+    });
+
+    try {
+      // Separar lógica de audio y grabación para evitar que errores de audio afecten la grabación
+      // 1. Iniciar reproducción de audio (esto puede fallar pero no debe afectar la grabación)
+      try {
+        console.log('🎵 Iniciando reproducción local...');
+        console.log('🎵 Llamando a onPlay() con radio:', radio);
+        onPlay();
+        console.log('✅ Reproducción local iniciada');
+      } catch (audioError) {
+        console.warn('⚠️ Error en reproducción de audio (no afecta grabación):', audioError);
+        // No detener el flujo por error de audio, solo notificar
+        toast.warning(`Audio no disponible, pero la grabación puede funcionar: ${radio.name}`);
+      }
+      
+      // 2. Manejar grabación (independiente de la reproducción de audio)
+      if (radio.isActive && !isRecording) {
+        console.log('🔍 Condiciones para grabar cumplidas, procediendo...');
+        setRecordingLoading(true);
+        
+        // Verificar el streaming primero
+        console.log('🔍 Verificando streaming antes de grabar...');
+        console.log('🔍 Llamando a streamVerifierCombined.verifyStreamWithFallback con:', {
+          radioId: radio.id,
+          streamUrl: radio.streamUrl,
+          radioName: radio.name
+        });
+        
+        let verificationResult;
+        
+        try {
+          // Usar el verificador combinado (VPS + navegador + fallback)
+          verificationResult = await streamVerifierCombined.verifyStreamWithFallback(
+            radio.id,
+            radio.streamUrl,
+            radio.name
+          );
+          
+          console.log('✅ Verificación combinada exitosa');
+          console.log('📊 Método usado:', verificationResult.method);
+          console.log('📊 Resultado:', verificationResult.status);
+          
+        } catch (error) {
+          console.error('❌ Falló verificación combinada:', error);
+          
+          // Si todo falla, permitir grabación con advertencia
+          verificationResult = {
+            status: 'ONLINE' as const,
+            details: 'No se pudo verificar técnincamente, pero se permite grabación',
+            responseTime: 0,
+            method: 'FALLBACK' as const
+          };
+          
+          console.log('⚠️ Usando modo fallback por seguridad');
+          toast.warning('No se pudo verificar el streaming, pero se iniciará la grabación');
+        }
+        
+        console.log('🔍 Resultado de verificación de streaming:', verificationResult);
+        
+        if (verificationResult.status === 'ONLINE') {
+          console.log('✅ Streaming verificado, iniciando grabación...');
+          
+          // Mostrar mensaje amigable al usuario
+          const userMessage = streamVerifierCombined.getUserFriendlyMessage(verificationResult);
+          toast.info(userMessage);
+          
+          // Si el streaming está online, iniciar grabación
+          console.log('🔍 Llamando a recordingService.startRecording con:', {
+            radioId: radio.id,
+            radioName: radio.name
+          });
+          
+          const result = await recordingService.startRecording(radio.id, radio.name);
+          
+          console.log('🔴 Resultado de grabación:', result);
+          
+          if (result.status === 'success') {
+            console.log('✅ Grabación iniciada exitosamente');
+            setIsRecording(true);
+            
+            // ESTABLECER TIEMPO DE INICIO CORRECTO DESDE LA RESPUESTA
+            if (result.start_time) {
+              const startTime = new Date(result.start_time);
+              console.log('⏰ Estableciendo tiempo de inicio desde respuesta:', startTime.toISOString());
+              setRecordingStartTime(startTime);
+              setLastRecordingStart(startTime);
+            } else {
+              // Fallback a tiempo actual si no hay start_time
+              const now = new Date();
+              console.log('⏰ Usando tiempo actual como fallback');
+              setRecordingStartTime(now);
+              setLastRecordingStart(now);
+            }
+            
+            // Forzar actualización del estado después de un delay para sincronizar con servidor
+            setTimeout(() => {
+              console.log('🔄 Forzando actualización de estado después de inicio');
+              checkRecordingStatus();
+            }, 2000);
+            
+            toast.success(`🔴 Grabación iniciada: ${radio.name}`);
+          } else {
+            console.log('❌ Error al iniciar grabación:', result.message);
+            toast.error(`Error al iniciar grabación: ${result.message}`);
+          }
+        } else {
+          console.log('❌ Streaming no disponible:', verificationResult.details);
+          toast.error(`Streaming no disponible: ${verificationResult.details}`);
+        }
+        
+        setRecordingLoading(false);
+      } else if (isRecording) {
+        // Si ya está grabando, detener la grabación
+        console.log('⏹️ Deteniendo grabación...');
+        setRecordingLoading(true);
+        
+        console.log('🔍 Llamando a recordingService.stopRecording con:', {
+          radioId: radio.id
+        });
+        
+        const result = await recordingService.stopRecording(radio.id);
+        
+        console.log('⏹️ Resultado de detener grabación:', result);
+        
+        if (result.status === 'success') {
+          console.log('✅ Grabación detenida exitosamente');
+          setIsRecording(false);
+          toast.success('⏹️ Grabación detenida');
+        } else {
+          console.log('❌ Error al detener grabación:', result.message);
+          toast.error(`Error al detener grabación: ${result.message}`);
+        }
+        setRecordingLoading(false);
+      } else {
+        console.log('ℹ️ No se puede grabar: radio inactiva o ya grabando');
+      }
+    } catch (error) {
+      console.error('💥 Error en handlePlayWithRecording:', error);
+      console.error('💥 Stack del error:', error instanceof Error ? error.stack : 'Sin stack trace');
+      toast.error('Error al controlar grabación');
+      setRecordingLoading(false);
+    }
+  };
   return (
     <Card 
       className={`bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 ${
@@ -106,6 +506,18 @@ export function RadioCard({
           </div>
         </div>
         
+        {/* Información adicional - Priority y Costo */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center space-x-2 bg-gray-700/30 rounded-lg px-3 py-2">
+            <span className="text-xs text-gray-400 font-medium">Prioridad:</span>
+            <span className="text-white font-medium">{(radio as any).priority || 1}</span>
+          </div>
+          <div className="flex items-center space-x-2 bg-gray-700/30 rounded-lg px-3 py-2">
+            <DollarSign className="h-4 w-4 text-green-400" />
+            <span className="text-white font-medium">${((radio as any).costPerHour || 0).toFixed(2)}/hr</span>
+          </div>
+        </div>
+        
         {/* Género y plataforma */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -128,6 +540,27 @@ export function RadioCard({
             </a>
           )}
         </div>
+        
+        {/* Estado del streaming */}
+        {streamStatus && (
+          <div className={`flex items-center space-x-2 text-sm rounded-lg px-3 py-2 ${
+            streamStatus === 'online' ? 'bg-green-500/20 text-green-400' :
+            streamStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
+            streamStatus === 'checking' ? 'bg-yellow-500/20 text-yellow-400' :
+            'bg-gray-500/20 text-gray-400'
+          }`}>
+            {streamStatus === 'checking' && <Loader className="h-3 w-3 animate-spin" />}
+            {streamStatus === 'online' && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+            {streamStatus === 'offline' && <div className="w-2 h-2 bg-red-500 rounded-full" />}
+            {streamStatus === 'error' && <div className="w-2 h-2 bg-gray-500 rounded-full" />}
+            <span className="capitalize">
+              {streamStatus === 'checking' ? 'Verificando streaming...' :
+               streamStatus === 'online' ? 'Streaming online' :
+               streamStatus === 'offline' ? 'Streaming offline' :
+               'Error en streaming'}
+            </span>
+          </div>
+        )}
         
         {/* Último monitoreo y verificación */}
         <div className="space-y-2">
@@ -163,28 +596,42 @@ export function RadioCard({
           <Button
             size="sm"
             variant={isPlaying ? "default" : "outline"}
-            onClick={onPlay}
+            onClick={handlePlayWithRecording}
             className={`${
-              isPlaying 
-                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-lg" 
+              isPlaying
+                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
                 : "bg-blue-500/20 text-white hover:bg-blue-600/10 hover:text-white"
             } transition-all duration-200`}
-            disabled={!radio.isActive || isLoading}
+            disabled={!radio.isActive || isLoading || recordingLoading}
           >
-            {isLoading ? (
+            {isLoading || recordingLoading ? (
               <>
                 <Loader className="h-4 w-4 mr-2 animate-spin" />
-                Cargando...
+                {recordingLoading ? 'Procesando...' : 'Cargando...'}
               </>
             ) : isPlaying ? (
               <>
-                <Pause className="h-4 w-4 mr-2" />
-                Detener
+                <Square className="h-4 w-4 mr-2" />
+                {isRecording ? 'Detener Grabación' : 'Detener'}
               </>
             ) : (
               <>
-                <Play className="h-4 w-4 mr-2" />
-                Escuchar
+                {isRecording ? (
+                  <>
+                    <Circle className="h-4 w-4 mr-2 text-red-500 animate-pulse" />
+                    <span className="flex items-center space-x-1">
+                      <span>Grabando</span>
+                      <span className="text-xs bg-red-500/20 px-1 rounded font-mono">
+                        {recordingDuration}
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Escuchar
+                  </>
+                )}
               </>
             )}
           </Button>

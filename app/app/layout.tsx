@@ -5,6 +5,7 @@ import './globals.css';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { SessionProvider } from '@/components/session-provider';
+import { AuthProvider } from '@/lib/auth-context';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -22,7 +23,9 @@ export default function RootLayout({
     <html lang="es">
       <body className={inter.className}>
         <SessionProvider>
-          {children}
+          <AuthProvider>
+            {children}
+          </AuthProvider>
         </SessionProvider>
         <ToastContainer
           position="top-center"

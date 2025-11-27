@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { Platform, RadioStatus, Prisma } from '@prisma/client';
+import { supabaseDirect } from '@/lib/supabase-direct';
 import { RadioImportSchema } from '@/lib/schemas/radio.schema';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
@@ -25,19 +24,22 @@ type RadioImportData = {
 // Esta función ya estaba bien, pero la mejoramos un poco.
 export async function GET() {
   try {
-    const totalRadios = await prisma.radio.count();
-    const activeRadios = await prisma.radio.count({ where: { status: 'ACTIVE' } });
+    const [totalResult, activeResult, regionsResult] = await Promise.all([
+      supabaseDirect.request('radios?select=count'),
+      supabaseDirect.request('radios?select=count&status=eq.ACTIVE'),
+      supabaseDirect.request('radios?select=region')
+    ]);
+
+    const totalRadios = totalResult[0]?.count || 0;
+    const activeRadios = activeResult[0]?.count || 0;
     
-    const regionsResult = await prisma.radio.findMany({
-      select: { region: true },
-      distinct: ['region'],
-    });
+    const regions = [...new Set(regionsResult.map((r: any) => r.region).filter(Boolean))];
 
     const stats = {
       total: totalRadios,
       active: activeRadios,
       inactive: totalRadios - activeRadios,
-      regions: regionsResult.map(r => r.region).filter(Boolean) as string[],
+      regions,
     };
 
     return NextResponse.json({ success: true, stats });
@@ -68,15 +70,16 @@ export async function POST(request: NextRequest) {
     const radios = validationResult.data.radios;
     logger.log(`📥 Importando ${radios.length} radios...`);
 
-    const mapPlatform = (url: string | null): Platform => {
-      if (!url) return Platform.OTHER;
+    const mapPlatform = (url: string | null): string => {
+      if (!url) return 'OTHER';
       const lowerUrl = url.toLowerCase();
-      if (lowerUrl.includes('youtube')) return Platform.YOUTUBE;
-      if (lowerUrl.includes('facebook')) return Platform.FACEBOOK;
-      if (lowerUrl.includes('twitch')) return Platform.TWITCH;
-      if (lowerUrl.includes('icecast') || lowerUrl.includes('shoutcast')) return Platform.ICECAST;
-      if (lowerUrl.includes('rtmp')) return Platform.RTMP;
-      return Platform.HTTP_STREAM;
+      if (lowerUrl.includes('youtube')) return 'YOUTUBE';
+      if (lowerUrl.includes('facebook')) return 'FACEBOOK';
+      if (lowerUrl.includes('twitch')) return 'TWITCH';
+      if (lowerUrl.includes('icecast')) return 'ICECAST';
+      if (lowerUrl.includes('shoutcast')) return 'SHOUTCAST';
+      if (lowerUrl.includes('rtmp')) return 'RTMP';
+      return 'HTTP_STREAM';
     };
 
     const operations = radios.map(radio => {
@@ -87,33 +90,43 @@ export async function POST(request: NextRequest) {
       const dataForDb = {
         name,
         region,
-        streamUrl,
+        stream_url: streamUrl,
         platform: mapPlatform(streamUrl),
-        status: streamUrl ? RadioStatus.ACTIVE : RadioStatus.INACTIVE,
+        status: streamUrl ? 'ACTIVE' : 'INACTIVE',
+        description: radio.description || `Radio ${name} de ${region}`,
         metadata: {
-          set: {
-            city: radio.city?.trim() || '',
-            frequency: radio.frequency || '',
-            website: radio.website || '',
-            logo: radio.logo || '',
-            description: radio.description || `Radio ${name} de ${region}`,
-          }
-        }
+          city: radio.city?.trim() || '',
+          frequency: radio.frequency || '',
+          website: radio.website || '',
+          logo: radio.logo || '',
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
 
-      return prisma.radio.upsert({
-        where: {
-          name_region: {
-            name: name,
-            region: region,
+      // Verificar si ya existe una radio con el mismo nombre y región
+      return supabaseDirect.request(`radios?select=*&name=eq.${name}&region=eq.${region}`)
+        .then(async (existing) => {
+          if (existing.length > 0) {
+            // Actualizar existente
+            return supabaseDirect.request(`radios?id=eq.${existing[0].id}`, {
+              method: 'PATCH',
+              body: JSON.stringify(dataForDb),
+              headers: { 'Prefer': 'return=representation' }
+            });
+          } else {
+            // Crear nuevo
+            return supabaseDirect.request('radios', {
+              method: 'POST',
+              body: JSON.stringify(dataForDb),
+              headers: { 'Prefer': 'return=representation' }
+            });
           }
-        },
-        update: dataForDb,
-        create: dataForDb,
-      });
+        });
     });
 
-    const results = await prisma.$transaction(operations);
+    // Ejecutar todas las operaciones en paralelo
+    const results = await Promise.all(operations);
 
     logger.log(`Importación exitosa: ${results.length} radios procesadas.`);
     return NextResponse.json({
@@ -122,13 +135,10 @@ export async function POST(request: NextRequest) {
       count: results.length
     });
 
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Error en importación masiva:', error);
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return NextResponse.json({ error: 'Error de datos duplicados durante la transacción.', details: error.meta }, { status: 409 });
-      }
-      return NextResponse.json({ error: 'Error de base de datos', details: error.message }, { status: 500 });
+    if (error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+      return NextResponse.json({ error: 'Error de datos duplicados durante la importación.' }, { status: 409 });
     }
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }

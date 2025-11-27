@@ -3,11 +3,23 @@
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 class SupabaseDirectClient {
   constructor() {
     this.baseUrl = SUPABASE_URL;
     this.apiKey = SUPABASE_ANON_KEY;
+    this.serviceKey = SUPABASE_SERVICE_ROLE_KEY;
+    
+    // Verificar si service key es idéntico a anon key (caso especial)
+    this.isServiceKeyIdentical = this.serviceKey === this.apiKey;
+    
+    console.log('DEBUG SupabaseDirectClient:');
+    console.log('- URL:', this.baseUrl ? '✓ Configurada' : '✗ Vacía');
+    console.log('- ANON KEY:', this.apiKey ? '✓ Configurada' : '✗ Vacía');
+    console.log('- SERVICE KEY:', this.serviceKey ? '✓ Configurada' : '✗ Vacía');
+    console.log('- Service Key Idéntico:', this.isServiceKeyIdentical ? '⚠️ SÍ (usando workaround)' : '✅ NO');
+    
     this.headers = {
       'Content-Type': 'application/json',
       'apikey': this.apiKey,
@@ -18,17 +30,45 @@ class SupabaseDirectClient {
 
   async request(endpoint, options = {}) {
     const url = `${this.baseUrl}/rest/v1/${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
+    
+    // Usar siempre ANON KEY si los keys son idénticos (caso especial del usuario)
+    let headers;
+    if (options.useServiceKey && this.serviceKey && this.serviceKey !== this.apiKey) {
+      console.log('DEBUG: Usando SERVICE ROLE KEY para:', endpoint);
+      headers = {
+        'Content-Type': 'application/json',
+        'apikey': this.serviceKey,
+        'Authorization': `Bearer ${this.serviceKey}`,
+        'Prefer': 'return=minimal',
+        ...options.headers
+      };
+    } else {
+      // Usar ANON KEY (incluso si useServiceKey está true pero los keys son idénticos)
+      const keyType = options.useServiceKey ? 'ANON (service key idéntico)' : 'ANON';
+      console.log(`DEBUG: Usando ${keyType} KEY para:`, endpoint);
+      headers = {
         ...this.headers,
         ...options.headers
-      }
+      };
+    }
+    
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      method: options.method || 'GET'
     });
 
     if (!response.ok) {
       const error = await response.text();
       throw new Error(`Supabase API Error: ${response.status} - ${error}`);
+    }
+
+    // Para operaciones DELETE y otras que no devuelven contenido, verificar si hay body
+    const contentType = response.headers.get('content-type');
+    const hasContent = response.headers.get('content-length') !== '0';
+    
+    if (!contentType || !contentType.includes('application/json') || !hasContent || response.status === 204) {
+      return null; // o return {} dependiendo de lo que esperes
     }
 
     return response.json();

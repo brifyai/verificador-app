@@ -15,6 +15,7 @@ import { RadioMetrics } from '@/components/radios/RadioMetrics';
 import { RadioFilters } from '@/components/radios/RadioFilters';
 import RadioForm from '@/components/radios/RadioForm';
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
+import { recordingService } from '@/lib/recording-service';
 
 export default function RadiosPage() {
   const { confirm, ConfirmationDialog } = useConfirmationDialog();
@@ -131,16 +132,84 @@ export default function RadiosPage() {
   // Calcular métricas
   const totalActive = radios.filter(r => r.isActive).length;
   const totalInactive = radios.filter(r => !r.isActive).length;
+  const totalOnline = radios.filter(r => (r as any).lastVerificationStatus === 'ONLINE').length;
+  const totalOffline = radios.filter(r => (r as any).lastVerificationStatus === 'OFFLINE').length;
   const platformDistribution = radios.reduce((acc, radio) => {
     acc[radio.streamPlatform] = (acc[radio.streamPlatform] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
   // Handlers
-  const toggleRadioStatus = (radioId: string) => {
+  const toggleRadioStatus = async (radioId: string) => {
+    // Primero encontrar la radio actual para obtener su estado
+    const currentRadio = radios.find(r => r.id === radioId);
+    if (!currentRadio) return;
+
+    const newStatus = !currentRadio.isActive;
+    
+    // Si se está desactivando la radio y está grabando, detener la grabación primero
+    if (!newStatus) {
+      // Verificar si hay grabaciones activas para esta radio
+      try {
+        await recordingService.getActiveRecordings();
+        const isRecording = recordingService.isRecording(radioId);
+        
+        if (isRecording) {
+          toast.info('Deteniendo grabación...');
+          const stopResult = await recordingService.stopRecording(radioId);
+          
+          if (stopResult.status !== 'success') {
+            toast.error('Error al detener la grabación');
+            return; // No continuar si no se puede detener la grabación
+          }
+        }
+      } catch (error) {
+        console.error('Error verificando/deteniendo grabación:', error);
+        toast.error('Error al detener grabación');
+        return; // No continuar si hay error
+      }
+    }
+    
+    // Actualizar el estado localmente para una respuesta inmediata
     setRadios(prev => prev.map(radio =>
-      radio.id === radioId ? { ...radio, isActive: !radio.isActive } : radio
+      radio.id === radioId ? { ...radio, isActive: newStatus } : radio
     ));
+
+    // Luego actualizar en la base de datos usando la API específica para estado
+    try {
+      const response = await fetch(`/api/radios/${radioId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isActive: newStatus
+        }),
+      });
+
+      if (!response.ok) {
+        // Si hay error, revertir el cambio local
+        setRadios(prev => prev.map(radio =>
+          radio.id === radioId ? { ...radio, isActive: !newStatus } : radio
+        ));
+        const error = await response.json();
+        toast.error(`Error al actualizar el estado: ${error.error || 'Error desconocido'}`);
+      } else {
+        const result = await response.json();
+        if (result.success) {
+          // Actualizar con los datos completos de la respuesta
+          setRadios(prev => prev.map(radio =>
+            radio.id === radioId ? result.data : radio
+          ));
+          toast.success(result.message);
+        }
+      }
+    } catch (error) {
+      // Si hay error, revertir el cambio local
+      setRadios(prev => prev.map(radio =>
+        radio.id === radioId ? { ...radio, isActive: !newStatus } : radio
+      ));
+      console.error('Error actualizando estado de radio:', error);
+      toast.error('Error al actualizar el estado de la radio');
+    }
   };
 
   const handleDelete = async (radioId: string) => {

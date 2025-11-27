@@ -47,7 +47,12 @@ async function createAdminUser() {
       active: true
     };
     
-    const createdUser = await supabaseDirect.createUser(adminUser);
+    const createdUser = await supabaseDirect.request('users', {
+      method: 'POST',
+      body: JSON.stringify(adminUser),
+      headers: { 'Prefer': 'return=representation' },
+      useServiceKey: true
+    });
     console.log('✅ Usuario administrador creado exitosamente');
     console.log('📋 Datos del usuario:');
     console.log('   ID:', createdUser[0].id);

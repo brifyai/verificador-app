@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,34 +95,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Horario de inicio y fin son requeridos' }, { status: 400 });
     }
 
-    // Obtener datos de las radios y la frase desde la base de datos
-    const [radios, phrase] = await Promise.all([
-      prisma.radio.findMany({
-        where: {
-          id: { in: radioIds },
-          status: 'ACTIVE'
-        },
-        select: {
-          id: true,
-          name: true,
-          streamUrl: true,
-          region: true,
-          metadata: true
-        }
-      }),
-      prisma.phrase.findUnique({
-        where: { id: phraseId },
-        select: {
-          id: true,
-          phrase: true,
-          brand: true,
-          campaign: true,
-          category: true,
-          description: true,
-          active: true
-        }
-      })
+    // Obtener datos de las radios y la frase desde Supabase
+    const [radiosData, phraseData] = await Promise.all([
+      supabaseDirect.request(`radios?select=id,name,stream_url,region,metadata&status=eq.ACTIVE&id=in.(${radioIds.join(',')})`),
+      supabaseDirect.request(`phrases?select=*&id=eq.${phraseId}`)
     ]);
+
+    const radios = radiosData;
+    const phrase = phraseData[0];
 
     if (radios.length === 0) {
       return NextResponse.json({ error: 'No se encontraron radios válidas' }, { status: 404 });
@@ -136,9 +116,9 @@ export async function POST(request: NextRequest) {
     console.log(`🔍 Frase a detectar: "${phrase.phrase}" de ${phrase.brand}`);
 
     // Preparar datos de las radios para la VPS
-    const radiosForVPS = radios.map(radio => {
+    const radiosForVPS = radios.map((radio: any) => {
       // Extraer streamUrl desde platformData o usar el campo directo como fallback
-      let actualStreamUrl = radio.streamUrl;
+      let actualStreamUrl = radio.stream_url;
       
       if (radio.metadata && typeof radio.metadata === 'object') {
         const metadata = radio.metadata as any;
@@ -251,7 +231,7 @@ export async function POST(request: NextRequest) {
           },
           
           // Información de las radios
-          radios: radiosForVPS.map(r => ({ 
+          radios: radiosForVPS.map((r: any) => ({
             id: r.id, 
             name: r.name, 
             region: r.region,

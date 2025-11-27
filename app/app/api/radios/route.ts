@@ -7,22 +7,22 @@ import { RadioCreateSchema } from '@/lib/schemas/radio.schema';
 import { z } from 'zod';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
 
-// Función de utilidad (sin cambios)
-const mapPlatformToEnum = (platform: string): Platform => {
-  const platformMap: Record<string, Platform> = {
-    youtube: Platform.YOUTUBE,
-    twitch: Platform.TWITCH,
-    facebook: Platform.FACEBOOK,
-    icecast: Platform.ICECAST,
-    shoutcast: Platform.ICECAST,
-    direct: Platform.HTTP_STREAM,
-    http: Platform.HTTP_STREAM,
-    rtmp: Platform.RTMP,
-    centova: Platform.ICECAST,
-    sonicpanel: Platform.ICECAST,
-    azuracast: Platform.ICECAST,
+// Función de utilidad para mapear plataformas a valores del enum de Supabase
+const mapPlatformToEnum = (platform: string): string => {
+  const platformMap: Record<string, string> = {
+    youtube: 'YOUTUBE',
+    twitch: 'TWITCH',
+    facebook: 'FACEBOOK',
+    icecast: 'ICECAST',
+    shoutcast: 'SHOUTCAST',
+    direct: 'HTTP_STREAM',
+    http: 'HTTP_STREAM',
+    rtmp: 'RTMP',
+    centova: 'ICECAST',
+    sonicpanel: 'ICECAST',
+    azuracast: 'ICECAST',
   };
-  return platformMap[platform] || Platform.OTHER;
+  return platformMap[platform] || 'OTHER';
 };
 
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,25 +12,22 @@ export async function GET(request: NextRequest) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // Get all detections for time-based filtering
-    const allDetections = await prisma.detection.findMany({
-      include: {
-        radio: true,
-        phrase: true,
-      },
-    });
+    const allDetections = await supabaseDirect.request('detections?select=*&limit=10000');
 
     // Time-based detection counts
-    const todayDetections = allDetections.filter(d => new Date(d.timestamp) >= today).length;
-    const weekDetections = allDetections.filter(d => new Date(d.timestamp) >= weekAgo).length;
-    const monthDetectionsCount = allDetections.filter(d => new Date(d.timestamp) >= monthAgo).length;
+    const todayDetections = allDetections.filter((d: any) => new Date(d.timestamp) >= today).length;
+    const weekDetections = allDetections.filter((d: any) => new Date(d.timestamp) >= weekAgo).length;
+    const monthDetectionsCount = allDetections.filter((d: any) => new Date(d.timestamp) >= monthAgo).length;
 
     // Total counts
     const totalDetections = allDetections.length;
-    const totalRadios = await prisma.radio.count();
-    const totalPhrases = await prisma.phrase.count();
+    const radiosCount = await supabaseDirect.request('radios?select=count');
+    const totalRadios = radiosCount[0]?.count || 0;
+    const phrasesCount = await supabaseDirect.request('phrases?select=count');
+    const totalPhrases = phrasesCount[0]?.count || 0;
 
     // Recent activity (last 24 hours)
-    const recent24hDetections = allDetections.filter(d => new Date(d.timestamp) >= last24Hours);
+    const recent24hDetections = allDetections.filter((d: any) => new Date(d.timestamp) >= last24Hours);
     
     // Hourly distribution for last 24 hours
     const hourlyData = Array.from({ length: 24 }, (_, i) => {
@@ -41,7 +38,7 @@ export async function GET(request: NextRequest) {
       
       return {
         hour,
-        detections: recent24hDetections.filter(d => {
+        detections: recent24hDetections.filter((d: any) => {
           const detectionTime = new Date(d.timestamp);
           return detectionTime >= hourStart && detectionTime < hourEnd;
         }).length,
@@ -49,19 +46,19 @@ export async function GET(request: NextRequest) {
     });
 
     // Top phrases (last 7 days)
-    const weekAgoDetections = allDetections.filter(d => new Date(d.timestamp) >= weekAgo);
+    const weekAgoDetections = allDetections.filter((d: any) => new Date(d.timestamp) >= weekAgo);
     const phraseCounts = new Map();
     
-    weekAgoDetections.forEach(detection => {
-      const phraseId = detection.phraseId;
+    weekAgoDetections.forEach((detection: any) => {
+      const phraseId = detection.phrase_id;
       phraseCounts.set(phraseId, (phraseCounts.get(phraseId) || 0) + 1);
     });
 
     const topPhrases = Array.from(phraseCounts.entries())
-      .sort(([, a], [, b]) => b - a)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
       .slice(0, 5)
       .map(([phraseId, count]) => {
-        const phrase = weekAgoDetections.find(d => d.phraseId === phraseId)?.phrase;
+        const phrase = weekAgoDetections.find((d: any) => d.phrase_id === phraseId);
         return {
           id: phraseId,
           phrase: phrase?.phrase || 'Unknown',
@@ -71,19 +68,19 @@ export async function GET(request: NextRequest) {
 
     // Top radios (last 7 days)
     const radioCounts = new Map();
-    const radios = await prisma.radio.findMany();
-    const radioRegionMap = new Map(radios.map(r => [r.id, r.region]));
+    const radiosData = await supabaseDirect.request('radios?select=id,region&limit=1000');
+    const radioRegionMap = new Map(radiosData.map((r: any) => [r.id, r.region]));
 
-    weekAgoDetections.forEach(detection => {
-      const radioId = detection.radioId;
+    weekAgoDetections.forEach((detection: any) => {
+      const radioId = detection.radio_id;
       radioCounts.set(radioId, (radioCounts.get(radioId) || 0) + 1);
     });
 
     const topRadios = Array.from(radioCounts.entries())
-      .sort(([, a], [, b]) => b - a)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
       .slice(0, 5)
       .map(([radioId, count]) => {
-        const radio = radios.find(r => r.id === radioId);
+        const radio = radiosData.find((r: any) => r.id === radioId);
         return {
           id: radioId,
           name: radio?.name || 'Unknown',
@@ -94,8 +91,8 @@ export async function GET(request: NextRequest) {
 
     // Regional distribution (last 7 days)
     const regionCountMap = new Map();
-    weekAgoDetections.forEach(detection => {
-      const region = radioRegionMap.get(detection.radioId) || 'Unknown';
+    weekAgoDetections.forEach((detection: any) => {
+      const region = radioRegionMap.get(detection.radio_id) || 'Unknown';
       regionCountMap.set(region, (regionCountMap.get(region) || 0) + 1);
     });
 
@@ -105,34 +102,36 @@ export async function GET(request: NextRequest) {
     }));
 
     // Recent detections (last 10)
-    const recentDetections = await prisma.detection.findMany({
-      take: 10,
-      orderBy: { timestamp: 'desc' },
-      include: {
-        radio: true,
-        phrase: true,
-      },
-    });
+    const recentDetectionsRaw = await supabaseDirect.request('detections?select=*&order=timestamp.desc&limit=10');
+    
+    // Get related data for recent detections
+    const phraseIds = [...new Set(recentDetectionsRaw.map((d: any) => d.phrase_id).filter(Boolean))];
+    const radioIds = [...new Set(recentDetectionsRaw.map((d: any) => d.radio_id).filter(Boolean))];
+    
+    const [phrases, radiosList] = await Promise.all([
+      phraseIds.length > 0 ? supabaseDirect.request(`phrases?select=*&id=in.(${phraseIds.join(',')})`) : [],
+      radioIds.length > 0 ? supabaseDirect.request(`radios?select=*&id=in.(${radioIds.join(',')})`) : []
+    ]);
+    
+    const recentDetections = recentDetectionsRaw.map((detection: any) => ({
+      ...detection,
+      phrase: phrases.find((p: any) => p.id === detection.phrase_id),
+      radio: radiosList.find((r: any) => r.id === detection.radio_id)
+    }));
 
     // Cost calculations (current month)
     const monthDetectionsList = allDetections.filter(d => new Date(d.timestamp) >= monthStart);
     const detectionCosts = monthDetectionsList.reduce((sum, d) => sum + (d.cost || 0), 0);
     
-    const captures = await prisma.capture.findMany({
-      where: {
-        capturedAt: {
-          gte: monthStart,
-        },
-      },
-    });
+    const captures = await supabaseDirect.request(`captures?select=*&captured_at=gte.${monthStart.toISOString()}&limit=10000`);
     
-    const captureCosts = captures.reduce((sum, c) => sum + (c.cost || 0), 0);
+    const captureCosts = captures.reduce((sum: number, c: any) => sum + (c.cost || 0), 0);
     const totalCosts = detectionCosts + captureCosts;
 
     // Verification stats
-    const verifiedDetectionsCount = allDetections.filter(d => d.verified).length;
+    const verifiedDetectionsCount = allDetections.filter((d: any) => d.verified).length;
     const unverifiedHighConfidence = allDetections.filter(
-      d => !d.verified && d.confidence >= 0.8
+      (d: any) => !d.verified && d.confidence >= 0.8
     ).length;
 
     return NextResponse.json({
@@ -146,7 +145,7 @@ export async function GET(request: NextRequest) {
       },
       activity: {
         hourlyData,
-        recentDetections: recentDetections.map(d => ({
+        recentDetections: recentDetections.map((d: any) => ({
           id: d.id,
           phrase: d.phrase?.phrase || 'Unknown',
           radio: d.radio?.name || 'Unknown',

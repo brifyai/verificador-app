@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { supabaseDirect } from '@/lib/supabase-direct';
 
 // GET no necesita cambios, ya funciona bien.
 
@@ -20,17 +18,34 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    // Construir query para Supabase
+    let query = `phrases?select=*&order=created_at.desc&limit=${limit}&offset=${skip}`;
+    
     if (search) {
-      where.OR = [
-        { phrase: { contains: search, mode: 'insensitive' } },
-        { brand: { contains: search, mode: 'insensitive' } },
-        { campaign: { contains: search, mode: 'insensitive' } }
-      ];
+      query += `&or=(phrase.ilike.*${search}*,brand.ilike.*${search}*,campaign.ilike.*${search}*)`;
     }
-    if (category && category !== 'all') where.category = category;
-    if (status === 'active') where.active = true;
-    else if (status === 'inactive') where.active = false;
+    if (category && category !== 'all') {
+      // Mapear categoría del frontend a la base de datos
+      const categoryMap: { [key: string]: string } = {
+        'producto': 'PRODUCT',
+        'servicio': 'SERVICE',
+        'promocion': 'PROMOTION',
+        'evento': 'EVENT',
+        'marca': 'BRAND',
+        'institucional': 'INSTITUTIONAL'
+      };
+      query += `&category=eq.${categoryMap[category] || 'PRODUCT'}`;
+    }
+    if (status === 'active') query += '&active=eq.true';
+    else if (status === 'inactive') query += '&active=eq.false';
+
+    // Obtener frases y conteo total
+    const [phrases, countResult] = await Promise.all([
+      supabaseDirect.request(query),
+      supabaseDirect.request(`phrases?select=count${search ? `&or=(phrase.ilike.*${search}*,brand.ilike.*${search}*,campaign.ilike.*${search}*)` : ''}${category && category !== 'all' ? `&category=eq.${category}` : ''}${status ? `&active=eq.${status === 'active'}` : ''}`)
+    ]);
+    
+    const totalCount = countResult[0]?.count || 0;
 
     // FIX: Crear un mapa para traducir el ENUM de la DB al valor del Frontend
     const categoryEnumMap: { [key: string]: string } = {
@@ -42,18 +57,17 @@ export async function GET(request: NextRequest) {
         'INSTITUTIONAL': 'institucional'
     };
 
-    const [phrases, totalCount] = await prisma.$transaction([
-      prisma.phrase.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { detections: true } } }
-      }),
-      prisma.phrase.count({ where })
-    ]);
+    // Obtener conteo de detecciones para cada frase
+    const phraseIds = phrases.map((p: any) => p.id).filter(Boolean);
+    const detectionCounts = phraseIds.length > 0 ?
+      await supabaseDirect.request(`detections?select=phrase_id,count&phrase_id=in.(${phraseIds.join(',')})`) : [];
+    
+    const detectionCountMap = new Map();
+    detectionCounts.forEach((dc: any) => {
+      detectionCountMap.set(dc.phrase_id, dc.count);
+    });
 
-    const formattedPhrases = phrases.map(p => ({
+    const formattedPhrases = phrases.map((p: any) => ({
       id: p.id,
       phrase: p.phrase,
       marca: p.brand,
@@ -61,14 +75,14 @@ export async function GET(request: NextRequest) {
       // FIX: Usar el mapa para obtener el valor correcto en español
       categoria: categoryEnumMap[p.category] || 'producto',
       descripcion: p.description || '',
-      uploaded: new Date(p.createdAt).toLocaleDateString('es-CL'),
+      uploaded: new Date(p.created_at).toLocaleDateString('es-CL'),
       active: p.active,
-      detections: p._count.detections
+      detections: detectionCountMap.get(p.id) || 0
     }));
 
-    const [activeCount, inactiveCount] = await prisma.$transaction([
-        prisma.phrase.count({ where: { active: true } }),
-        prisma.phrase.count({ where: { active: false } })
+    const [activeCount, inactiveCount] = await Promise.all([
+        supabaseDirect.request('phrases?select=count&active=eq.true'),
+        supabaseDirect.request('phrases?select=count&active=eq.false')
     ]);
 
     return NextResponse.json({
@@ -79,9 +93,9 @@ export async function GET(request: NextRequest) {
       limit,
       totalPages: Math.ceil(totalCount / limit),
       stats: {
-        total: activeCount + inactiveCount,
-        active: activeCount,
-        inactive: inactiveCount,
+        total: (activeCount[0]?.count || 0) + (inactiveCount[0]?.count || 0),
+        active: activeCount[0]?.count || 0,
+        inactive: inactiveCount[0]?.count || 0,
       }
     });
   } catch (error) {
@@ -107,15 +121,24 @@ export async function POST(request: NextRequest) {
     };
     const mappedCategory = categoryMap[categoria?.toLowerCase()] || 'PRODUCT';
 
-    const newPhrase = await prisma.phrase.create({
-      data: {
-        phrase: phrase.trim(),
-        brand: marca.trim(),
-        campaign: campaña?.trim() || null,
-        category: mappedCategory as any,
-        description: descripcion?.trim() || null,
-      }
+    const phraseData = {
+      phrase: phrase.trim(),
+      brand: marca.trim(),
+      campaign: campaña?.trim() || null,
+      category: mappedCategory,
+      description: descripcion?.trim() || null,
+      active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const newPhrases = await supabaseDirect.request('phrases', {
+      method: 'POST',
+      body: JSON.stringify(phraseData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const newPhrase = newPhrases[0];
 
     return NextResponse.json({ success: true, phrase: newPhrase }, { status: 201 });
   } catch (error) {
@@ -140,16 +163,22 @@ export async function PUT(request: NextRequest) {
     };
     const mappedCategory = categoryMap[categoria?.toLowerCase()] || 'PRODUCT';
 
-    const updatedPhrase = await prisma.phrase.update({
-      where: { id },
-      data: {
-        phrase: phrase.trim(),
-        brand: marca.trim(),
-        campaign: campaña?.trim() || null,
-        category: mappedCategory as any,
-        description: descripcion?.trim() || null,
-      }
+    const updateData = {
+      phrase: phrase.trim(),
+      brand: marca.trim(),
+      campaign: campaña?.trim() || null,
+      category: mappedCategory,
+      description: descripcion?.trim() || null,
+      updated_at: new Date().toISOString()
+    };
+
+    const updatedPhrases = await supabaseDirect.request(`phrases?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updateData),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const updatedPhrase = updatedPhrases[0];
 
     return NextResponse.json({ success: true, phrase: updatedPhrase });
   } catch (error) {
@@ -171,10 +200,16 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'ID y estado active son requeridos' }, { status: 400 });
     }
 
-    const updatedPhrase = await prisma.phrase.update({
-      where: { id },
-      data: { active }
+    const updatedPhrases = await supabaseDirect.request(`phrases?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        active,
+        updated_at: new Date().toISOString()
+      }),
+      headers: { 'Prefer': 'return=representation' }
     });
+
+    const updatedPhrase = updatedPhrases[0];
 
     return NextResponse.json({ success: true, phrase: updatedPhrase });
   } catch (error) {
@@ -196,7 +231,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'ID de frase es requerido' }, { status: 400 });
     }
 
-    await prisma.phrase.delete({ where: { id } });
+    await supabaseDirect.request(`phrases?id=eq.${id}`, {
+      method: 'DELETE'
+    });
 
     return NextResponse.json({ success: true, message: 'Frase eliminada exitosamente' });
   } catch (error) {

@@ -164,7 +164,7 @@ export function useAudioPlayer() {
         setPlayingRadio(null);
         cleanupAudio(audio);
         setAudioElement(null);
-        toast.audioError(`Error: No se pudo cargar ${radio.name}. Intenta de nuevo.`);
+        console.warn(`Audio no disponible para ${radio.name}, pero la grabación puede funcionar`);
       };
 
       const onEnded = () => {
