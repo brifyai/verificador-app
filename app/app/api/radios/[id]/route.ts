@@ -87,12 +87,12 @@ export async function PUT(
       ...(validated.genre && { description: validated.genre }),
       ...verificationData,
       metadata: {
-        programadora: validated.programadora || existingMetadata.programadora || '',
-        frequency: validated.frequency || existingMetadata.frequency || '',
-        city: validated.city || existingMetadata.city || '',
-        website: validated.website || existingMetadata.website || '',
-        streamPlatform: validated.streamPlatform || existingMetadata.streamPlatform || 'direct',
-        lastMonitored: validated.lastMonitored || existingMetadata.lastMonitored || 'Nunca',
+        programadora: validated.programadora !== undefined ? validated.programadora : (existingMetadata.programadora || ''),
+        frequency: validated.frequency !== undefined ? validated.frequency : (existingMetadata.frequency || ''),
+        city: validated.city !== undefined ? validated.city : (existingMetadata.city || ''),
+        website: validated.website !== undefined ? validated.website : (existingMetadata.website || ''),
+        streamPlatform: validated.streamPlatform !== undefined ? validated.streamPlatform : (existingMetadata.streamPlatform || 'direct'),
+        lastMonitored: validated.lastMonitored !== undefined ? validated.lastMonitored : (existingMetadata.lastMonitored || 'Nunca'),
       },
       updated_at: new Date().toISOString()
     };

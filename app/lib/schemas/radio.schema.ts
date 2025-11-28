@@ -10,25 +10,25 @@ export const RadioCreateSchema = z.object({
     .trim(),
   
   programadora: z.string()
-    .min(1, 'La programadora es requerida')
     .max(100, 'La programadora no puede exceder 100 caracteres')
     .trim()
     .optional()
-    .default(''),
+    .nullable(),
   
   frequency: z.string()
     .max(50, 'La frecuencia no puede exceder 50 caracteres')
     .trim()
     .optional()
-    .default(''),
+    .nullable(),
   
   streamUrl: z.string()
     .url('La URL del stream debe ser válida')
     .trim(),
   
   streamPlatform: z.string()
-    .min(1, 'La plataforma es requerida')
-    .trim(),
+    .trim()
+    .optional()
+    .default('direct'),
   
   region: z.string()
     .min(1, 'La región es requerida')
@@ -36,16 +36,15 @@ export const RadioCreateSchema = z.object({
     .trim(),
   
   city: z.string()
+    .min(1, 'La ciudad es requerida')
     .max(100, 'La ciudad no puede exceder 100 caracteres')
-    .trim()
-    .optional()
-    .default(''),
+    .trim(),
   
   website: z.string()
     .url('El sitio web debe ser una URL válida')
     .trim()
     .optional()
-    .or(z.literal('')),
+    .nullable(),
   
   isActive: z.boolean()
     .default(true),
@@ -55,6 +54,18 @@ export const RadioCreateSchema = z.object({
     .trim()
     .optional()
     .default('Música'),
+  
+  priority: z.number()
+    .int('La prioridad debe ser un número entero')
+    .min(1, 'La prioridad mínima es 1')
+    .max(10, 'La prioridad máxima es 10')
+    .optional()
+    .default(1),
+  
+  costPerHour: z.number()
+    .min(0, 'El costo por hora no puede ser negativo')
+    .optional()
+    .default(0.0),
   
   platformData: z.record(z.any())
     .optional()
@@ -74,12 +85,14 @@ export const RadioUpdateSchema = z.object({
   programadora: z.string()
     .max(100, 'La programadora no puede exceder 100 caracteres')
     .trim()
-    .optional(),
+    .optional()
+    .nullable(),
   
   frequency: z.string()
     .max(50, 'La frecuencia no puede exceder 50 caracteres')
     .trim()
-    .optional(),
+    .optional()
+    .nullable(),
   
   streamUrl: z.string()
     .url('La URL del stream debe ser válida')
@@ -106,7 +119,7 @@ export const RadioUpdateSchema = z.object({
     .url('El sitio web debe ser una URL válida')
     .trim()
     .optional()
-    .or(z.literal('')),
+    .nullable(),
   
   isActive: z.boolean()
     .optional(),

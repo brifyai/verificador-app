@@ -1,5 +1,8 @@
 'use client';
 
+// Desactivar caching estático para esta página
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -68,10 +71,17 @@ export default function GrabacionesPage() {
 
     loadInitialData();
     
+    // Sistema de polling automático: verificar nuevas grabaciones cada 30 segundos
+    const pollingInterval = setInterval(() => {
+      if (!isMounted) return;
+      loadAvailableRecordings();
+    }, 30000); // 30 segundos
+    
     // Cleanup
     return () => {
       isMounted = false;
       unsubscribe();
+      clearInterval(pollingInterval);
     };
   }, []);
 
@@ -123,16 +133,31 @@ export default function GrabacionesPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        recordingStateManager.forceUpdate(),
-        loadAvailableRecordings()
-      ]);
+      // Borrar caché del navegador completamente
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map(name => caches.delete(name)));
+        console.log('✅ Caché del navegador borrada');
+      }
+      
+      // Limpiar localStorage y sessionStorage si existen datos de grabaciones
+      const keysToRemove = Object.keys(localStorage).filter(key =>
+        key.includes('recording') || key.includes('grabacion')
+      );
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Forzar recarga completa desde el servidor
+      toast.success('🔄 Borrando caché y recargando...');
+      
+      // Pequeña pausa para que el usuario vea el mensaje
+      setTimeout(() => {
+        window.location.reload(true); // true fuerza recarga desde servidor
+      }, 500);
+      
     } catch (error) {
-      console.error('Error actualizando datos:', error);
-      toast.error('Error al actualizar datos');
-    } finally {
+      console.error('Error borrando caché:', error);
+      toast.error('Error al borrar caché');
       setRefreshing(false);
-      toast.success('Datos actualizados');
     }
   };
 
@@ -180,6 +205,81 @@ export default function GrabacionesPage() {
       case 'recording': return 'Grabando';
       case 'paused': return 'Pausada';
       default: return 'Detenida';
+    }
+  };
+
+  const formatDateTime = (dateValue: any): string => {
+    // Manejar diferentes formatos de fecha que pueden venir del servidor
+    if (!dateValue) {
+      return 'Fecha no disponible';
+    }
+
+    let date: Date;
+    
+    // Si ya es un objeto Date válido
+    if (dateValue instanceof Date) {
+      date = dateValue;
+    }
+    // Si es un timestamp numérico (milisegundos)
+    else if (typeof dateValue === 'number') {
+      date = new Date(dateValue);
+    }
+    // Si es un string de fecha
+    else if (typeof dateValue === 'string') {
+      // El servidor devuelve fechas en formato ISO 8601 UTC
+      // Ej: "2025-11-27T20:50:07.300530"
+      date = new Date(dateValue);
+      
+      // Si la fecha es inválida, intentar con formato alternativo
+      if (isNaN(date.getTime())) {
+        // Intentar parsear formato: "2024-01-15 14:30:00" (sin T)
+        const parts = dateValue.split(' ');
+        if (parts.length === 2) {
+          const [datePart, timePart] = parts;
+          const dateParts = datePart.split('-');
+          const timeParts = timePart.split(':');
+          
+          if (dateParts.length === 3 && timeParts.length === 3) {
+            date = new Date(
+              parseInt(dateParts[0]),
+              parseInt(dateParts[1]) - 1, // Los meses son 0-indexed
+              parseInt(dateParts[2]),
+              parseInt(timeParts[0]),
+              parseInt(timeParts[1]),
+              parseInt(timeParts[2])
+            );
+          } else {
+            return 'Fecha inválida';
+          }
+        } else {
+          return 'Fecha inválida';
+        }
+      }
+    } else {
+      return 'Formato de fecha desconocido';
+    }
+
+    // Verificar si la fecha es válida
+    if (isNaN(date.getTime())) {
+      return 'Fecha inválida';
+    }
+
+    // ✅ CORRECCIÓN: El VPS guarda fechas en UTC
+    // Aplicar conversión UTC → UTC-4 (una hora menos que UTC-3)
+    const chileTime = new Date(date.getTime() - (4 * 60 * 60 * 1000));
+    
+    try {
+      // Formatear usando la hora convertida
+      const day = String(chileTime.getDate()).padStart(2, '0');
+      const month = String(chileTime.getMonth() + 1).padStart(2, '0');
+      const year = chileTime.getFullYear();
+      const hours = String(chileTime.getHours()).padStart(2, '0');
+      const minutes = String(chileTime.getMinutes()).padStart(2, '0');
+      const seconds = String(chileTime.getSeconds()).padStart(2, '0');
+      return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+    } catch (error) {
+      console.error('Error formateando fecha:', error);
+      return 'Error en formato de fecha';
     }
   };
 
@@ -302,34 +402,58 @@ export default function GrabacionesPage() {
             </div>
           ) : (
             <div className="space-y-3 max-h-96 overflow-y-auto">
-              {availableRecordings.map((recording, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 transition-colors"
-                >
-                  <div className="flex items-center space-x-3 flex-1 min-w-0">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-white text-sm font-medium truncate">
-                        {recording.filename}
+              {availableRecordings.map((recording, index) => {
+                try {
+                  // Intentar renderizar cada grabación con manejo de errores
+                  const sizeInMB = recording.size ? (recording.size / 1024 / 1024).toFixed(2) : '0.00';
+                  const dateValue = formatDateTime(recording.created || recording.created_at);
+                  
+                  return (
+                    <div
+                      key={`recording-${index}-${recording.filename}`}
+                      className="flex items-center justify-between bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                        <div className="w-2 h-2 rounded-full bg-green-500" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white text-sm font-medium truncate">
+                            {recording.filename || 'Nombre no disponible'}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {sizeInMB} MB • {dateValue}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-400">
-                        {(recording.size / 1024 / 1024).toFixed(2)} MB • {new Date(recording.created_at).toLocaleString('es-CL')}
+                      
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDownloadRecording(recording.filename)}
+                        className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                        title="Descargar grabación"
+                        disabled={!recording.filename}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                } catch (error) {
+                  console.error(`Error renderizando grabación ${index}:`, error);
+                  return (
+                    <div
+                      key={`recording-error-${index}`}
+                      className="bg-red-900/30 border border-red-700 rounded-lg p-3"
+                    >
+                      <div className="text-red-400 text-sm">
+                        ⚠️ Error al mostrar grabación: {recording.filename || 'nombre no disponible'}
+                      </div>
+                      <div className="text-xs text-red-500 mt-1">
+                        Error: {error instanceof Error ? error.message : 'Error desconocido'}
                       </div>
                     </div>
-                  </div>
-                  
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleDownloadRecording(recording.filename)}
-                    className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-                    title="Descargar grabación"
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                  );
+                }
+              })}
             </div>
           )}
         </CardContent>

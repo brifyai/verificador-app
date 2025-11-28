@@ -244,6 +244,30 @@ class MonitoringService {
         })
       });
 
+      // Actualizar último monitoreo en la tabla radios
+      try {
+        // Obtener metadata actual de la radio
+        const radioData = await supabaseDirect.request(`radios?id=eq.${session.radioId}&select=metadata`);
+        const currentMetadata = radioData[0]?.metadata || {};
+        
+        // Actualizar metadata con la fecha del último monitoreo
+        const updatedMetadata = {
+          ...currentMetadata,
+          lastMonitored: new Date().toISOString()
+        };
+
+        await supabaseDirect.request(`radios?id=eq.${session.radioId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            metadata: updatedMetadata
+          })
+        });
+        
+        console.log(`📡 Updated lastMonitored for radio ${session.radioId}`);
+      } catch (error) {
+        console.error(`❌ Error updating lastMonitored for radio ${session.radioId}:`, error);
+      }
+
       console.log(`✅ Capture job queued for session ${session.id}`);
 
     } catch (error) {

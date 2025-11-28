@@ -74,12 +74,19 @@ class RecordingStateManager {
 
             // Verificar si hay cambios
             const existingState = this.activeRecordings.get(radioId);
-            if (!existingState || 
+            if (!existingState ||
                 existingState.status !== newState.status ||
                 existingState.recording_id !== newState.recording_id) {
               this.activeRecordings.set(radioId, newState);
               hasChanges = true;
               console.log(`✅ RecordingStateManager: Actualizada grabación ${radioId} - Estado: ${newState.status}`);
+              
+              // ACTUALIZAR ÚLTIMO MONITOREO: Cuando se inicia una grabación, actualizar lastMonitored
+              if (newState.status === 'recording' && data.recording_id) {
+                this.updateLastMonitored(radioId).catch(error => {
+                  console.error(`❌ Error updating lastMonitored for radio ${radioId}:`, error);
+                });
+              }
             }
           }
         });
@@ -170,6 +177,39 @@ class RecordingStateManager {
     this.listeners.clear();
     this.activeRecordings.clear();
     console.log('🛑 RecordingStateManager: Detenido');
+  }
+
+  /**
+   * Actualiza el campo lastMonitored en la tabla radios cuando se inicia una grabación
+   */
+  private async updateLastMonitored(radioId: string): Promise<void> {
+    try {
+      console.log(`📡 RecordingStateManager: Actualizando lastMonitored para radio ${radioId}...`);
+      
+      // Importar supabaseDirect dinámicamente para evitar dependencias circulares
+      const { supabaseDirect } = await import('./supabase-direct');
+      
+      // Obtener metadata actual de la radio
+      const radioData = await supabaseDirect.request(`radios?id=eq.${radioId}&select=metadata`);
+      const currentMetadata = radioData[0]?.metadata || {};
+      
+      // Actualizar metadata con la fecha del último monitoreo (grabación)
+      const updatedMetadata = {
+        ...currentMetadata,
+        lastMonitored: new Date().toISOString()
+      };
+
+      await supabaseDirect.request(`radios?id=eq.${radioId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          metadata: updatedMetadata
+        })
+      });
+      
+      console.log(`✅ RecordingStateManager: lastMonitored actualizado para radio ${radioId}`);
+    } catch (error) {
+      console.error(`❌ RecordingStateManager: Error al actualizar lastMonitored para radio ${radioId}:`, error);
+    }
   }
 }
 

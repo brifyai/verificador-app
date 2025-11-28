@@ -131,7 +131,8 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
     setIsSubmitting(true);
 
     try {
-      // ✅ Estructura correcta para el backend
+      // ✅ Enviar TODOS los campos siempre, incluyendo los vacíos como null
+      // Esto asegura que los campos se actualicen correctamente en Supabase
       const radioData = {
         ...(isEditing && radio ? { id: radio.id } : {}),
         name: formData.name,
@@ -140,10 +141,10 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
         region: formData.region,
         isActive: formData.isActive,
         genre: formData.genre,
-        programadora: formData.programadora,
-        frequency: formData.frequency,
+        programadora: formData.programadora || null,
+        frequency: formData.frequency || null,
         city: formData.city,
-        website: formData.website,
+        website: formData.website || null,
         priority: formData.priority,
         costPerHour: formData.costPerHour,
       };
@@ -179,7 +180,6 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
             value={formData.programadora}
             onChange={(e) => setFormData(prev => ({ ...prev, programadora: e.target.value }))}
             className="bg-gray-800 border-gray-700 text-white"
-            required
           />
         </div>
       </div>
@@ -193,7 +193,6 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
             value={formData.frequency}
             onChange={(e) => setFormData(prev => ({ ...prev, frequency: e.target.value }))}
             className="bg-gray-800 border-gray-700 text-white"
-            required
           />
         </div>
         <div className="space-y-2">

@@ -280,7 +280,7 @@ export function RadioCard({
 
   const handlePlayWithRecording = async () => {
     console.log('🎯 === INICIO handlePlayWithRecording ===');
-    console.log('🎵 Botón Escuchar presionado:', {
+    console.log('🎵 Botón Grabar presionado:', {
       radioId: radio.id,
       radioName: radio.name,
       isActive: radio.isActive,
@@ -298,20 +298,10 @@ export function RadioCard({
     });
 
     try {
-      // Separar lógica de audio y grabación para evitar que errores de audio afecten la grabación
-      // 1. Iniciar reproducción de audio (esto puede fallar pero no debe afectar la grabación)
-      try {
-        console.log('🎵 Iniciando reproducción local...');
-        console.log('🎵 Llamando a onPlay() con radio:', radio);
-        onPlay();
-        console.log('✅ Reproducción local iniciada');
-      } catch (audioError) {
-        console.warn('⚠️ Error en reproducción de audio (no afecta grabación):', audioError);
-        // No detener el flujo por error de audio, solo notificar
-        toast.warning(`Audio no disponible, pero la grabación puede funcionar: ${radio.name}`);
-      }
+      // Solo manejar grabación, eliminar reproducción de audio
+      console.log('🎵 Funcionalidad de reproducción de audio deshabilitada. Solo grabación.');
       
-      // 2. Manejar grabación (independiente de la reproducción de audio)
+      // 1. Manejar grabación (independiente de la reproducción de audio)
       if (radio.isActive && !isRecording) {
         console.log('🔍 Condiciones para grabar cumplidas, procediendo...');
         setRecordingLoading(true);
@@ -628,8 +618,8 @@ export function RadioCard({
                   </>
                 ) : (
                   <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Escuchar
+                    <Circle className="h-4 w-4 mr-2 text-red-500" />
+                    Grabar
                   </>
                 )}
               </>
