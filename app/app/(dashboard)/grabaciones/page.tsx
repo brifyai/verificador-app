@@ -3,18 +3,19 @@
 // Desactivar caching estático para esta página
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Radio, Download, Play, Square, Circle, Loader, RefreshCw, Clock, Volume2 
+import {
+  Radio, Download, Play, Square, Circle, Loader, RefreshCw, Clock, Volume2
 } from 'lucide-react';
 import { recordingService } from '@/lib/recording-service';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
 import { getPlatformIcon, getPlatformName } from '@/lib/platform-utils';
 import { recordingStateManager } from '@/lib/recording-state-manager';
+import { RadioRecordingsGroup } from '@/components/radios/RadioRecordingsGroup';
 
 interface RecordingSession {
   radioId: string;
@@ -24,9 +25,21 @@ interface RecordingSession {
   recordingId?: string;
 }
 
+interface EnrichedRecording {
+  filename: string;
+  size: number;
+  created_at: string;
+  radio_id: string;
+  radio_name: string;
+  radio_region: string;
+  radio_city: string;
+  radio_programadora: string;
+  display_name: string;
+}
+
 export default function GrabacionesPage() {
   const [activeRecordings, setActiveRecordings] = useState<RecordingSession[]>([]);
-  const [availableRecordings, setAvailableRecordings] = useState<any[]>([]);
+  const [availableRecordings, setAvailableRecordings] = useState<EnrichedRecording[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const toast = useEnhancedToast();
@@ -93,7 +106,7 @@ export default function GrabacionesPage() {
         const sorted = result.recordings.sort((a: any, b: any) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
-        setAvailableRecordings(sorted);
+        setAvailableRecordings(sorted as EnrichedRecording[]);
       }
     } catch (error) {
       console.error('Error cargando grabaciones disponibles:', error);
@@ -151,7 +164,7 @@ export default function GrabacionesPage() {
       
       // Pequeña pausa para que el usuario vea el mensaje
       setTimeout(() => {
-        window.location.reload(true); // true fuerza recarga desde servidor
+        window.location.reload(); // Recarga desde servidor
       }, 500);
       
     } catch (error) {
@@ -207,6 +220,30 @@ export default function GrabacionesPage() {
       default: return 'Detenida';
     }
   };
+
+  // Agrupar grabaciones por radio usando useMemo para mejor performance
+  const groupedRecordings = useMemo(() => {
+    return availableRecordings.reduce((acc, recording) => {
+      const radioKey = `${recording.radio_name} (${recording.radio_region})`;
+      if (!acc[radioKey]) {
+        acc[radioKey] = {
+          name: recording.radio_name,
+          region: recording.radio_region,
+          city: recording.radio_city,
+          programadora: recording.radio_programadora,
+          recordings: []
+        };
+      }
+      acc[radioKey].recordings.push(recording);
+      return acc;
+    }, {} as Record<string, {
+      name: string;
+      region: string;
+      city: string;
+      programadora: string;
+      recordings: EnrichedRecording[];
+    }>);
+  }, [availableRecordings]);
 
   const formatDateTime = (dateValue: any): string => {
     // Manejar diferentes formatos de fecha que pueden venir del servidor
@@ -377,7 +414,7 @@ export default function GrabacionesPage() {
         </Card>
       )}
 
-      {/* Grabaciones Disponibles */}
+      {/* Grabaciones Disponibles - Agrupadas por Radio */}
       <Card className="bg-gray-900 border-gray-800">
         <CardHeader>
           <CardTitle className="text-white flex items-center space-x-2">
@@ -388,7 +425,7 @@ export default function GrabacionesPage() {
             </Badge>
           </CardTitle>
           <CardDescription className="text-gray-400">
-            Archivos de audio grabados y listos para descargar
+            Archivos de audio grabados y listos para descargar, organizados por radio
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -401,59 +438,17 @@ export default function GrabacionesPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {availableRecordings.map((recording, index) => {
-                try {
-                  // Intentar renderizar cada grabación con manejo de errores
-                  const sizeInMB = recording.size ? (recording.size / 1024 / 1024).toFixed(2) : '0.00';
-                  const dateValue = formatDateTime(recording.created || recording.created_at);
-                  
-                  return (
-                    <div
-                      key={`recording-${index}-${recording.filename}`}
-                      className="flex items-center justify-between bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 transition-colors"
-                    >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-white text-sm font-medium truncate">
-                            {recording.filename || 'Nombre no disponible'}
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {sizeInMB} MB • {dateValue}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleDownloadRecording(recording.filename)}
-                        className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-                        title="Descargar grabación"
-                        disabled={!recording.filename}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  );
-                } catch (error) {
-                  console.error(`Error renderizando grabación ${index}:`, error);
-                  return (
-                    <div
-                      key={`recording-error-${index}`}
-                      className="bg-red-900/30 border border-red-700 rounded-lg p-3"
-                    >
-                      <div className="text-red-400 text-sm">
-                        ⚠️ Error al mostrar grabación: {recording.filename || 'nombre no disponible'}
-                      </div>
-                      <div className="text-xs text-red-500 mt-1">
-                        Error: {error instanceof Error ? error.message : 'Error desconocido'}
-                      </div>
-                    </div>
-                  );
-                }
-              })}
+            <div className="space-y-3">
+              {/* Renderizar grupos de radios con grabaciones */}
+              {Object.entries(groupedRecordings).map(([radioKey, data]) => (
+                <RadioRecordingsGroup
+                  key={radioKey}
+                  radioName={radioKey}
+                  recordings={data.recordings}
+                  itemsPerPage={10}
+                  onDownload={handleDownloadRecording}
+                />
+              ))}
             </div>
           )}
         </CardContent>

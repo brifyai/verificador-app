@@ -686,8 +686,8 @@ export default function Reportes() {
               </div>
               
               <div>
-                <Label className="text-slate-300">Texto Original</Label>
-                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.originalText || 'No disponible'}</p>
+                <Label className="text-slate-300">Texto Detectado</Label>
+                <p className="text-white bg-slate-800 p-3 rounded-lg mt-1">{selectedDetection.detectedText}</p>
               </div>
               
               <div className="grid grid-cols-3 gap-4">
