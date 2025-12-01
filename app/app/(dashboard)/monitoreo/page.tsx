@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { REGION_ORDER, normalizeRegionName } from "@/lib/regions";
 
 // --- Interfaces para los datos que vienen de la API ---
 interface Radio {
@@ -175,18 +176,30 @@ export default function ConfigurarAnalisisPage() {
 
     // Filtrar por región
     if (filterRegion !== 'all') {
-      result = result.filter(radio => radio.region === filterRegion);
+      result = result.filter(radio => normalizeRegionName(radio.region || '') === filterRegion);
     }
 
     return result;
   }, [radios, searchTerm, filterRegion]);
 
-  // ✅ Obtener regiones únicas para el filtro
+  // ✅ Obtener regiones únicas para el filtro con orden geográfico
   const uniqueRegions = useMemo(() => {
     const regions = radios
       .map(r => r.region)
-      .filter((region): region is string => region !== null);
-    return Array.from(new Set(regions)).sort();
+      .filter((region): region is string => region !== null)
+      .map(region => normalizeRegionName(region));
+    
+    const uniqueRegions = Array.from(new Set(regions));
+    
+    // Filtrar y ordenar según el orden geográfico
+    const orderedRegions = REGION_ORDER.filter(region => uniqueRegions.includes(region));
+    
+    // Agregar regiones no mapeadas al final
+    const remainingRegions = uniqueRegions
+      .filter(region => !REGION_ORDER.includes(region))
+      .sort();
+    
+    return [...orderedRegions, ...remainingRegions];
   }, [radios]);
 
   // Cálculo de costos

@@ -346,9 +346,9 @@ export default function RadiosPage() {
   const filteredRadios = useMemo(() => {
     return radios.filter(radio => {
       const matchesSearch = radio.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          radio.programadora.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (radio.programadora && radio.programadora.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           radio.city.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesRegion = selectedRegion === '' || selectedRegion === 'all' || radio.region === selectedRegion;
+      const matchesRegion = selectedRegion === '' || selectedRegion === 'all' || normalizeRegionName(radio.region || '') === selectedRegion;
       const matchesGenre = selectedGenre === 'all' || radio.genre === selectedGenre;
       const matchesPlatform = selectedPlatform === 'all' || radio.streamPlatform === selectedPlatform;
       

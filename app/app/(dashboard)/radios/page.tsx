@@ -9,18 +9,23 @@ import { useConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 import { Radio } from '@/lib/mock-data';
 import { getPlatformIcon, getPlatformName } from '@/lib/platform-utils';
+import { REGION_ORDER, normalizeRegionName } from '@/lib/regions';
 import { RadioCard } from '@/components/radios/RadioCard';
 import { RadioCardSkeleton } from '@/components/radios/RadioCardSkeleton';
 import { RadioMetrics } from '@/components/radios/RadioMetrics';
+import { RadioStatusIndicators } from '@/components/radios/RadioStatusIndicators';
 import { RadioFilters } from '@/components/radios/RadioFilters';
 import RadioForm from '@/components/radios/RadioForm';
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
 import { recordingService } from '@/lib/recording-service';
+import { useAuthenticatedFetch } from '@/lib/useAuthenticatedFetch';
+import * as XLSX from 'xlsx';
 
 export default function RadiosPage() {
   const { confirm, ConfirmationDialog } = useConfirmationDialog();
   const toast = useEnhancedToast();
   const { playingRadio, isLoading, handlePlay } = useAudioPlayer();
+  const fetchWithAuth = useAuthenticatedFetch();
   
   // Estados principales
   const [radios, setRadios] = useState<Radio[]>([]);
@@ -50,42 +55,52 @@ export default function RadiosPage() {
   const [bulkVerifying, setBulkVerifying] = useState(false);
 
   // Cargar radios al montar
-  useEffect(() => {
-    const fetchRadios = async () => {
-      try {
-        const res = await fetch('/api/radios-direct?limit=500');
-        if (!res.ok) throw new Error('Error al cargar radios');
-        const json = await res.json();
-        if (Array.isArray(json.data)) {
-          setRadios(json.data);
-        } else {
-          console.error('Formato de datos incorrecto:', json);
-          toast.error('Error en el formato de datos recibidos');
-          setRadios([]);
-        }
-      } catch (err) {
-        console.error('Error al cargar radios:', err);
-        toast.error('No se pudieron cargar las radios');
-      } finally {
-        setLoading(false);
+  const fetchRadios = async () => {
+    try {
+      const res = await fetchWithAuth('/api/radios-direct?limit=500');
+      if (!res.ok) throw new Error('Error al cargar radios');
+      const json = await res.json();
+      if (Array.isArray(json.data)) {
+        setRadios(json.data);
+      } else {
+        console.error('Formato de datos incorrecto:', json);
+        toast.error('Error en el formato de datos recibidos');
+        setRadios([]);
       }
-    };
+    } catch (err) {
+      console.error('Error al cargar radios:', err);
+      toast.error('No se pudieron cargar las radios');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchRadios();
   }, []);
 
   // Extraer datos únicos para filtros
   const regions = useMemo(() => {
-    const uniqueRegions = Array.from(new Set(radios.map(radio => radio.region)));
-    return uniqueRegions.sort();
+    const uniqueRegions = Array.from(new Set(radios.map(radio => normalizeRegionName(radio.region))));
+    
+    // Filtrar y ordenar según el orden geográfico
+    const orderedRegions = REGION_ORDER.filter(region => uniqueRegions.includes(region));
+    
+    // Agregar regiones no mapeadas al final
+    const remainingRegions = uniqueRegions
+      .filter(region => !REGION_ORDER.includes(region))
+      .sort();
+    
+    return [...orderedRegions, ...remainingRegions];
   }, [radios]);
 
-  // Auto-seleccionar la primera región cuando se cargan las radios
+  // Auto-seleccionar la primera región cuando se cargan las radios (solo una vez)
   useEffect(() => {
     if (radios.length > 0 && regions.length > 0 && selectedRegion === '') {
       setSelectedRegion(regions[0]);
     }
-  }, [radios, regions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Solo ejecutar una vez al montar el componente
   
   const genres = useMemo(() => {
     const uniqueGenres = Array.from(new Set(radios.flatMap(radio => radio.genre ? [radio.genre] : [])));
@@ -101,9 +116,9 @@ export default function RadiosPage() {
   const filteredRadios = useMemo(() => {
     return radios.filter(radio => {
       const matchesSearch = radio.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          radio.programadora.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (radio.programadora && radio.programadora.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           radio.city.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesRegion = selectedRegion === '' || selectedRegion === 'all' || radio.region === selectedRegion;
+      const matchesRegion = selectedRegion === '' || selectedRegion === 'all' || normalizeRegionName(radio.region) === selectedRegion;
       const matchesGenre = selectedGenre === 'all' || radio.genre === selectedGenre;
       const matchesPlatform = selectedPlatform === 'all' || radio.streamPlatform === selectedPlatform;
       
@@ -114,14 +129,32 @@ export default function RadiosPage() {
   // Agrupar radios por región
   const groupedRadios = useMemo(() => {
     const grouped = filteredRadios.reduce((acc, radio) => {
-      if (!acc[radio.region]) {
-        acc[radio.region] = [];
+      const normalizedRegion = normalizeRegionName(radio.region);
+      if (!acc[normalizedRegion]) {
+        acc[normalizedRegion] = [];
       }
-      acc[radio.region].push(radio);
+      acc[normalizedRegion].push(radio);
       return acc;
     }, {} as Record<string, Radio[]>);
 
-    const sortedKeys = Object.keys(grouped).sort();
+    // Ordenar las regiones según el orden geográfico
+    const sortedKeys = Object.keys(grouped).sort((a, b) => {
+      const indexA = REGION_ORDER.indexOf(a);
+      const indexB = REGION_ORDER.indexOf(b);
+      
+      // Si ambas regiones están en el orden definido, usar ese orden
+      if (indexA !== -1 && indexB !== -1) {
+        return indexA - indexB;
+      }
+      
+      // Si una región no está en el orden definido, ponerla al final
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      
+      // Como fallback, ordenar alfabéticamente
+      return a.localeCompare(b);
+    });
+
     const result: Record<string, Radio[]> = {};
     sortedKeys.forEach(key => {
       result[key] = grouped[key].sort((a, b) => a.name.localeCompare(b.name));
@@ -134,6 +167,10 @@ export default function RadiosPage() {
   const totalInactive = radios.filter(r => !r.isActive).length;
   const totalOnline = radios.filter(r => (r as any).lastVerificationStatus === 'ONLINE').length;
   const totalOffline = radios.filter(r => (r as any).lastVerificationStatus === 'OFFLINE').length;
+  const totalActiveUnverified = radios.filter(r =>
+    r.isActive &&
+    (!(r as any).lastVerificationStatus || (r as any).lastVerificationStatus === 'UNVERIFIED' || (r as any).lastVerificationStatus === '')
+  ).length;
   const platformDistribution = radios.reduce((acc, radio) => {
     acc[radio.streamPlatform] = (acc[radio.streamPlatform] || 0) + 1;
     return acc;
@@ -177,7 +214,7 @@ export default function RadiosPage() {
 
     // Luego actualizar en la base de datos usando la API específica para estado
     try {
-      const response = await fetch(`/api/radios/${radioId}/status`, {
+      const response = await fetchWithAuth(`/api/radios/${radioId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -195,10 +232,8 @@ export default function RadiosPage() {
       } else {
         const result = await response.json();
         if (result.success) {
-          // Actualizar con los datos completos de la respuesta
-          setRadios(prev => prev.map(radio =>
-            radio.id === radioId ? result.data : radio
-          ));
+          // Recargar datos completos para asegurar consistencia
+          await fetchRadios();
           toast.success(result.message);
         }
       }
@@ -226,7 +261,7 @@ export default function RadiosPage() {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/radios/${radioId}`, {
+      const response = await fetchWithAuth(`/api/radios/${radioId}`, {
         method: 'DELETE',
       });
 
@@ -253,7 +288,7 @@ export default function RadiosPage() {
         url = `/api/radios/${editingRadio.id}`;
       }
       
-      const response = await fetch(url, {
+      const response = await fetchWithAuth(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(radioData),
@@ -266,11 +301,12 @@ export default function RadiosPage() {
 
       const result = await response.json();
       
+      // Recargar datos desde el servidor para asegurar consistencia
+      await fetchRadios();
+      
       if (editingRadio) {
-        setRadios(prev => prev.map(r => r.id === editingRadio.id ? result.data : r));
         toast.updateSuccess('Radio actualizada exitosamente');
       } else {
-        setRadios(prev => [...prev, result.data]);
         toast.createSuccess('Radio creada exitosamente');
       }
       
@@ -290,15 +326,18 @@ export default function RadiosPage() {
       'text/json',
       'text/csv',
       'application/csv',
-      'text/comma-separated-values'
+      'text/comma-separated-values',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel'
     ];
     
     const fileName = file.name.toLowerCase();
     const isJsonExtension = fileName.endsWith('.json');
     const isCsvExtension = fileName.endsWith('.csv');
+    const isExcelExtension = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
     
-    if (!validTypes.includes(file.type) && !isJsonExtension && !isCsvExtension) {
-      setImportError(`Tipo de archivo no válido. Por favor, sube un archivo JSON (.json) o CSV (.csv)`);
+    if (!validTypes.includes(file.type) && !isJsonExtension && !isCsvExtension && !isExcelExtension) {
+      setImportError(`Tipo de archivo no válido. Por favor, sube un archivo JSON (.json), CSV (.csv) o Excel (.xlsx, .xls)`);
       return false;
     }
     
@@ -361,6 +400,12 @@ export default function RadiosPage() {
       'genero': 'genre', 'genre': 'genre', 'tipo': 'genre'
     };
 
+    // Función para convertir texto a formato título (primera letra mayúscula, resto minúscula)
+    const toTitleCase = (text: string): string => {
+      if (!text) return text;
+      return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+    };
+
     const radios = [];
     for (let i = 1; i < lines.length; i++) {
       const values = parseCSVLine(lines[i]);
@@ -382,6 +427,11 @@ export default function RadiosPage() {
         continue;
       }
       
+      // Aplicar formato título al nombre de la radio
+      if (radio.name) {
+        radio.name = toTitleCase(radio.name);
+      }
+      
       radio.city = radio.city || radio.region;
       radio.programadora = radio.programadora || radio.name;
       
@@ -393,6 +443,102 @@ export default function RadiosPage() {
     }
     
     return radios;
+  };
+
+  const parseExcel = (file: File): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          
+          // Obtener la primera hoja
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          // Convertir a JSON
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          
+          if (jsonData.length < 2) {
+            reject(new Error('El archivo Excel debe tener al menos una fila de encabezados y una fila de datos'));
+            return;
+          }
+          
+          const headers = jsonData[0].map((h: any) => String(h).toLowerCase().trim());
+          
+          const fieldMapping: Record<string, string> = {
+            'nombre': 'name', 'name': 'name', 'radio': 'name',
+            'region': 'region', 'región': 'region',
+            'ciudad': 'city', 'city': 'city',
+            'url': 'streamUrl', 'streamurl': 'streamUrl', 'stream_url': 'streamUrl', 'enlace': 'streamUrl', 'link': 'streamUrl',
+            'frecuencia': 'frequency', 'frequency': 'frequency', 'freq': 'frequency',
+            'descripcion': 'description', 'description': 'description', 'desc': 'description',
+            'sitio': 'website', 'website': 'website', 'web': 'website',
+            'telefono': 'phone', 'phone': 'phone', 'tel': 'phone',
+            'email': 'email', 'correo': 'email',
+            'direccion': 'address', 'addresses': 'address',
+            'logo': 'logo',
+            'programadora': 'programadora',
+            'genero': 'genre', 'genre': 'genre', 'tipo': 'genre'
+          };
+          
+          // Función para convertir texto a formato título (primera letra mayúscula, resto minúscula)
+          const toTitleCase = (text: string): string => {
+            if (!text) return text;
+            return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+          };
+          
+          const radios = [];
+          for (let i = 1; i < jsonData.length; i++) {
+            const row = jsonData[i];
+            if (!row || row.length === 0 || row.every((v: any) => !v)) continue;
+            
+            const radio: any = {};
+            
+            headers.forEach((header: string, index: number) => {
+              const standardField = fieldMapping[header] || header;
+              const value = row[index] ? String(row[index]).trim() : '';
+              
+              if (value) {
+                radio[standardField] = value;
+              }
+            });
+            
+            if (!radio.name || !radio.region) {
+              console.warn(`Fila ${i + 1}: Faltan campos requeridos (name, region)`, radio);
+              continue;
+            }
+            
+            // Aplicar formato título al nombre de la radio
+            if (radio.name) {
+              radio.name = toTitleCase(radio.name);
+            }
+            
+            radio.city = radio.city || radio.region;
+            radio.programadora = radio.programadora || radio.name;
+            
+            radios.push(radio);
+          }
+          
+          if (radios.length === 0) {
+            reject(new Error('No se encontraron radios válidas en el archivo Excel'));
+            return;
+          }
+          
+          resolve(radios);
+        } catch (error) {
+          reject(new Error(`Error al procesar el archivo Excel: ${error instanceof Error ? error.message : 'Error desconocido'}`));
+        }
+      };
+      
+      reader.onerror = () => {
+        reject(new Error('Error al leer el archivo Excel'));
+      };
+      
+      reader.readAsArrayBuffer(file);
+    });
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -438,7 +584,7 @@ export default function RadiosPage() {
 
   const handleImportFromFile = async () => {
     if (!importFile) {
-      setImportError("Por favor, selecciona un archivo JSON o CSV para importar.");
+      setImportError("Por favor, selecciona un archivo JSON, CSV o Excel para importar.");
       return;
     }
 
@@ -446,14 +592,15 @@ export default function RadiosPage() {
     setImportError(null);
     
     try {
-      const fileContent = await importFile.text();
       let jsonData;
       
-      const isCSV = importFile.name.toLowerCase().endsWith('.csv') || 
-                   importFile.type.includes('csv');
+      const fileName = importFile.name.toLowerCase();
+      const isCSV = fileName.endsWith('.csv') || importFile.type.includes('csv');
+      const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
       
       if (isCSV) {
         try {
+          const fileContent = await importFile.text();
           const radiosArray = parseCSV(fileContent);
           jsonData = { radios: radiosArray };
         } catch (error: any) {
@@ -461,8 +608,19 @@ export default function RadiosPage() {
           setImportLoading(false);
           return;
         }
-      } else {
+      } else if (isExcel) {
         try {
+          const radiosArray = await parseExcel(importFile);
+          jsonData = { radios: radiosArray };
+        } catch (error: any) {
+          setImportError(`Error al procesar el archivo Excel: ${error.message}`);
+          setImportLoading(false);
+          return;
+        }
+      } else {
+        // Procesar como JSON
+        try {
+          const fileContent = await importFile.text();
           const parsedData = JSON.parse(fileContent);
           
           if (Array.isArray(parsedData)) {
@@ -481,7 +639,7 @@ export default function RadiosPage() {
         }
       }
       
-      const importResponse = await fetch('/api/radios-direct/import-bulk', {
+      const importResponse = await fetchWithAuth('/api/radios-direct/import-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jsonData)
@@ -495,7 +653,7 @@ export default function RadiosPage() {
         // Recargar radios
         setLoading(true);
         try {
-          const res = await fetch('/api/radios-direct?limit=500');
+          const res = await fetchWithAuth('/api/radios-direct?limit=500');
           if (!res.ok) throw new Error('Error al cargar radios');
           const json = await res.json();
           if (Array.isArray(json.data)) {
@@ -543,7 +701,7 @@ export default function RadiosPage() {
     try {
       setVerifyingRadioId(radioId);
       
-      const response = await fetch(`/api/radios/${radioId}/verify`, {
+      const response = await fetchWithAuth(`/api/radios-direct/${radioId}/verify`, {
         method: 'POST',
       });
 
@@ -582,7 +740,7 @@ export default function RadiosPage() {
       setBulkVerifying(true);
       toast.info('Iniciando verificación masiva...');
       
-      const response = await fetch('/api/radios-direct/verify-bulk', {
+      const response = await fetchWithAuth('/api/radios-direct/verify-bulk', {
         method: 'POST',
       });
 
@@ -630,8 +788,31 @@ export default function RadiosPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Botón Recargar Datos */}
+          <Button
+            onClick={async () => {
+              setLoading(true);
+              await fetchRadios();
+              toast.success('Datos actualizados correctamente');
+            }}
+            disabled={loading}
+            className="bg-gray-600 hover:bg-gray-700"
+          >
+            {loading ? (
+              <>
+                <Loader className="h-4 w-4 mr-2 animate-spin" />
+                Actualizando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Actualizar
+              </>
+            )}
+          </Button>
+          
           {/* Botón Verificar Todas */}
-          <Button 
+          <Button
             onClick={handleBulkVerify}
             disabled={bulkVerifying || radios.length === 0}
             className="bg-purple-600 hover:bg-purple-700"
@@ -683,7 +864,7 @@ export default function RadiosPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".json,.csv"
+                      accept=".json,.csv,.xlsx,.xls"
                       className="hidden"
                       onChange={handleFileChange}
                     />
@@ -714,7 +895,7 @@ export default function RadiosPage() {
                     ) : (
                       <div className="space-y-2">
                         <p className="text-gray-300 font-medium">
-                          Arrastra y suelta un archivo JSON o CSV aquí
+                          Arrastra y suelta un archivo JSON, CSV o Excel aquí
                         </p>
                         <p className="text-gray-400 text-sm">o</p>
                         <Button 
@@ -725,7 +906,7 @@ export default function RadiosPage() {
                           Seleccionar archivo
                         </Button>
                         <p className="text-gray-500 text-xs mt-2">
-                          Formatos soportados: .json, .csv (máx. 10MB)
+                          Formatos soportados: .json, .csv, .xlsx, .xls (máx. 10MB)
                         </p>
                       </div>
                     )}
@@ -862,6 +1043,14 @@ export default function RadiosPage() {
         platformDistribution={platformDistribution}
         getPlatformIcon={getPlatformIcon}
         getPlatformName={getPlatformName}
+      />
+      <RadioStatusIndicators
+        totalRadios={radios.length}
+        totalActive={totalActive}
+        totalInactive={totalInactive}
+        totalOnline={totalOnline}
+        totalOffline={totalOffline}
+        totalActiveUnverified={totalActiveUnverified}
       />
 
       {/* Filtros */}
