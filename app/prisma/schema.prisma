@@ -40,18 +40,19 @@ enum Role {
 
 // Radios registradas en el sistema
 model Radio {
-  id          String   @id @default(cuid())
-  name        String
-  streamUrl   String
-  platform    Platform
-  region      String?
-  description String?
-  status      RadioStatus @default(ACTIVE)
-  priority    Int      @default(1) // 1=alta, 2=media, 3=baja
-  costPerHour Float    @default(0.0)
-  metadata    Json?    // Información adicional como calidad, bitrate, etc.
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(cuid())
+  name              String
+  streamUrl         String
+  platform          Platform
+  originalPlatform  String?  // Plataforma original del frontend (para preservarla)
+  region            String?
+  description       String?
+  status            RadioStatus @default(ACTIVE)
+  priority          Int      @default(1) // 1=alta, 2=media, 3=baja
+  costPerHour       Float    @default(0.0)
+  metadata          Json?    // Información adicional como calidad, bitrate, etc.
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
   
   // Campos de verificación de estado
   lastVerificationStatus VerificationStatus?
@@ -69,13 +70,57 @@ model Radio {
 }
 
 enum Platform {
+  // Plataformas Sociales y Video
   YOUTUBE
   TWITCH
   FACEBOOK
+  SPOTIFY
+  SOUNDCLOUD
+  MIXCLOUD
+  
+  // Tecnología Base
   ICECAST
   SHOUTCAST
   HTTP_STREAM
   RTMP
+  HLS
+  DASH
+  
+  // Paneles de Control Profesionales
+  CENTOVA
+  SONICPANEL
+  AZURACAST
+  WHMSONIC
+  
+  // Proveedores Chilenos
+  ARKEO
+  CREATTIVA
+  VISUALRADIO
+  MEDIAWEB
+  DIGITALPROSERVER
+  TUSTREAMING
+  STREAMINGHD
+  NEONETWORK
+  CHILOESTREAMING
+  
+  // Plataformas de Monetización y Analytics
+  AFSTREAM
+  MEDIASTREAM
+  
+  // Agregadores
+  TUNEIN
+  
+  // Software de Automatización
+  HARDATA
+  INFINYSTREAM
+  RADIONOMY
+  
+  // Proveedores Globales
+  SHOUTCHEAP
+  YESSTREAMING
+  STREAMERR
+  
+  // Otros
   OTHER
 }
 

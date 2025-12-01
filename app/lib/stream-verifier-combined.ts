@@ -1,6 +1,7 @@
 // Servicio combinado que usa VPS como primera opción y navegador como respaldo
 import { streamVerifierVPS } from './stream-verifier-vps';
 import { streamVerifierBrowser } from './stream-verifier-browser';
+import { verifyStreamStatusWithSslFix } from './stream-verifier-ssl-fix';
 import { logger } from './logger';
 
 export interface StreamVerificationResult {
@@ -9,7 +10,8 @@ export interface StreamVerificationResult {
   responseTime?: number;
   contentType?: string;
   contentLength?: number;
-  method?: 'VPS' | 'BROWSER' | 'FALLBACK';
+  method?: 'VPS' | 'BROWSER' | 'SSL_FIX' | 'FALLBACK';
+  sslError?: string;
 }
 
 export class StreamVerifierCombined {
@@ -45,10 +47,43 @@ export class StreamVerifierCombined {
       
     } catch (vpsError) {
       logger.warn('❌ Falló verificación con VPS:', vpsError);
-      console.log('🔄 VPS no disponible, intentando desde navegador...');
+      console.log('🔄 VPS no disponible, intentando verificación SSL...');
     }
 
-    // Método 2: Intentar desde el navegador (método de respaldo)
+    // Método 2: Intentar verificación mejorada con manejo SSL
+    logger.info('🎯 Intentando verificación mejorada con manejo SSL...');
+    try {
+      const sslResult = await verifyStreamStatusWithSslFix(streamUrl);
+      
+      if (sslResult.status === 'ONLINE') {
+        logger.info('✅ Verificación SSL exitosa');
+        return {
+          status: 'ONLINE',
+          details: sslResult.details,
+          responseTime: 0,
+          contentType: sslResult.contentType,
+          method: 'SSL_FIX'
+        };
+      } else if (sslResult.status === 'SSL_ERROR') {
+        logger.info('⚠️ Error SSL detectado, intentando navegador...');
+        // Si hay error SSL, intentar con navegador
+      } else if (sslResult.status === 'OFFLINE') {
+        logger.info('⚠️ Streaming offline según verificación SSL');
+        return {
+          status: 'OFFLINE',
+          details: sslResult.details,
+          responseTime: 0,
+          contentType: sslResult.contentType,
+          method: 'SSL_FIX'
+        };
+      }
+      
+    } catch (sslError) {
+      logger.error('❌ Falló verificación SSL:', sslError);
+      console.log('🔄 SSL también falló, intentando desde navegador...');
+    }
+
+    // Método 3: Intentar desde el navegador (método de respaldo)
     logger.info('🎯 Intentando verificación desde navegador...');
     try {
       const browserResult = await streamVerifierBrowser.verifyStreamFromBrowser(radioId, streamUrl, radioName);
@@ -73,7 +108,7 @@ export class StreamVerifierCombined {
       console.log('🔄 Navegador también falló, usando modo fallback...');
     }
 
-    // Método 3: Fallback - Permitir grabación con advertencia
+    // Método 4: Fallback - Permitir grabación con advertencia
     logger.warn('⚠️ Ningún método de verificación funcionó, usando fallback');
     
     // Verificar conectividad básica del navegador
@@ -130,9 +165,14 @@ export class StreamVerifierCombined {
   getUserFriendlyMessage(result: StreamVerificationResult): string {
     switch (result.method) {
       case 'VPS':
-        return result.status === 'ONLINE' 
+        return result.status === 'ONLINE'
           ? '✅ Streaming verificado exitosamente desde el servidor'
           : '❌ Streaming no disponible (verificado desde servidor)';
+      
+      case 'SSL_FIX':
+        return result.status === 'ONLINE'
+          ? '✅ Streaming verificado (con corrección SSL)'
+          : '❌ Streaming no disponible (error SSL)';
       
       case 'BROWSER':
         return result.status === 'ONLINE'

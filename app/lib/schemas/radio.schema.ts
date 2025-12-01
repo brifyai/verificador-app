@@ -100,9 +100,9 @@ export const RadioUpdateSchema = z.object({
     .optional(),
   
   streamPlatform: z.string()
-    .min(1, 'La plataforma es requerida')
     .trim()
-    .optional(),
+    .optional()
+    .nullable(),
   
   region: z.string()
     .min(1, 'La región es requerida')

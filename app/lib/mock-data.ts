@@ -52,7 +52,7 @@ export type StreamPlatform =
 export interface Radio {
   id: string;
   name: string;
-  programadora: string;
+  programadora?: string; // ✅ Ahora opcional
   frequency: string;
   streamUrl: string;
   streamPlatform: StreamPlatform;

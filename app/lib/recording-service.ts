@@ -30,6 +30,15 @@ export interface RadioRecording {
   startTime?: Date;
 }
 
+export interface EnrichedRecordingFile extends RecordingFile {
+  radio_id: string;
+  radio_name: string;
+  radio_region: string;
+  radio_city: string;
+  radio_programadora: string;
+  display_name: string;
+}
+
 class RecordingService {
   private API_BASE: string;
   private currentRecordings: Map<string, RecordingState>;
@@ -234,6 +243,13 @@ class RecordingService {
           size: recording.size,
           created_at: recording.created_at || recording.created, // Asegurar campo created_at
           path: recording.path,
+          // Preservar todos los campos enriquecidos de metadata de radio
+          radio_id: recording.radio_id,
+          radio_name: recording.radio_name,
+          radio_region: recording.radio_region,
+          radio_city: recording.radio_city,
+          radio_programadora: recording.radio_programadora,
+          display_name: recording.display_name,
         }));
         
         return {
