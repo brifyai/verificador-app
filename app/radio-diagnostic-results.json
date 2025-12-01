@@ -1,0 +1,78 @@
+[
+  {
+    "radio": "Fmmas (Arica)",
+    "id": "radio_mijm9xdj_gb68gow",
+    "metadataAnalysis": {
+      "hasPlatformData": false,
+      "platformDataType": null,
+      "hasStreamPlatform": false,
+      "streamPlatformValue": null,
+      "hasCity": false,
+      "hasFrequency": false,
+      "hasProgramadora": false,
+      "hasWebsite": false,
+      "keys": []
+    },
+    "updateStatus": 404,
+    "updateError": null,
+    "expectedWorking": true,
+    "actualWorking": false
+  },
+  {
+    "radio": "Fmokey (Tarapacá)",
+    "id": "radio_mijm9xd1_cfcmnm1",
+    "metadataAnalysis": {
+      "hasPlatformData": false,
+      "platformDataType": null,
+      "hasStreamPlatform": false,
+      "streamPlatformValue": null,
+      "hasCity": false,
+      "hasFrequency": false,
+      "hasProgramadora": false,
+      "hasWebsite": false,
+      "keys": []
+    },
+    "updateStatus": 404,
+    "updateError": null,
+    "expectedWorking": false,
+    "actualWorking": false
+  },
+  {
+    "radio": "Fmokey (Coquimbo)",
+    "id": "radio_mijm9xrt_mv65e2j",
+    "metadataAnalysis": {
+      "hasPlatformData": false,
+      "platformDataType": null,
+      "hasStreamPlatform": false,
+      "streamPlatformValue": null,
+      "hasCity": false,
+      "hasFrequency": false,
+      "hasProgramadora": false,
+      "hasWebsite": false,
+      "keys": []
+    },
+    "updateStatus": 404,
+    "updateError": null,
+    "expectedWorking": false,
+    "actualWorking": false
+  },
+  {
+    "radio": "Fmokey (Aysén)",
+    "id": "radio_mijm9zhn_64er284",
+    "metadataAnalysis": {
+      "hasPlatformData": false,
+      "platformDataType": null,
+      "hasStreamPlatform": false,
+      "streamPlatformValue": null,
+      "hasCity": false,
+      "hasFrequency": false,
+      "hasProgramadora": false,
+      "hasWebsite": false,
+      "keys": []
+    },
+    "updateStatus": 404,
+    "updateError": null,
+    "expectedWorking": false,
+    "actualWorking": false
+  }
+]
