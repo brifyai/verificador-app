@@ -1,8 +1,7 @@
-
 import bcrypt from 'bcryptjs';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { NextAuthOptions } from 'next-auth';
-import { supabaseDirect } from '@/lib/supabase-direct'; // ✅ Usar cliente directo de Supabase
+import { supabaseDirect } from '@/lib/supabase-direct';
 import { logger } from '@/lib/logger';
 
 export const authOptions: NextAuthOptions = {
@@ -15,9 +14,8 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' }
       },
       async authorize(credentials) {
-        logger.auth('AUTHORIZE - Credenciales recibidas', { 
-          email: credentials?.email, 
-          hasPassword: !!credentials?.password 
+        logger.auth('AUTHORIZE - Iniciando autenticación', { 
+          email: credentials?.email 
         });
 
         if (!credentials?.email || !credentials?.password) {
@@ -26,45 +24,42 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          logger.auth('AUTHORIZE - Buscando usuario en BD...');
-          // Buscar usuario en la base de datos usando Supabase Direct
+          logger.auth('AUTHORIZE - Buscando usuario en Supabase...');
+          
+          // Buscar usuario directamente en Supabase
           const users = await supabaseDirect.getUsers();
-          const user = users.find(u => u.email === credentials.email);
+          const user = users.find((u: any) => u.email === credentials.email);
 
-          logger.auth('AUTHORIZE - Usuario encontrado', {
-            exists: !!user,
-            active: user?.active,
-            email: user?.email,
-            role: user?.role
-          });
-
-          // Si no existe el usuario o no está activo
-          if (!user || !user.active) {
-            logger.auth('AUTHORIZE - Usuario no existe o inactivo');
+          if (!user) {
+            logger.auth('AUTHORIZE - Usuario no encontrado');
             return null;
           }
 
-          logger.auth('AUTHORIZE - Verificando contraseña...');
+          if (!user.active) {
+            logger.auth('AUTHORIZE - Usuario inactivo');
+            return null;
+          }
+
           // Verificar contraseña
+          logger.auth('AUTHORIZE - Verificando contraseña...');
           const passwordMatch = await bcrypt.compare(credentials.password, user.password);
-          
-          logger.auth('AUTHORIZE - Contraseña válida', { passwordMatch });
           
           if (!passwordMatch) {
             logger.auth('AUTHORIZE - Contraseña incorrecta');
             return null;
           }
           
-          // Devolver datos del usuario para la sesión
+          // Éxito - devolver datos del usuario
           const userData = {
             id: user.id,
             email: user.email,
             name: user.name || 'Usuario',
-            role: user.role
+            role: user.role || 'user'
           };
           
-          logger.auth('AUTHORIZE - Login exitoso, devolviendo', userData);
+          logger.auth('AUTHORIZE - Login exitoso', userData);
           return userData;
+          
         } catch (error) {
           logger.error('AUTHORIZE - Error en autenticación', error);
           return null;
@@ -72,47 +67,22 @@ export const authOptions: NextAuthOptions = {
       }
     })
   ],
+  
   pages: {
     signIn: '/auth/signin',
     signOut: '/auth/signout',
     error: '/auth/error',
   },
+  
   session: {
-    strategy: 'jwt' as const,
+    strategy: 'jwt',
     maxAge: 7 * 24 * 60 * 60, // 7 días
   },
-  cookies: {
-    sessionToken: {
-      name: 'next-auth.session-token',
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 // 7 días
-      }
-    },
-    callbackUrl: {
-      name: 'next-auth.callback-url',
-      options: {
-        httpOnly: false,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 10 * 60 // 10 minutos
-      }
-    },
-    csrfToken: {
-      name: 'next-auth.csrf-token',
-      options: {
-        httpOnly: false,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 60 * 60 // 1 hora
-      }
-    }
+  
+  jwt: {
+    maxAge: 7 * 24 * 60 * 60, // 7 días
   },
+  
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
@@ -123,30 +93,57 @@ export const authOptions: NextAuthOptions = {
       }
       return token;
     },
+    
     async session({ session, token }) {
       if (token) {
-        session.user.id = token.id as string;
-        session.user.email = token.email as string;
-        session.user.name = token.name as string;
-        session.user.role = token.role as string;
+        session.user = {
+          id: token.id as string,
+          email: token.email as string,
+          name: token.name as string,
+          role: token.role as string
+        };
       }
       return session;
     },
+    
     async redirect({ url, baseUrl }) {
-      // Siempre redirigir al dashboard después de login exitoso
+      // Redirigir siempre al dashboard después de login
       if (url === baseUrl || url.startsWith(baseUrl)) {
         return `${baseUrl}/dashboard`;
       }
       
-      // Si es una URL relativa, convertirla a absoluta
       if (url.startsWith('/')) {
         return `${baseUrl}${url}`;
       }
-
-      // Por defecto, redirigir al dashboard
+      
       return `${baseUrl}/dashboard`;
     }
   },
+  
   secret: process.env.NEXTAUTH_SECRET,
-  debug: false, // Deshabilitar debug para evitar warnings en logs
+  
+  // Deshabilitar debug para evitar spam en logs
+  debug: false,
 };
+
+// Exportar helper para verificar auth en APIs
+export async function requireAuth(session: any) {
+  if (!session?.user?.id) {
+    throw new Error('No autorizado');
+  }
+  return session.user;
+}
+
+// Exportar helper para verificar roles
+export function requireRole(session: any, allowedRoles: string[]) {
+  const user = session?.user;
+  if (!user?.id || !user?.role) {
+    throw new Error('No autorizado');
+  }
+  
+  if (!allowedRoles.includes(user.role)) {
+    throw new Error('Permisos insuficientes');
+  }
+  
+  return user;
+}

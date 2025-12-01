@@ -32,8 +32,11 @@ export default function SignInPage() {
         const data = await response.json();
         console.log('✅ Login exitoso:', data);
 
-        // Guardar token
+        // Guardar token en localStorage (para el frontend)
         localStorage.setItem('auth-token', data.token);
+        
+        // También establecer una cookie manualmente (como respaldo)
+        document.cookie = `auth-token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
         
         // Redirigir al dashboard
         console.log('🔄 Redirigiendo al dashboard...');

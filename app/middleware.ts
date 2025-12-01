@@ -1,143 +1,152 @@
-import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
-import { hasPermission } from './lib/permissions';
-import { supabaseDirect } from './lib/supabase-direct';
+import type { NextRequest } from 'next/server';
+import { verifyJWT } from './lib/jwt-simple';
 
-// Función para obtener token de la cookie auth-token
-function getAuthTokenFromCookie(req: any) {
-  const cookieHeader = req.headers.get('cookie');
-  if (!cookieHeader) return null;
+// Rutas públicas que no requieren autenticación
+const publicRoutes = [
+  '/',
+  '/auth/signin',
+  '/auth/register',
+  '/api/auth/login-direct',
+  '/api/auth/register',
+  '/api/auth/providers',
+  '/api/auth/setup-admin',
+  '/api/health',
+  '/favicon.ico',
+  '/_next',
+  '/static',
+  '/.well-known'
+];
+
+// Rutas de API públicas
+const publicApiRoutes = [
+  '/api/auth/login-direct',
+  '/api/auth/register',
+  '/api/auth/providers',
+  '/api/auth/setup-admin'
+];
+
+function isPublicRoute(pathname: string): boolean {
+  // Verificar rutas exactas
+  if (publicRoutes.includes(pathname)) {
+    return true;
+  }
   
-  const match = cookieHeader.match(/auth-token=([^;]+)/);
-  return match ? match[1] : null;
+  // Verificar rutas que comienzan con prefijos públicos
+  return publicRoutes.some(route => 
+    route !== '/' && pathname.startsWith(route)
+  );
 }
 
-// Función para verificar sesión directa usando Supabase
-async function verifyDirectSession(req: any) {
+function isPublicApiRoute(pathname: string): boolean {
+  return publicApiRoutes.some(route => pathname.startsWith(route));
+}
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  
+  console.log('[MIDDLEWARE] Procesando ruta:', pathname);
+  
+  // Permitir rutas públicas
+  if (isPublicRoute(pathname)) {
+    console.log('[MIDDLEWARE] Ruta pública permitida:', pathname);
+    return NextResponse.next();
+  }
+  
+  // Para rutas de API, verificar si es pública
+  if (pathname.startsWith('/api/') && isPublicApiRoute(pathname)) {
+    console.log('[MIDDLEWARE] Ruta API pública permitida:', pathname);
+    return NextResponse.next();
+  }
+  
+  // Obtener token de los headers o cookies
+  const authHeader = request.headers.get('authorization');
+  const tokenCookie = request.cookies.get('auth-token');
+  
+  console.log('[MIDDLEWARE] Auth header:', authHeader ? 'Presente' : 'No presente');
+  console.log('[MIDDLEWARE] Token cookie:', tokenCookie ? 'Presente' : 'No presente');
+  
+  const token = authHeader?.replace('Bearer ', '') || tokenCookie?.value;
+  
+  if (!token) {
+    console.log('[MIDDLEWARE] No token found, redirigiendo al login desde:', pathname);
+    
+    // Para rutas de API, devolver error 401
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'No autorizado' },
+        { status: 401 }
+      );
+    }
+    
+    // Para rutas de página, redirigir al login
+    const loginUrl = new URL('/auth/signin', request.url);
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  
+  console.log('[MIDDLEWARE] Token encontrado, verificando...');
+  console.log('[MIDDLEWARE] Token preview:', token.substring(0, 20) + '...');
+  
   try {
-    const authToken = getAuthTokenFromCookie(req);
-    if (!authToken) return null;
-
-    // El token es el user_id (simple y directo)
-    const userId = authToken;
+    // Verificar token usando implementación Edge Runtime compatible
+    const decoded = await verifyJWT(token);
     
-    // Verificar que el usuario existe y está activo
-    const users = await supabaseDirect.getUsers();
-    const user = users.find((u: any) => u.id === userId && u.active);
+    if (!decoded) {
+      console.log('[MIDDLEWARE] Token inválido, redirigiendo al login desde:', pathname);
+      
+      // Para rutas de API, devolver error 401
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Token inválido' },
+          { status: 401 }
+        );
+      }
+      
+      // Para rutas de página, redirigir al login
+      const loginUrl = new URL('/auth/signin', request.url);
+      loginUrl.searchParams.set('callbackUrl', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
     
-    if (!user) return null;
+    console.log('[MIDDLEWARE] Token válido, permitiendo acceso');
     
-    // Devolver objeto compatible con NextAuth token
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name || 'Usuario',
-      role: user.role
-    };
+    // Agregar información del usuario al header para que esté disponible en las rutas
+    const response = NextResponse.next();
+    response.headers.set('x-user-id', decoded.id);
+    response.headers.set('x-user-email', decoded.email);
+    response.headers.set('x-user-role', decoded.role);
+    
+    return response;
+    
   } catch (error) {
-    console.error('Error verificando sesión directa:', error);
-    return null;
+    console.error('[MIDDLEWARE] Error verificando token:', error);
+    console.log('[MIDDLEWARE] Token inválido, redirigiendo al login desde:', pathname);
+    
+    // Para rutas de API, devolver error 401
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'Token inválido' },
+        { status: 401 }
+      );
+    }
+    
+    // Para rutas de página, redirigir al login
+    const loginUrl = new URL('/auth/signin', request.url);
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 }
 
-export default withAuth(
-  async function middleware(req) {
-    const { pathname } = req.nextUrl;
-    const nextAuthToken = req.nextauth?.token;
-
-    // Rutas públicas que no requieren autenticación
-    const publicRoutes = [
-      '/auth/signin',
-      '/auth/signup',
-      '/auth/error',
-      '/api/audios/list',
-      '/auth/test-login'
-    ];
-
-    // Aceptar prefijos públicos
-    if (pathname.startsWith('/api/audios/download')) {
-      return NextResponse.next();
-    }
-
-    // Excluir rutas públicas exactas
-    if (publicRoutes.includes(pathname)) {
-      return NextResponse.next();
-    }
-
-    // Intentar obtener sesión del sistema directo si no hay NextAuth token
-    let directToken = null;
-    if (!nextAuthToken) {
-      directToken = await verifyDirectSession(req);
-    }
-
-    // Usar el token que esté disponible
-    const token = nextAuthToken || directToken;
-
-    // Si el usuario está autenticado y trata de acceder a rutas de auth, redirigir al dashboard
-    if (token && ['/auth/signin', '/auth/signup'].includes(pathname)) {
-      return NextResponse.redirect(new URL('/dashboard', req.url));
-    }
-
-    // Verificar permisos para rutas protegidas
-    if (token) {
-      const userRole = token.role as string;
-      if (!hasPermission(userRole, pathname)) {
-        return NextResponse.redirect(new URL('/dashboard', req.url));
-      }
-      return NextResponse.next();
-    }
-
-    // Por defecto (sin token) redirigir a signIn para rutas protegidas
-    return NextResponse.redirect(new URL('/auth/signin', req.url));
-  },
-  {
-    callbacks: {
-      authorized: async ({ token, req }) => {
-        const { pathname } = req.nextUrl;
-
-        // Rutas públicas que no requieren autenticación
-        const publicRoutes = [
-          '/auth/signin',
-          '/auth/signup',
-          '/auth/error',
-          '/api/audios/list',
-          '/auth/test-login'
-        ];
-
-        // Permitir acceso a rutas públicas sin token
-        if (publicRoutes.includes(pathname) || pathname.startsWith('/api/audios/download')) {
-          return true;
-        }
-
-        // Si hay token de NextAuth, usarlo
-        if (token) {
-          return true;
-        }
-
-        // Verificar si hay sesión directa
-        const directSession = await verifyDirectSession(req);
-        return !!directSession;
-      },
-    },
-    pages: {
-      signIn: '/auth/signin',
-    },
-  }
-);
-
-// Configuración del matcher para el middleware
-// Excluye rutas específicas del middleware de autenticación
 export const config = {
   matcher: [
     /*
-     * Aplica el middleware a todas las rutas EXCEPTO:
-     * - Rutas de API (todas las rutas /api/*)
-     * - Archivos estáticos de Next.js (_next/static, _next/image)
-     * - Favicon
-     * - Archivos de imagen (png, jpg, jpeg, gif, svg, ico, webp)
-     * 
-     * Patrón recomendado por Next.js usando negative lookahead
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public folder
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.jpg$|.*\\.jpeg$|.*\\.gif$|.*\\.svg$|.*\\.ico$|.*\\.webp$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|public).*)',
   ],
 };
