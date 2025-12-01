@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Frontend Auth</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .warning { color: #ffc107; }
+        .info { color: #17a2b8; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .token-display {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .radio-item {
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Debug Frontend Authentication</h1>
+        
+        <div class="section">
+            <h2>1. Estado de Autenticación</h2>
+            <div id="auth-status">
+                <p class="warning">⏳ Verificando estado...</p>
+            </div>
+            <button onclick="checkAuthStatus()">Verificar Estado</button>
+            <button onclick="clearLocalStorage()">Limpiar LocalStorage</button>
+        </div>
+
+        <div class="section">
+            <h2>2. Token JWT</h2>
+            <div id="token-info">
+                <p class="info">ℹ️ El token se almacena en localStorage con la clave 'auth-token'</p>
+            </div>
+            <button onclick="showToken()">Mostrar Token</button>
+            <button onclick="testToken()">Probar Token</button>
+        </div>
+
+        <div class="section">
+            <h2>3. Prueba de Radios</h2>
+            <div id="radios-test">
+                <p class="info">ℹ️ Prueba el endpoint /api/radios-direct</p>
+            </div>
+            <button onclick="testRadiosEndpoint()">Probar Endpoint Radios</button>
+            <button onclick="clearRadiosResult()">Limpiar Resultado</button>
+        </div>
+
+        <div class="section">
+            <h2>4. Consola del Navegador</h2>
+            <p class="info">ℹ️ Abre la consola del navegador (F12) para ver logs detallados</p>
+            <pre id="console-output">Logs aparecerán aquí...</pre>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        const LOGIN_ENDPOINT = `${API_BASE}/auth/login-direct`;
+        const RADIOS_ENDPOINT = `${API_BASE}/radios-direct`;
+
+        function log(message, type = 'info') {
+            const consoleOutput = document.getElementById('console-output');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = {
+                'info': '#17a2b8',
+                'success': '#28a745',
+                'error': '#dc3545',
+                'warning': '#ffc107'
+            }[type] || '#6c757d';
+            
+            consoleOutput.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${timestamp}] ${message}</div>`;
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            
+            // También log en la consola real
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function checkAuthStatus() {
+            log('Verificando estado de autenticación...', 'info');
+            
+            const token = localStorage.getItem('auth-token');
+            const authStatus = document.getElementById('auth-status');
+            
+            if (token) {
+                try {
+                    // Decodificar el payload del JWT (parte del medio)
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    const exp = new Date(payload.exp * 1000);
+                    const now = new Date();
+                    const isExpired = now > exp;
+                    
+                    authStatus.innerHTML = `
+                        <p class="success">✅ Usuario autenticado</p>
+                        <p><strong>Token:</strong> Presente (${token.length} caracteres)</p>
+                        <p><strong>Expira:</strong> ${exp.toLocaleString()}</p>
+                        <p><strong>Estado:</strong> ${isExpired ? '<span class="error">EXPIRADO</span>' : '<span class="success">VÁLIDO</span>'}</p>
+                        ${isExpired ? '<p class="warning">⚠️ El token está expirado. Necesitas hacer login nuevamente.</p>' : ''}
+                    `;
+                    
+                    log(`Token encontrado. Expira: ${exp.toLocaleString()}`, isExpired ? 'error' : 'success');
+                } catch (error) {
+                    authStatus.innerHTML = `
+                        <p class="error">❌ Token inválido</p>
+                        <p class="error">Error: ${error.message}</p>
+                    `;
+                    log('Token inválido: ' + error.message, 'error');
+                }
+            } else {
+                authStatus.innerHTML = `
+                    <p class="error">❌ No autenticado</p>
+                    <p class="warning">⚠️ No se encontró token en localStorage</p>
+                `;
+                log('No se encontró token en localStorage', 'warning');
+            }
+        }
+
+        function showToken() {
+            const token = localStorage.getItem('auth-token');
+            const tokenInfo = document.getElementById('token-info');
+            
+            if (token) {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    tokenInfo.innerHTML = `
+                        <p class="success">✅ Token encontrado</p>
+                        <div class="token-display">
+                            <strong>Token completo:</strong><br>
+                            ${token}
+                        </div>
+                        <div class="token-display">
+                            <strong>Payload decodificado:</strong><br>
+                            ${JSON.stringify(payload, null, 2)}
+                        </div>
+                    `;
+                    log('Token mostrado exitosamente', 'success');
+                } catch (error) {
+                    tokenInfo.innerHTML = `
+                        <p class="error">❌ Error al decodificar token</p>
+                        <div class="token-display">
+                            <strong>Token (sin decodificar):</strong><br>
+                            ${token}
+                        </div>
+                    `;
+                    log('Error al decodificar token: ' + error.message, 'error');
+                }
+            } else {
+                tokenInfo.innerHTML = `
+                    <p class="error">❌ No hay token disponible</p>
+                    <p class="warning">⚠️ Primero debes hacer login</p>
+                `;
+                log('No hay token disponible', 'warning');
+            }
+        }
+
+        async function testToken() {
+            log('Probando token con endpoint de radios...', 'info');
+            
+            const token = localStorage.getItem('auth-token');
+            if (!token) {
+                log('No hay token disponible para probar', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${RADIOS_ENDPOINT}?limit=5`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`✅ Token válido! Se obtuvieron ${data.data.length} radios`, 'success');
+                    log(`Total de radios: ${data.total || 'no especificado'}`, 'info');
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Token inválido o expirado (Status: ${response.status})`, 'error');
+                    log(`Respuesta del servidor: ${errorText}`, 'error');
+                    
+                    if (response.status === 401) {
+                        log('⚠️ El token está expirado o inválido. Intenta hacer login nuevamente.', 'warning');
+                    }
+                }
+            } catch (error) {
+                log(`❌ Error de conexión: ${error.message}`, 'error');
+                log('⚠️ Verifica que el servidor esté ejecutándose en http://localhost:3000', 'warning');
+            }
+        }
+
+        async function testRadiosEndpoint() {
+            log('Obteniendo radios desde el frontend...', 'info');
+            
+            const token = localStorage.getItem('auth-token');
+            const radiosTest = document.getElementById('radios-test');
+            
+            if (!token) {
+                radiosTest.innerHTML = `
+                    <p class="error">❌ No hay token disponible</p>
+                    <p class="warning">⚠️ Primero debes hacer login</p>
+                `;
+                log('No hay token disponible para obtener radios', 'error');
+                return;
+            }
+
+            try {
+                // Simular el fetch que hace el frontend
+                const response = await fetch(`${RADIOS_ENDPOINT}?limit=500`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    radiosTest.innerHTML = `
+                        <p class="success">✅ Radios obtenidas exitosamente</p>
+                        <p><strong>Total:</strong> ${data.total || data.data.length} radios</p>
+                        <p><strong>En esta página:</strong> ${data.data.length} radios</p>
+                        <div style="margin-top: 15px;">
+                            <strong>Muestra de radios:</strong>
+                            ${data.data.slice(0, 3).map((radio, index) => `
+                                <div class="radio-item">
+                                    <strong>${index + 1}. ${radio.name}</strong><br>
+                                    <small>${radio.city} - ${radio.region}</small><br>
+                                    <small>Plataforma: ${radio.streamPlatform} | Estado: ${radio.isActive ? 'ACTIVA' : 'INACTIVA'}</small>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    
+                    log(`✅ Radios obtenidas: ${data.data.length} de ${data.total || data.data.length}`, 'success');
+                    log(`Ejemplo: ${data.data[0]?.name} (${data.data[0]?.city})`, 'info');
+                } else {
+                    const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
+                    radiosTest.innerHTML = `
+                        <p class="error">❌ Error al obtener radios</p>
+                        <p><strong>Status:</strong> ${response.status}</p>
+                        <p><strong>Error:</strong> ${errorData.error || 'Error desconocido'}</p>
+                    `;
+                    log(`❌ Error al obtener radios (Status: ${response.status})`, 'error');
+                    log(`Error del servidor: ${JSON.stringify(errorData)}`, 'error');
+                }
+            } catch (error) {
+                radiosTest.innerHTML = `
+                    <p class="error">❌ Error de conexión</p>
+                    <p><strong>Mensaje:</strong> ${error.message}</p>
+                `;
+                log(`❌ Error de conexión: ${error.message}`, 'error');
+            }
+        }
+
+        function clearLocalStorage() {
+            if (confirm('¿Estás seguro de que quieres limpiar el localStorage? Esto cerrará tu sesión.')) {
+                localStorage.clear();
+                log('localStorage limpiado exitosamente', 'warning');
+                checkAuthStatus();
+            }
+        }
+
+        function clearRadiosResult() {
+            document.getElementById('radios-test').innerHTML = '<p class="info">ℹ️ Prueba el endpoint /api/radios-direct</p>';
+            log('Resultado de radios limpiado', 'info');
+        }
+
+        // Verificar estado al cargar la página
+        window.addEventListener('load', () => {
+            log('Página de debug cargada', 'info');
+            checkAuthStatus();
+        });
+
+        // Auto-verificar cada 30 segundos
+        setInterval(checkAuthStatus, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,190 @@
+{
+  "timestamp": "2025-11-30T02:58:38.680Z",
+  "totalPlatforms": 43,
+  "workingPlatforms": [
+    "youtube",
+    "twitch",
+    "facebook",
+    "tunein",
+    "shoutcast",
+    "icecast",
+    "rtmp",
+    "direct"
+  ],
+  "fallbackPlatforms": [],
+  "failingPlatforms": [],
+  "details": {
+    "youtube": {
+      "status": "working",
+      "savedAs": "youtube"
+    },
+    "twitch": {
+      "status": "working",
+      "savedAs": "twitch"
+    },
+    "facebook": {
+      "status": "working",
+      "savedAs": "facebook"
+    },
+    "instagram": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "tiktok": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "twitter": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "linkedin": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "vimeo": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "dailymotion": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "rumble": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "odysee": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "bitchute": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "kick": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "dlive": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "trovo": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "streamable": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "wistia": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "brightcove": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "jwplayer": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "soundcloud": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "spotify": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "apple-music": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "amazon-music": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "tidal": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "deezer": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "pandora": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "iheartradio": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "tunein": {
+      "status": "working",
+      "savedAs": "tunein"
+    },
+    "shoutcast": {
+      "status": "working",
+      "savedAs": "shoutcast"
+    },
+    "icecast": {
+      "status": "working",
+      "savedAs": "icecast"
+    },
+    "hls": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "dash": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "rtmp": {
+      "status": "working",
+      "savedAs": "rtmp"
+    },
+    "rtsp": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "m3u8": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "mp4": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "mp3": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "aac": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "ogg": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "flac": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "wav": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "m4a": {
+      "status": "converted",
+      "savedAs": "other"
+    },
+    "direct": {
+      "status": "working",
+      "savedAs": "direct"
+    }
+  }
+}
