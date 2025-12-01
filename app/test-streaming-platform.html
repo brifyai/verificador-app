@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Streaming Platform Update</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        button { margin: 5px; padding: 10px; cursor: pointer; }
+        #results { margin-top: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test de Actualización de Plataforma de Streaming</h1>
+    
+    <div class="test-section">
+        <h3>Instrucciones:</h3>
+        <ol>
+            <li>Abre la consola del navegador (F12)</li>
+            <li>Haz clic en "Cargar Radio de Prueba" para obtener una radio existente</li>
+            <li>Haz clic en "Probar Actualización de Plataforma" para cambiar la plataforma</li>
+            <li>Verifica en la consola que la actualización se guardó correctamente</li>
+        </ol>
+    </div>
+
+    <div class="test-section">
+        <h3>Controles de Prueba:</h3>
+        <button onclick="loadTestRadio()">📻 Cargar Radio de Prueba</button>
+        <button onclick="testPlatformUpdate()">🔄 Probar Actualización de Plataforma</button>
+        <button onclick="clearResults()">🗑️ Limpiar Resultados</button>
+    </div>
+
+    <div id="results">
+        <h3>Resultados:</h3>
+        <div id="output">Esperando acción...</div>
+    </div>
+
+    <script>
+        let testRadio = null;
+        const API_BASE = '/api';
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            output.innerHTML += `<div class="${colorClass}">[${timestamp}] ${message}</div>`;
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function clearResults() {
+            document.getElementById('output').innerHTML = 'Esperando acción...';
+        }
+
+        async function loadTestRadio() {
+            try {
+                log('📻 Cargando radio de prueba...');
+                
+                // Try to get the first radio from the list
+                const response = await fetch(`${API_BASE}/radios-direct?limit=1`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.radios && data.radios.length > 0) {
+                    testRadio = data.radios[0];
+                    log(`✅ Radio cargada: ${testRadio.name} (ID: ${testRadio.id})`, 'success');
+                    log(`📊 Plataforma actual: ${testRadio.metadata?.streamPlatform || 'No definida'}`);
+                    log(`🔗 URL actual: ${testRadio.streamUrl || 'No definida'}`);
+                } else {
+                    log('❌ No se encontraron radios para probar', 'error');
+                }
+                
+            } catch (error) {
+                log(`❌ Error al cargar radio: ${error.message}`, 'error');
+                console.error('Error completo:', error);
+            }
+        }
+
+        async function testPlatformUpdate() {
+            if (!testRadio) {
+                log('❌ Primero carga una radio de prueba', 'error');
+                return;
+            }
+
+            try {
+                log('🔄 Iniciando prueba de actualización de plataforma...');
+                
+                // Prepare update data with new platform
+                const newPlatform = testRadio.metadata?.streamPlatform === 'icecast' ? 'shoutcast' : 'icecast';
+                
+                const updateData = {
+                    name: testRadio.name,
+                    region: testRadio.region,
+                    city: testRadio.metadata?.city || '',
+                    frequency: testRadio.metadata?.frequency || '',
+                    website: testRadio.metadata?.website || '',
+                    programadora: testRadio.metadata?.programadora || '',
+                    streamUrl: testRadio.streamUrl || '',
+                    streamPlatform: newPlatform
+                };
+
+                log(`📝 Actualizando plataforma a: ${newPlatform}`);
+                log(`📊 Datos a enviar:`, 'info');
+                console.log('Update data:', updateData);
+
+                // Make the update request
+                const response = await fetch(`${API_BASE}/radios-direct/${testRadio.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    throw new Error(`HTTP ${response.status}: ${errorData.error || response.statusText}`);
+                }
+
+                const updatedRadio = await response.json();
+                
+                log('✅ Actualización completada', 'success');
+                log(`📻 Radio actualizada: ${updatedRadio.name}`);
+                log(`🔄 Nueva plataforma: ${updatedRadio.metadata?.streamPlatform}`);
+                log(`🔗 URL preservada: ${updatedRadio.streamUrl}`);
+
+                // Verify the update was successful
+                if (updatedRadio.metadata?.streamPlatform === newPlatform) {
+                    log('✅ VERIFICADO: La plataforma se actualizó correctamente', 'success');
+                } else {
+                    log('❌ ERROR: La plataforma no se actualizó correctamente', 'error');
+                }
+
+                if (updatedRadio.streamUrl === testRadio.streamUrl) {
+                    log('✅ VERIFICADO: La URL del stream se preservó', 'success');
+                } else {
+                    log('❌ ERROR: La URL del stream cambió', 'error');
+                }
+
+                // Update test radio for next test
+                testRadio = updatedRadio;
+                
+            } catch (error) {
+                log(`❌ Error en la actualización: ${error.message}`, 'error');
+                console.error('Error completo:', error);
+            }
+        }
+
+        // Auto-load test radio on page load
+        window.addEventListener('load', () => {
+            log('🚀 Página de prueba cargada');
+            log('💡 Usa los botones para probar la funcionalidad');
+        });
+    </script>
+</body>
+</html>
