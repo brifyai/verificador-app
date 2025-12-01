@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Search } from 'lucide-react';
 import { Radio } from '@/lib/mock-data';
 import { detectPlatform, validatePlatformUrl, extractPlatformData, STREAMING_PLATFORMS } from '@/lib/streaming-platforms';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
@@ -65,9 +66,8 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
   const isEditing = !!radio;
   const toast = useEnhancedToast();
   
-  const [formData, setFormData] = useState<Omit<Radio, 'id'> & { priority?: number; costPerHour?: number }>({
+  const [formData, setFormData] = useState<Omit<Radio, 'id'>>({
     name: radio?.name || '',
-    programadora: radio?.programadora || '',
     frequency: radio?.frequency || '',
     streamUrl: radio?.streamUrl || '',
     streamPlatform: radio?.streamPlatform || 'direct',
@@ -75,14 +75,14 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
     region: radio?.region || '',
     city: radio?.city || '',
     website: radio?.website || '',
+    programadora: radio?.programadora || '',
     isActive: radio?.isActive ?? true,
     genre: radio?.genre || 'Música',
-    lastMonitored: radio?.lastMonitored || 'Nunca',
-    priority: (radio as any)?.priority || 1,
-    costPerHour: (radio as any)?.costPerHour || 0.0
+    lastMonitored: radio?.lastMonitored || 'Nunca'
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [autoDetectPlatform, setAutoDetectPlatform] = useState(true);
 
   const platforms = Object.entries(STREAMING_PLATFORMS).map(([key, config]) => ({
     value: key,
@@ -107,15 +107,39 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
   const handleUrlChange = (url: string) => {
     setFormData(prev => ({ ...prev, streamUrl: url }));
     
-    if (url.trim()) {
+    // Solo detectar plataforma automáticamente si está habilitado
+    // y si la URL está completamente vacía o si la plataforma actual es "direct" (genérica)
+    if (url.trim() && autoDetectPlatform) {
       const detectedPlatform = detectPlatform(url);
-      if (detectedPlatform && detectedPlatform !== formData.streamPlatform) {
+      if (detectedPlatform &&
+          (formData.streamPlatform === 'direct' || !formData.streamUrl.trim()) &&
+          detectedPlatform !== formData.streamPlatform) {
         const platformData = extractPlatformData(detectedPlatform, url);
         setFormData(prev => ({
           ...prev,
           streamPlatform: detectedPlatform as any,
           platformData: platformData || {}
         }));
+      }
+    }
+  };
+
+  const handlePlatformChange = (value: string) => {
+    setFormData(prev => ({ ...prev, streamPlatform: value as any }));
+  };
+
+  const handleManualPlatformDetection = () => {
+    if (formData.streamUrl.trim()) {
+      const detectedPlatform = detectPlatform(formData.streamUrl);
+      if (detectedPlatform) {
+        const platformData = extractPlatformData(detectedPlatform, formData.streamUrl);
+        setFormData(prev => ({
+          ...prev,
+          streamPlatform: detectedPlatform as any,
+          platformData: platformData || {}
+        }));
+      } else {
+        toast.warning("No se pudo detectar automáticamente la plataforma de streaming desde la URL proporcionada.");
       }
     }
   };
@@ -133,20 +157,20 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
     try {
       // ✅ Enviar TODOS los campos siempre, incluyendo los vacíos como null
       // Esto asegura que los campos se actualicen correctamente en Supabase
+      // ✅ IMPORTANTE: Siempre enviar streamUrl para preservar la URL existente
       const radioData = {
         ...(isEditing && radio ? { id: radio.id } : {}),
         name: formData.name,
-        streamUrl: formData.streamUrl,
+        streamUrl: formData.streamUrl || '', // Siempre enviar streamUrl, incluso si está vacío
         streamPlatform: formData.streamPlatform,
+        platformData: formData.platformData || null,
         region: formData.region,
         isActive: formData.isActive,
         genre: formData.genre,
-        programadora: formData.programadora || null,
         frequency: formData.frequency || null,
         city: formData.city,
         website: formData.website || null,
-        priority: formData.priority,
-        costPerHour: formData.costPerHour,
+        programadora: formData.programadora || null
       };
       
       onSubmit(radioData);
@@ -171,15 +195,6 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
             className="bg-gray-800 border-gray-700 text-white"
             required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="programadora" className="text-white">Programadora</Label>
-          <Input
-            id="programadora"
-            value={formData.programadora}
-            onChange={(e) => setFormData(prev => ({ ...prev, programadora: e.target.value }))}
-            className="bg-gray-800 border-gray-700 text-white"
           />
         </div>
       </div>
@@ -212,11 +227,7 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
 
       <div className="space-y-2">
         <Label htmlFor="streamPlatform" className="text-white">Plataforma de Streaming</Label>
-        <Select value={formData.streamPlatform} onValueChange={(value) => setFormData(prev => ({
-          ...prev,
-          streamPlatform: value as any,
-          streamUrl: ''
-        }))}>
+        <Select value={formData.streamPlatform} onValueChange={handlePlatformChange}>
           <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
             <SelectValue>
               <div className="flex items-center space-x-2">
@@ -239,6 +250,29 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
             ))}
           </SelectContent>
         </Select>
+        
+        <div className="flex items-center space-x-2 mt-2">
+          <Switch
+            checked={autoDetectPlatform}
+            onCheckedChange={(checked) => setAutoDetectPlatform(checked)}
+          />
+          <Label className="text-white text-sm">
+            Detectar plataforma automáticamente al cambiar URL
+          </Label>
+        </div>
+        
+        {!autoDetectPlatform && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleManualPlatformDetection}
+            className="w-full"
+          >
+            <Search className="w-4 h-4 mr-2" />
+            Detectar plataforma manualmente
+          </Button>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -285,37 +319,6 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="priority" className="text-white">Prioridad (1-10)</Label>
-          <Input
-            id="priority"
-            type="number"
-            min="1"
-            max="10"
-            placeholder="1"
-            value={formData.priority}
-            onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 1 }))}
-            className="bg-gray-800 border-gray-700 text-white"
-          />
-          <p className="text-xs text-gray-400">Mayor número = mayor prioridad en el monitoreo</p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="costPerHour" className="text-white">Costo por Hora (USD)</Label>
-          <Input
-            id="costPerHour"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="0.00"
-            value={formData.costPerHour}
-            onChange={(e) => setFormData(prev => ({ ...prev, costPerHour: parseFloat(e.target.value) || 0.0 }))}
-            className="bg-gray-800 border-gray-700 text-white"
-          />
-          <p className="text-xs text-gray-400">Costo operativo por hora de monitoreo</p>
-        </div>
-      </div>
-
       <div className="space-y-2">
         <Label htmlFor="website" className="text-white">Sitio Web (opcional)</Label>
         <Input
@@ -323,6 +326,17 @@ export function RadioForm({ radio, onSubmit, onClose }: RadioFormProps) {
           placeholder="https://www.radio.cl"
           value={formData.website}
           onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))}
+          className="bg-gray-800 border-gray-700 text-white"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="programadora" className="text-white">Programadora (opcional)</Label>
+        <Input
+          id="programadora"
+          placeholder="Nombre de la empresa o programadora"
+          value={formData.programadora}
+          onChange={(e) => setFormData(prev => ({ ...prev, programadora: e.target.value }))}
           className="bg-gray-800 border-gray-700 text-white"
         />
       </div>

@@ -2,7 +2,7 @@
 
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search } from 'lucide-react';
+import { Search, Circle } from 'lucide-react';
 
 interface RadioFiltersProps {
   searchTerm: string;
@@ -46,6 +46,8 @@ export function RadioFilters({
           className="pl-8 bg-gray-800 border-gray-700 text-white"
         />
       </div>
+      
+      {/* Leyenda de colores de estado - ELIMINADA */}
       
       <Select value={selectedRegion} onValueChange={onRegionChange}>
         <SelectTrigger className="w-[200px] bg-gray-800 border-gray-700 text-white">

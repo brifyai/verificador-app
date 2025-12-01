@@ -50,21 +50,26 @@ export function RadioCard({
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null);
   const [recordingDuration, setRecordingDuration] = useState('00:00');
-  const [streamStatus, setStreamStatus] = useState<'checking' | 'online' | 'offline' | 'error' | null>(null);
   const [lastRecordingStart, setLastRecordingStart] = useState<Date | null>(null);
   const toast = useEnhancedToast();
 
-  // Verificar estado de grabación al montar
+  // Función para capitalizar el nombre de la ciudad correctamente
+  const capitalizeCity = (city: string | null | undefined): string => {
+    if (!city) return '';
+    
+    // Convertir a minúsculas primero
+    const lowerCase = city.toLowerCase();
+    
+    // Capitalizar la primera letra
+    return lowerCase.charAt(0).toUpperCase() + lowerCase.slice(1);
+  };
+
+  // Verificar estado de grabación al montar (solo una vez)
   useEffect(() => {
     checkRecordingStatus();
-  }, [radio.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Solo ejecutar una vez al montar el componente
 
-  // Verificar streaming cuando se reproduce
-  useEffect(() => {
-    if (isPlaying && radio.isActive) {
-      verifyStreamStatus();
-    }
-  }, [isPlaying, radio.isActive, radio.id]);
 
   // Temporizador para actualizar duración de grabación
   useEffect(() => {
@@ -180,38 +185,6 @@ export function RadioCard({
     }
   }, [radio.isActive, isRecording]);
 
-  const verifyStreamStatus = async () => {
-    if (!radio.streamUrl) {
-      console.log('⚠️ Radio sin URL de stream:', radio.id);
-      setStreamStatus('error');
-      return;
-    }
-
-    console.log('🔍 Verificando streaming para radio:', radio.id);
-    setStreamStatus('checking');
-
-    try {
-      const response = await fetch(`/api/radios/${radio.id}/verify-stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      const result = await response.json();
-      console.log('🔍 Resultado de verificación de streaming:', result);
-
-      if (result.success) {
-        setStreamStatus('online');
-        toast.success(`✅ Streaming funcionando: ${result.data.details}`);
-      } else {
-        setStreamStatus('offline');
-        toast.warning(`⚠️ Streaming no disponible: ${result.details || result.error}`);
-      }
-    } catch (error) {
-      console.error('❌ Error verificando streaming:', error);
-      setStreamStatus('error');
-      toast.error('Error al verificar el streaming');
-    }
-  };
 
   const checkRecordingStatus = async () => {
     console.log('🔍 Verificando estado de grabación para radio:', radio.id);
@@ -286,7 +259,6 @@ export function RadioCard({
       isActive: radio.isActive,
       isRecording,
       isPlaying,
-      streamStatus,
       hasStreamUrl: !!radio.streamUrl,
       streamUrl: radio.streamUrl,
       timestamp: new Date().toISOString(),
@@ -430,12 +402,23 @@ export function RadioCard({
     }
   };
   return (
-    <Card 
-      className={`bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 ${
+    <Card
+      className={`bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 relative group ${
         isPlaying ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-500/20' : ''
       }`}
     >
-      <CardHeader className="pb-4">
+      {/* Botón de eliminar en la esquina superior derecha */}
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={onDelete}
+        className="absolute top-2 right-2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-600 hover:text-white z-10"
+        title="Eliminar radio"
+      >
+        <Trash2 className="h-3 w-3" />
+      </Button>
+      
+      <CardHeader className="pb-4 pr-12">
         <div className="flex items-start justify-between">
           <div className="space-y-2 flex-1">
             <div className="flex items-center space-x-2">
@@ -446,7 +429,7 @@ export function RadioCard({
                 const hasVerification = !!verificationStatus;
                 const dotClass = hasVerification
                   ? (isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500')
-                  : (radio.isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-500');
+                  : (radio.isActive ? 'bg-yellow-500 animate-pulse' : 'bg-white');
                 const title = hasVerification
                   ? (isOnline ? 'Online' : 'Offline')
                   : (radio.isActive ? 'Activo' : 'Inactivo');
@@ -470,10 +453,10 @@ export function RadioCard({
               onCheckedChange={onToggleStatus}
               className="data-[state=checked]:bg-green-600"
             />
-            <Badge 
+            <Badge
               className={`font-medium px-3 py-1 ${
-                radio.isActive 
-                  ? 'bg-green-500/20 text-green-400 border-green-500/50' 
+                radio.isActive
+                  ? 'bg-green-500/20 text-green-400 border-green-500/50'
                   : 'bg-gray-500/20 text-gray-400 border-gray-500/50'
               }`}
             >
@@ -492,21 +475,11 @@ export function RadioCard({
           </div>
           <div className="flex items-center space-x-2 bg-gray-700/30 rounded-lg px-3 py-2">
             <MapPin className="h-4 w-4 text-emerald-400" />
-            <span className="text-white font-medium">{radio.city}</span>
+            <span className="text-white font-medium">{capitalizeCity(radio.city)}</span>
           </div>
         </div>
         
-        {/* Información adicional - Priority y Costo */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center space-x-2 bg-gray-700/30 rounded-lg px-3 py-2">
-            <span className="text-xs text-gray-400 font-medium">Prioridad:</span>
-            <span className="text-white font-medium">{(radio as any).priority || 1}</span>
-          </div>
-          <div className="flex items-center space-x-2 bg-gray-700/30 rounded-lg px-3 py-2">
-            <DollarSign className="h-4 w-4 text-green-400" />
-            <span className="text-white font-medium">${((radio as any).costPerHour || 0).toFixed(2)}/hr</span>
-          </div>
-        </div>
+        {/* Información adicional - Género y plataforma */}
         
         {/* Género y plataforma */}
         <div className="flex items-center justify-between">
@@ -531,53 +504,7 @@ export function RadioCard({
           )}
         </div>
         
-        {/* Estado del streaming */}
-        {streamStatus && (
-          <div className={`flex items-center space-x-2 text-sm rounded-lg px-3 py-2 ${
-            streamStatus === 'online' ? 'bg-green-500/20 text-green-400' :
-            streamStatus === 'offline' ? 'bg-red-500/20 text-red-400' :
-            streamStatus === 'checking' ? 'bg-yellow-500/20 text-yellow-400' :
-            'bg-gray-500/20 text-gray-400'
-          }`}>
-            {streamStatus === 'checking' && <Loader className="h-3 w-3 animate-spin" />}
-            {streamStatus === 'online' && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
-            {streamStatus === 'offline' && <div className="w-2 h-2 bg-red-500 rounded-full" />}
-            {streamStatus === 'error' && <div className="w-2 h-2 bg-gray-500 rounded-full" />}
-            <span className="capitalize">
-              {streamStatus === 'checking' ? 'Verificando streaming...' :
-               streamStatus === 'online' ? 'Streaming online' :
-               streamStatus === 'offline' ? 'Streaming offline' :
-               'Error en streaming'}
-            </span>
-          </div>
-        )}
         
-        {/* Último monitoreo y verificación */}
-        <div className="space-y-2">
-          {radio.lastMonitored && (
-            <div className="flex items-center space-x-2 text-sm bg-gray-700/20 rounded-lg px-3 py-2">
-              <Clock className="h-3 w-3 text-gray-400" />
-              <span className="text-gray-400">Último monitoreo: {radio.lastMonitored}</span>
-            </div>
-          )}
-          {(radio as any).lastVerifiedAt && (
-            <div className="flex items-center justify-between text-sm bg-gray-700/20 rounded-lg px-3 py-2">
-              <div className="flex items-center space-x-2">
-                <span className="text-gray-400">
-                  {`Stream: ${((radio as any).lastVerificationStatus === 'ONLINE') ? 'Online' : 'Offline'}`}
-                </span>
-              </div>
-              <span className="text-gray-500 text-xs">
-                {new Date((radio as any).lastVerifiedAt).toLocaleString('es-CL', { 
-                  day: '2-digit', 
-                  month: '2-digit', 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                })}
-              </span>
-            </div>
-          )}
-        </div>
         
         <Separator className="bg-gray-600" />
         
@@ -654,14 +581,6 @@ export function RadioCard({
               Editar
             </Button>
             
-            <Button 
-              size="sm" 
-              variant="outline" 
-              onClick={onDelete} 
-              className="text-red-500 hover:text-white bg-gray-700 hover:bg-red-500/10 border-red-600/50 transition-all duration-200"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
           </div>
         </div>
         
