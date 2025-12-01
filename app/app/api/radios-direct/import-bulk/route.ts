@@ -4,6 +4,13 @@ import { logger } from '@/lib/logger';
 import { RadioImportSchema } from '@/lib/schemas/radio.schema';
 import { z } from 'zod';
 
+// Función para generar ID único (similar a cuid())
+function generateId(): string {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 9);
+  return `radio_${timestamp}_${randomPart}`;
+}
+
 // GET: Obtener estadísticas
 export async function GET() {
   try {
@@ -85,6 +92,7 @@ export async function POST(request: NextRequest) {
           );
 
           const radioData = {
+            id: generateId(), // Generar ID único
             name,
             region,
             stream_url: streamUrl,

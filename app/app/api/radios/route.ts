@@ -6,32 +6,26 @@ import { logger } from '@/lib/logger';
 import { RadioCreateSchema } from '@/lib/schemas/radio.schema';
 import { z } from 'zod';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
-
-// Función de utilidad para mapear plataformas a valores del enum de Supabase
-const mapPlatformToEnum = (platform: string): string => {
-  const platformMap: Record<string, string> = {
-    youtube: 'YOUTUBE',
-    twitch: 'TWITCH',
-    facebook: 'FACEBOOK',
-    icecast: 'ICECAST',
-    shoutcast: 'SHOUTCAST',
-    direct: 'HTTP_STREAM',
-    http: 'HTTP_STREAM',
-    rtmp: 'RTMP',
-    centova: 'ICECAST',
-    sonicpanel: 'ICECAST',
-    azuracast: 'ICECAST',
-  };
-  return platformMap[platform] || 'OTHER';
-};
+import { verifyJWT } from '@/lib/jwt-simple';
+import { mapPlatformFromDb } from '@/lib/platform-mapping';
+import { mapPlatformToDbSmart } from '@/lib/platform-mapping-smart';
 
 
-// --- GET: OBTENER RADIOS (VERSIÓN CORREGIDA Y FLEXIBLE) ---
+
+// --- GET: OBTENER RADIOS (VERSIÓN CON AUTENTICACIÓN JWT) ---
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return new NextResponse("Unauthorized", { status: 401 });
+    // Verificación de autenticación JWT
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    
+    if (!token) {
+      return NextResponse.json({ error: 'Token no proporcionado' }, { status: 401 });
+    }
+
+    const user = await verifyJWT(token);
+    if (!user) {
+      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
 
     const searchParams = request.nextUrl.searchParams;
@@ -67,7 +61,7 @@ export async function GET(request: NextRequest) {
         programadora: metadata.programadora || '',
         frequency: metadata.frequency || '',
         streamUrl: radio.stream_url,
-        streamPlatform: metadata.streamPlatform || radio.platform.toLowerCase(),
+        streamPlatform: metadata.stream_platform || mapPlatformFromDb(radio.platform),
         region: radio.region,
         city: metadata.city || '',
         website: metadata.website || '',
@@ -128,11 +122,14 @@ export async function POST(request: NextRequest) {
     const verification = await verifyStreamStatus(validated.streamUrl);
     logger.info(`Stream verification for ${validated.name}: ${verification.status} (${verification.streamType}) - ${verification.details}`);
 
+    // Mapear plataforma correctamente
+    const platformMapping = validated.streamPlatform ? mapPlatformToDbSmart(validated.streamPlatform) : { platform: 'OTHER' };
+    
     // Crear radio en Supabase
     const radioData = {
       name: validated.name,
       stream_url: validated.streamUrl,
-      platform: validated.streamPlatform ? mapPlatformToEnum(validated.streamPlatform) : 'OTHER',
+      platform: platformMapping.platform,
       region: validated.region,
       status: validated.isActive ? 'ACTIVE' : 'INACTIVE',
       description: validated.genre || 'Música',
@@ -243,7 +240,8 @@ export async function PUT(request: NextRequest) {
     if (validated.name !== undefined) updateFields.name = validated.name;
     if (validated.streamUrl !== undefined) updateFields.stream_url = validated.streamUrl;
     if (validated.streamPlatform !== undefined) {
-      updateFields.platform = validated.streamPlatform ? mapPlatformToEnum(validated.streamPlatform) : 'OTHER';
+      const platformMapping = validated.streamPlatform ? mapPlatformToDbSmart(validated.streamPlatform) : { platform: 'OTHER' };
+      updateFields.platform = platformMapping.platform;
     }
     if (validated.region !== undefined) updateFields.region = validated.region;
     if (validated.isActive !== undefined) updateFields.status = validated.isActive ? 'ACTIVE' : 'INACTIVE';

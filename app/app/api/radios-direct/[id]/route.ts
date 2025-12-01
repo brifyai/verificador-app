@@ -5,24 +5,8 @@ import { getServerSession } from 'next-auth';
 import { logger } from '@/lib/logger';
 import { RadioUpdateSchema } from '@/lib/schemas/radio.schema';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
+import { mapPlatformToDbSmart, mapPlatformFromDbSmart } from '@/lib/platform-mapping-smart';
 
-// Función auxiliar
-const mapPlatformToEnum = (platform: string): string => {
-  const platformMap: Record<string, string> = {
-    youtube: 'YOUTUBE',
-    twitch: 'TWITCH',
-    facebook: 'FACEBOOK',
-    icecast: 'ICECAST',
-    shoutcast: 'ICECAST',
-    direct: 'HTTP_STREAM',
-    http: 'HTTP_STREAM',
-    rtmp: 'RTMP',
-    centova: 'ICECAST',
-    sonicpanel: 'ICECAST',
-    azuracast: 'ICECAST',
-  };
-  return platformMap[platform.toLowerCase()] || 'OTHER';
-};
 
 // GET: Obtener una radio específica
 export async function GET(
@@ -52,7 +36,7 @@ export async function GET(
       programadora: metadata.programadora || '',
       frequency: metadata.frequency || '',
       streamUrl: radio.stream_url,
-      streamPlatform: metadata.stream_platform || radio.platform.toLowerCase(),
+      streamPlatform: metadata.stream_platform || mapPlatformFromDbSmart(radio.platform, metadata),
       region: radio.region,
       city: metadata.city || '',
       website: metadata.website || '',
@@ -127,7 +111,6 @@ export async function PUT(
     const updateData: any = {
       ...(validated.name && { name: validated.name }),
       ...(validated.streamUrl && { stream_url: validated.streamUrl }),
-      ...(validated.streamPlatform && { platform: mapPlatformToEnum(validated.streamPlatform) }),
       ...(validated.region && { region: validated.region }),
       ...(validated.isActive !== undefined && {
         status: validated.isActive ? 'ACTIVE' : 'INACTIVE'
@@ -136,15 +119,32 @@ export async function PUT(
       ...((validated as any).priority && { priority: (validated as any).priority }),
       ...((validated as any).costPerHour !== undefined && { cost_per_hour: (validated as any).costPerHour }),
       ...verificationData,
-      metadata: {
-        programadora: validated.programadora || existingMetadata.programadora || '',
-        frequency: validated.frequency || existingMetadata.frequency || '',
-        city: validated.city || existingMetadata.city || '',
-        website: validated.website || existingMetadata.website || '',
-        stream_platform: validated.streamPlatform || existingMetadata.stream_platform || 'direct',
-        lastMonitored: validated.lastMonitored || existingMetadata.lastMonitored || 'Nunca',
-      },
       updated_at: new Date().toISOString()
+    };
+
+    // Manejar plataforma con el sistema inteligente
+    if (validated.streamPlatform) {
+      const platformMapping = mapPlatformToDbSmart(validated.streamPlatform);
+      updateData.platform = platformMapping.platform;
+      
+      // Si hay plataforma original que guardar en metadata
+      if (platformMapping.originalPlatform) {
+        updateData.metadata = updateData.metadata || {};
+        updateData.metadata.original_platform = platformMapping.originalPlatform;
+      }
+    }
+
+    // Preparar metadata
+    updateData.metadata = {
+      programadora: validated.programadora || existingMetadata.programadora || '',
+      frequency: validated.frequency || existingMetadata.frequency || '',
+      city: validated.city || existingMetadata.city || '',
+      website: validated.website || existingMetadata.website || '',
+      stream_platform: validated.streamPlatform || existingMetadata.stream_platform || 'direct',
+      lastMonitored: validated.lastMonitored || existingMetadata.lastMonitored || 'Nunca',
+      // Preservar original_platform si existe
+      ...(existingMetadata.original_platform && { original_platform: existingMetadata.original_platform }),
+      ...updateData.metadata // Incluir cambios de plataforma si los hay
     };
 
     // Actualizar radio
@@ -166,7 +166,7 @@ export async function PUT(
       programadora: metadata.programadora || '',
       frequency: metadata.frequency || '',
       streamUrl: updatedRadio.stream_url,
-      streamPlatform: metadata.stream_platform || updatedRadio.platform.toLowerCase(),
+      streamPlatform: metadata.stream_platform || mapPlatformFromDbSmart(updatedRadio.platform, metadata),
       region: updatedRadio.region,
       city: metadata.city || '',
       website: metadata.website || '',

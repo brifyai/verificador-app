@@ -1,9 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import { supabaseDirect } from '@/lib/supabase-direct';
 import { logger } from '@/lib/logger';
-import { verifyStreamStatus } from '@/lib/stream-verifier';
+import { verifyStreamStatus } from '@/lib/stream-verifier-enhanced';
+import jwt from 'jsonwebtoken';
+
+// Secreto JWT - usar el mismo que el middleware
+const JWT_SECRET = 'supersecret-key-for-nextauth-jwt-2024-verificador-app-secure';
+
+// Función para verificar autenticación JWT
+async function verifyAuth(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    const tokenCookie = request.cookies.get('auth-token');
+    
+    let token: string | null = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (tokenCookie) {
+      token = tokenCookie.value;
+    }
+    
+    if (!token) {
+      return null;
+    }
+    
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    // Verificar que el usuario exista y esté activo
+    const users = await supabaseDirect.getUsers();
+    const user = users.find((u: any) => u.id === decoded.id && u.email === decoded.email);
+    
+    if (!user || !user.active) {
+      return null;
+    }
+    
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name || 'Usuario',
+      role: user.role || 'user'
+    };
+  } catch (error) {
+    console.error('Error verificando autenticación:', error);
+    return null;
+  }
+}
 
 /**
  * POST /api/radios-direct/verify-bulk
@@ -11,10 +53,10 @@ import { verifyStreamStatus } from '@/lib/stream-verifier';
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verificar autenticación
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return new NextResponse('Unauthorized', { status: 401 });
+    // Verificar autenticación con nuestro sistema JWT
+    const user = await verifyAuth(request);
+    if (!user) {
+      return new NextResponse("Unauthorized", { status: 401 });
     }
 
     // Obtener todas las radios activas

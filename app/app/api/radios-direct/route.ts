@@ -1,36 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import { supabaseDirect } from '@/lib/supabase-direct';
 import { logger } from '@/lib/logger';
 import { verifyStreamStatus } from '@/lib/stream-verifier';
 import { RadioCreateSchema } from '@/lib/schemas/radio.schema';
+import { mapPlatformToDbSmart } from '@/lib/platform-mapping-smart';
+import jwt from 'jsonwebtoken';
 
-// Función de utilidad
-const mapPlatformToEnum = (platform: string): string => {
-  const platformMap: Record<string, string> = {
-    youtube: 'YOUTUBE',
-    twitch: 'TWITCH',
-    facebook: 'FACEBOOK',
-    icecast: 'ICECAST',
-    shoutcast: 'ICECAST',
-    direct: 'HTTP_STREAM',
-    http: 'HTTP_STREAM',
-    rtmp: 'RTMP',
-    centova: 'ICECAST',
-    sonicpanel: 'ICECAST',
-    azuracast: 'ICECAST',
-  };
-  return platformMap[platform] || 'OTHER';
-};
+// Secreto JWT - usar el mismo que el middleware
+const JWT_SECRET = 'supersecret-key-for-nextauth-jwt-2024-verificador-app-secure';
+
+
+// Función para verificar autenticación JWT
+async function verifyAuth(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    const tokenCookie = request.cookies.get('auth-token');
+    
+    let token: string | null = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (tokenCookie) {
+      token = tokenCookie.value;
+    }
+    
+    if (!token) {
+      return null;
+    }
+    
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    // Verificar que el usuario exista y esté activo
+    const users = await supabaseDirect.getUsers();
+    const user = users.find((u: any) => u.id === decoded.id && u.email === decoded.email);
+    
+    if (!user || !user.active) {
+      return null;
+    }
+    
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name || 'Usuario',
+      role: user.role || 'user'
+    };
+  } catch (error) {
+    console.error('Error verificando autenticación:', error);
+    return null;
+  }
+}
 
 // GET: Obtener radios
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
+    // Verificar autenticación con nuestro sistema JWT
+    const user = await verifyAuth(request);
+    if (!user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+
+    logger.info(`[RADIOS-DIRECT] Usuario autenticado: ${user.email}`);
 
     const searchParams = request.nextUrl.searchParams;
     const context = searchParams.get('context');
@@ -95,10 +124,13 @@ export async function GET(request: NextRequest) {
 // POST: Crear una nueva radio
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
+    // Verificar autenticación con nuestro sistema JWT
+    const user = await verifyAuth(request);
+    if (!user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+
+    logger.info(`[RADIOS-DIRECT] Usuario creando radio: ${user.email}`);
 
     const body = await request.json();
 
@@ -125,22 +157,23 @@ export async function POST(request: NextRequest) {
       frequency: validated.frequency || '',
       city: validated.city || validated.region,
       website: validated.website || '',
-      stream_platform: validated.streamPlatform || 'direct',
+      streamPlatform: validated.streamPlatform || 'direct',
       verification: {
         status: verification.status,
-        stream_type: verification.streamType,
-        http_status: verification.httpStatus ?? null,
-        content_type: verification.contentType ?? null,
-        used_proxy: verification.usedProxy,
+        streamType: verification.streamType,
+        httpStatus: verification.httpStatus ?? null,
+        contentType: verification.contentType ?? null,
+        usedProxy: verification.usedProxy,
         method: verification.method,
         details: verification.details,
       }
     };
 
+    const platformMapping = validated.streamPlatform ? mapPlatformToDbSmart(validated.streamPlatform) : { platform: 'OTHER' };
     const newRadioData = {
       name: validated.name,
       stream_url: validated.streamUrl,
-      platform: validated.streamPlatform ? mapPlatformToEnum(validated.streamPlatform) : 'OTHER',
+      platform: platformMapping.platform,
       region: validated.region,
       status: validated.isActive ? 'ACTIVE' : 'INACTIVE',
       description: validated.genre || 'Música',
@@ -166,7 +199,7 @@ export async function POST(request: NextRequest) {
       programadora: metadata.programadora,
       frequency: metadata.frequency,
       streamUrl: newRadio[0].stream_url,
-      streamPlatform: metadata.stream_platform,
+      streamPlatform: metadata.streamPlatform,
       region: newRadio[0].region,
       city: metadata.city,
       website: metadata.website,
@@ -177,11 +210,11 @@ export async function POST(request: NextRequest) {
       lastMonitored: (metadata as any).lastMonitored || 'Nunca',
       lastVerificationStatus: newRadio[0].last_verification_status,
       lastVerifiedAt: newRadio[0].last_verified_at,
-      createdAt: newRadio[0].created_at,
-      updatedAt: newRadio[0].updated_at,
     };
 
+    logger.info(`[RADIOS-DIRECT] Radio creada exitosamente: ${transformedRadio.name}`);
     return NextResponse.json({ success: true, data: transformedRadio }, { status: 201 });
+    
   } catch (error: any) {
     logger.error('Error creando radio:', error);
     if (error?.code === '23505') { // Unique violation en PostgreSQL

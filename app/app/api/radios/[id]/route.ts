@@ -1,58 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseDirect } from '@/lib/supabase-direct';
-import { authOptions } from '@/lib/auth';
-import { getServerSession } from 'next-auth';
 import { logger } from '@/lib/logger';
-import { RadioUpdateSchema } from '@/lib/schemas/radio.schema';
-import { z } from 'zod';
-import { verifyStreamStatus } from '@/lib/stream-verifier';
+import { verifyJWT } from '@/lib/jwt-simple';
+import { mapPlatformToDbSmart, mapPlatformFromDbSmart } from '@/lib/platform-mapping-smart';
 
-// Función auxiliar para mapear plataformas a valores del enum de Supabase
-const mapPlatformToEnum = (platform: string): string => {
-  const platformMap: Record<string, string> = {
-    youtube: 'YOUTUBE',
-    twitch: 'TWITCH',
-    facebook: 'FACEBOOK',
-    icecast: 'ICECAST',
-    shoutcast: 'SHOUTCAST',
-    direct: 'HTTP_STREAM',
-    http: 'HTTP_STREAM',
-    rtmp: 'RTMP',
-    centova: 'ICECAST',
-    sonicpanel: 'ICECAST',
-    azuracast: 'ICECAST',
-  };
-  return platformMap[platform.toLowerCase()] || 'OTHER';
-};
+// GET: Obtener una radio específica por ID
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Verificación de autenticación JWT
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    
+    if (!token) {
+      return NextResponse.json({ error: 'Token no proporcionado' }, { status: 401 });
+    }
 
+    const user = await verifyJWT(token);
+    if (!user) {
+      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+    }
 
-// --- PUT: Actualizar una radio por ID (Versión Segura y Robusta) ---
+    const { id } = params;
+
+    const radios = await supabaseDirect.request(`radios?select=*&id=eq.${id}`);
+    
+    if (radios.length === 0) {
+      return NextResponse.json({ success: false, error: 'Radio no encontrada' }, { status: 404 });
+    }
+
+    const radio = radios[0];
+    const metadata = radio.metadata || {};
+
+    const transformedRadio = {
+      id: radio.id,
+      name: radio.name,
+      programadora: metadata.programadora || '',
+      frequency: metadata.frequency || '',
+      streamUrl: radio.stream_url,
+      streamPlatform: metadata.stream_platform || mapPlatformFromDbSmart(radio.platform, metadata),
+      region: radio.region,
+      city: metadata.city || '',
+      website: metadata.website || '',
+      isActive: radio.status === 'ACTIVE',
+      genre: radio.description || 'Música',
+      priority: radio.priority || 1,
+      costPerHour: radio.cost_per_hour || 0.0,
+      lastMonitored: metadata.lastMonitored || 'Nunca',
+      lastVerificationStatus: radio.last_verification_status || null,
+      lastVerifiedAt: radio.last_verified_at || null,
+      createdAt: radio.created_at,
+      updatedAt: radio.updated_at,
+    };
+
+    return NextResponse.json({ success: true, data: transformedRadio });
+  } catch (error) {
+    logger.error('Error obteniendo radio:', error);
+    return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
+  }
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // 1. AÑADIMOS LA VERIFICACIÓN DE SESIÓN (¡MUY IMPORTANTE!)
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return new NextResponse("Unauthorized", { status: 401 });
+    // Verificación de autenticación JWT
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    
+    if (!token) {
+      return NextResponse.json({ error: 'Token no proporcionado' }, { status: 401 });
+    }
+
+    const user = await verifyJWT(token);
+    if (!user) {
+      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
 
     const { id } = params;
     const body = await request.json();
-
-    // Validar con Zod
-    const validationResult = RadioUpdateSchema.safeParse(body);
-    
-    if (!validationResult.success) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Datos inválidos', 
-        details: validationResult.error.errors 
-      }, { status: 400 });
-    }
-    
-    const validated = validationResult.data;
 
     // Verificar que la radio existe
     const existingRadios = await supabaseDirect.request(`radios?select=*&id=eq.${id}`);
@@ -62,40 +91,48 @@ export async function PUT(
     
     const existingRadio = existingRadios[0];
 
-    // 2. Verificar el stream SOLO si la URL cambió
-    let verificationData = {};
-    if (validated.streamUrl && validated.streamUrl !== existingRadio.stream_url) {
-      const verification = await verifyStreamStatus(validated.streamUrl);
-      logger.info(`Stream verification for ${validated.name || existingRadio.name}: ${verification.status} - ${verification.details}`);
-      verificationData = {
-        last_verification_status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
-        last_verified_at: new Date().toISOString(),
-      };
-    }
-
-    // 3. Actualizar radio con datos validados
-    const existingMetadata = existingRadio.metadata as Record<string, any> || {};
-    
-    const updateData = {
-      ...(validated.name && { name: validated.name }),
-      ...(validated.streamUrl && { stream_url: validated.streamUrl }),
-      ...(validated.streamPlatform && { platform: mapPlatformToEnum(validated.streamPlatform) }),
-      ...(validated.region && { region: validated.region }),
-      ...(validated.isActive !== undefined && {
-        status: validated.isActive ? 'ACTIVE' : 'INACTIVE'
+    // Actualizar radio con datos validados
+    const updateData: any = {
+      ...(body.name && { name: body.name }),
+      ...(body.streamUrl && { stream_url: body.streamUrl }),
+      ...(body.region && { region: body.region }),
+      ...(body.isActive !== undefined && {
+        status: body.isActive ? 'ACTIVE' : 'INACTIVE'
       }),
-      ...(validated.genre && { description: validated.genre }),
-      ...verificationData,
-      metadata: {
-        programadora: validated.programadora !== undefined ? validated.programadora : (existingMetadata.programadora || ''),
-        frequency: validated.frequency !== undefined ? validated.frequency : (existingMetadata.frequency || ''),
-        city: validated.city !== undefined ? validated.city : (existingMetadata.city || ''),
-        website: validated.website !== undefined ? validated.website : (existingMetadata.website || ''),
-        streamPlatform: validated.streamPlatform !== undefined ? validated.streamPlatform : (existingMetadata.streamPlatform || 'direct'),
-        lastMonitored: validated.lastMonitored !== undefined ? validated.lastMonitored : (existingMetadata.lastMonitored || 'Nunca'),
-      },
+      ...(body.genre && { description: body.genre }),
       updated_at: new Date().toISOString()
     };
+
+    // Manejar plataforma con el sistema inteligente
+    if (body.streamPlatform) {
+      const platformMapping = mapPlatformToDbSmart(body.streamPlatform);
+      updateData.platform = platformMapping.platform;
+      
+      // Si hay plataforma original que guardar en metadata
+      if (platformMapping.originalPlatform) {
+        updateData.metadata = updateData.metadata || {};
+        updateData.metadata.original_platform = platformMapping.originalPlatform;
+      }
+    }
+
+    // Actualizar metadata si hay campos adicionales
+    const hasMetadataFields = body.programadora !== undefined ||
+                             body.frequency !== undefined ||
+                             body.city !== undefined ||
+                             body.website !== undefined ||
+                             body.streamPlatform !== undefined;
+
+    if (hasMetadataFields) {
+      const existingMetadata = existingRadio.metadata as Record<string, any> || {};
+      updateData.metadata = {
+        ...(existingMetadata || {}),
+        ...(body.programadora !== undefined && { programadora: body.programadora }),
+        ...(body.frequency !== undefined && { frequency: body.frequency }),
+        ...(body.city !== undefined && { city: body.city }),
+        ...(body.website !== undefined && { website: body.website }),
+        ...(body.streamPlatform !== undefined && { stream_platform: body.streamPlatform }),
+      };
+    }
 
     const updatedRadios = await supabaseDirect.request(`radios?id=eq.${id}`, {
       method: 'PATCH',
@@ -105,8 +142,7 @@ export async function PUT(
 
     const updatedRadio = updatedRadios[0];
 
-    // 4. DEVOLVEMOS EL OBJETO REAL DE LA BASE DE DATOS
-    // Es más consistente y predecible. El frontend puede adaptarlo si es necesario.
+    // Devolver objeto transformado
     const metadata = updatedRadio.metadata as Record<string, any> || {};
     const transformedRadio = {
       id: updatedRadio.id,
@@ -114,15 +150,12 @@ export async function PUT(
       programadora: metadata.programadora || '',
       frequency: metadata.frequency || '',
       streamUrl: updatedRadio.stream_url,
-      streamPlatform: metadata.streamPlatform || updatedRadio.platform.toLowerCase(),
+      streamPlatform: mapPlatformFromDbSmart(updatedRadio.platform, updatedRadio.metadata as Record<string, any>),
       region: updatedRadio.region,
       city: metadata.city || '',
       website: metadata.website || '',
       isActive: updatedRadio.status === 'ACTIVE',
       genre: updatedRadio.description || 'Música',
-      lastMonitored: metadata.lastMonitored || 'Nunca',
-      lastVerificationStatus: updatedRadio.last_verification_status,
-      lastVerifiedAt: updatedRadio.last_verified_at,
     };
     
     return NextResponse.json({ 
@@ -136,17 +169,22 @@ export async function PUT(
   }
 }
 
-
-// --- DELETE: Eliminar una radio por ID (Versión Segura) ---
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // 1. AÑADIMOS LA VERIFICACIÓN DE SESIÓN
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return new NextResponse("Unauthorized", { status: 401 });
+    // Verificación de autenticación JWT
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    
+    if (!token) {
+      return NextResponse.json({ error: 'Token no proporcionado' }, { status: 401 });
+    }
+
+    const user = await verifyJWT(token);
+    if (!user) {
+      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
     }
 
     const { id } = params;
@@ -157,7 +195,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Radio no encontrada' }, { status: 404 });
     }
 
-    // 2. ELIMINAMOS LA RADIO
+    // Eliminar la radio
     await supabaseDirect.request(`radios?id=eq.${id}`, {
       method: 'DELETE'
     });
@@ -167,10 +205,6 @@ export async function DELETE(
     });
   } catch (error: any) {
     logger.error('Error eliminando radio:', error);
-    // Manejo de error por si la radio tiene relaciones que impiden borrarla
-    if (error.message?.includes('foreign key constraint') || error.message?.includes('violates foreign key')) {
-        return NextResponse.json({ success: false, error: 'No se puede eliminar la radio porque tiene sesiones de monitoreo asociadas.' }, { status: 409 });
-    }
     return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 });
   }
 }

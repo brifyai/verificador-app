@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { supabaseDirect } from '@/lib/supabase-direct';
 import { logger } from '@/lib/logger';
-import { verifyStreamStatus } from '@/lib/stream-verifier';
+import { verifyStreamStatus } from '@/lib/stream-verifier-enhanced';
 
 /**
  * POST /api/radios/[id]/verify
@@ -47,7 +47,7 @@ export async function POST(
     const updatedRadios = await supabaseDirect.request(`radios?id=eq.${id}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        last_verification_status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
+        last_verification_status: verification.status,
         last_verified_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }),
@@ -61,7 +61,7 @@ export async function POST(
       data: {
         radioId: id,
         radioName: radio.name,
-        status: verification.status === 'EXTERNAL' ? 'ONLINE' : verification.status,
+        status: verification.status,
         details: verification.details,
         verifiedAt: updatedRadio.last_verified_at,
       },
