@@ -55,7 +55,7 @@ export class StreamVerifierCombined {
     try {
       const sslResult = await verifyStreamStatusWithSslFix(streamUrl);
       
-      if (sslResult.status === 'ONLINE') {
+      if (sslResult.status === 'online') {
         logger.info('✅ Verificación SSL exitosa');
         return {
           status: 'ONLINE',
@@ -64,10 +64,10 @@ export class StreamVerifierCombined {
           contentType: sslResult.contentType,
           method: 'SSL_FIX'
         };
-      } else if (sslResult.status === 'SSL_ERROR') {
+      } else if (sslResult.status === 'ssl_error') {
         logger.info('⚠️ Error SSL detectado, intentando navegador...');
         // Si hay error SSL, intentar con navegador
-      } else if (sslResult.status === 'OFFLINE') {
+      } else if (sslResult.status === 'offline') {
         logger.info('⚠️ Streaming offline según verificación SSL');
         return {
           status: 'OFFLINE',

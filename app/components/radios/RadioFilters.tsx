@@ -54,6 +54,9 @@ export function RadioFilters({
           <SelectValue placeholder="Selecciona una región" />
         </SelectTrigger>
         <SelectContent className="bg-gray-800 border-gray-700">
+          <SelectItem value="all" className="text-white hover:bg-gray-700">
+            Todas las regiones
+          </SelectItem>
           {regions.map(region => (
             <SelectItem key={region} value={region} className="text-white hover:bg-gray-700">
               {region}

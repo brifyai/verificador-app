@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Radio as RadioIcon, Plus, Upload, FileSpreadsheet, Loader, CheckCircle, AlertTriangle, Edit, RefreshCw } from 'lucide-react';
+import { Radio as RadioIcon, Plus, Upload, FileSpreadsheet, Loader, CheckCircle, AlertTriangle, Edit, RefreshCw, Play, Square } from 'lucide-react';
 import { useConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
 import { Radio } from '@/lib/mock-data';
@@ -31,6 +31,10 @@ export default function RadiosPage() {
   const [radios, setRadios] = useState<Radio[]>([]);
   const [loading, setLoading] = useState(true);
   
+  // Estados de selección múltiple
+  const [selectedRadios, setSelectedRadios] = useState<Set<string>>(new Set());
+  const [selectedRegions, setSelectedRegions] = useState<Set<string>>(new Set());
+  
   // Estados de filtros
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('');
@@ -53,6 +57,9 @@ export default function RadiosPage() {
   // Estados de verificación
   const [verifyingRadioId, setVerifyingRadioId] = useState<string | null>(null);
   const [bulkVerifying, setBulkVerifying] = useState(false);
+  
+  // Estados de grabación masiva
+  const [bulkRecording, setBulkRecording] = useState(false);
 
   // Cargar radios al montar
   const fetchRadios = async () => {
@@ -94,10 +101,10 @@ export default function RadiosPage() {
     return [...orderedRegions, ...remainingRegions];
   }, [radios]);
 
-  // Auto-seleccionar la primera región cuando se cargan las radios (solo una vez)
+  // Establecer "Todas las regiones" como valor por defecto (solo una vez)
   useEffect(() => {
     if (radios.length > 0 && regions.length > 0 && selectedRegion === '') {
-      setSelectedRegion(regions[0]);
+      setSelectedRegion('all');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Solo ejecutar una vez al montar el componente
@@ -162,15 +169,40 @@ export default function RadiosPage() {
     return result;
   }, [filteredRadios]);
 
-  // Calcular métricas
-  const totalActive = radios.filter(r => r.isActive).length;
-  const totalInactive = radios.filter(r => !r.isActive).length;
-  const totalOnline = radios.filter(r => (r as any).lastVerificationStatus === 'ONLINE').length;
-  const totalOffline = radios.filter(r => (r as any).lastVerificationStatus === 'OFFLINE').length;
-  const totalActiveUnverified = radios.filter(r =>
-    r.isActive &&
-    (!(r as any).lastVerificationStatus || (r as any).lastVerificationStatus === 'UNVERIFIED' || (r as any).lastVerificationStatus === '')
-  ).length;
+  // ✅ CORRECCIÓN: Calcular métricas basadas SOLO en el campo isActive
+  const totalActive = radios.filter(r => r.isActive === true).length;
+  const totalInactive = radios.filter(r => r.isActive === false).length;
+  
+  // Calcular estadísticas de estado de verificación (separado de activas/inactivas)
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  
+  let totalOnline = 0;
+  let totalOffline = 0;
+  let totalActiveUnverified = 0;
+
+  radios.forEach(radio => {
+    // Online: last_verification_status === 'ONLINE'
+    if (radio.last_verification_status === 'ONLINE') {
+      totalOnline++;
+    }
+    // Offline: last_verification_status === 'OFFLINE'
+    else if (radio.last_verification_status === 'OFFLINE') {
+      totalOffline++;
+    }
+    // Activos sin verificar: isActive === true pero sin verificación reciente o sin status de verificación
+    else if (radio.isActive === true) {
+      const hasRecentVerification = radio.last_verified_at &&
+        new Date(radio.last_verified_at) > oneDayAgo;
+      
+      if (!hasRecentVerification || !radio.last_verification_status) {
+        totalActiveUnverified++;
+      }
+    }
+  });
+
+  // ✅ CORRECCIÓN: Forzar actualización de estadísticas cuando cambien las radios
+  // Las estadísticas se recalculan automáticamente porque radios es una dependencia del useMemo
   const platformDistribution = radios.reduce((acc, radio) => {
     acc[radio.streamPlatform] = (acc[radio.streamPlatform] || 0) + 1;
     return acc;
@@ -777,6 +809,171 @@ export default function RadiosPage() {
     }
   };
 
+  // Handlers de selección múltiple
+  const handleSelectAll = () => {
+    if (selectedRadios.size === filteredRadios.length) {
+      // Deseleccionar todas
+      setSelectedRadios(new Set());
+      setSelectedRegions(new Set());
+    } else {
+      // Seleccionar todas las radios filtradas
+      const allIds = new Set(filteredRadios.map(radio => radio.id));
+      setSelectedRadios(allIds);
+      // Seleccionar todas las regiones con radios filtradas
+      const allRegions = new Set(filteredRadios.map(radio => normalizeRegionName(radio.region)));
+      setSelectedRegions(allRegions);
+    }
+  };
+
+  const handleSelectRegion = (region: string) => {
+    const regionRadios = filteredRadios.filter(radio => normalizeRegionName(radio.region) === region);
+    const regionRadioIds = new Set(regionRadios.map(radio => radio.id));
+    
+    if (selectedRegions.has(region)) {
+      // Deseleccionar región
+      const newSelectedRadios = new Set(selectedRadios);
+      const newSelectedRegions = new Set(selectedRegions);
+      
+      regionRadioIds.forEach(id => newSelectedRadios.delete(id));
+      newSelectedRegions.delete(region);
+      
+      setSelectedRadios(newSelectedRadios);
+      setSelectedRegions(newSelectedRegions);
+    } else {
+      // Seleccionar región
+      const newSelectedRadios = new Set(selectedRadios);
+      const newSelectedRegions = new Set(selectedRegions);
+      
+      regionRadioIds.forEach(id => newSelectedRadios.add(id));
+      newSelectedRegions.add(region);
+      
+      setSelectedRadios(newSelectedRadios);
+      setSelectedRegions(newSelectedRegions);
+    }
+  };
+
+  const handleSelectRadio = (radioId: string) => {
+    const newSelectedRadios = new Set(selectedRadios);
+    const radio = filteredRadios.find(r => r.id === radioId);
+    
+    if (!radio) return;
+    
+    const region = normalizeRegionName(radio.region);
+    
+    if (newSelectedRadios.has(radioId)) {
+      newSelectedRadios.delete(radioId);
+    } else {
+      newSelectedRadios.add(radioId);
+    }
+    
+    setSelectedRadios(newSelectedRadios);
+    
+    // Actualizar selección de región si es necesario
+    const regionRadios = filteredRadios.filter(r => normalizeRegionName(r.region) === region);
+    const selectedRegionRadios = regionRadios.filter(r => newSelectedRadios.has(r.id));
+    
+    const newSelectedRegions = new Set(selectedRegions);
+    if (selectedRegionRadios.length === regionRadios.length) {
+      newSelectedRegions.add(region);
+    } else {
+      newSelectedRegions.delete(region);
+    }
+    setSelectedRegions(newSelectedRegions);
+  };
+
+  // Handler para grabación masiva
+  const handleBulkStartRecording = async () => {
+    if (selectedRadios.size === 0) {
+      toast.info('Por favor, selecciona al menos una radio para grabar');
+      return;
+    }
+
+    try {
+      setBulkRecording(true);
+      toast.info(`Iniciando grabación de ${selectedRadios.size} radios...`);
+      
+      const selectedRadioList = filteredRadios.filter(radio => selectedRadios.has(radio.id));
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Grabar radios una por una
+      for (const radio of selectedRadioList) {
+        try {
+          const result = await recordingService.startRecording(radio.id, radio.streamUrl);
+          if (result.status === 'success') {
+            successCount++;
+            toast.success(`✅ Grabación iniciada: ${radio.name}`);
+          } else {
+            errorCount++;
+            toast.error(`❌ Error al grabar ${radio.name}: ${result.error}`);
+          }
+        } catch (error) {
+          errorCount++;
+          console.error(`Error grabando ${radio.name}:`, error);
+          toast.error(`❌ Error al grabar ${radio.name}`);
+        }
+      }
+
+      toast.success(`📹 Grabación completada: ${successCount} exitosas, ${errorCount} errores`);
+      
+      // Limpiar selección después de grabar
+      setSelectedRadios(new Set());
+      setSelectedRegions(new Set());
+      
+    } catch (error) {
+      console.error('Error en grabación masiva:', error);
+      toast.error('Error al iniciar grabaciones masivas');
+    } finally {
+      setBulkRecording(false);
+    }
+  };
+
+  const handleBulkStopRecording = async () => {
+    if (selectedRadios.size === 0) {
+      toast.info('Por favor, selecciona al menos una radio para detener');
+      return;
+    }
+
+    try {
+      setBulkRecording(true);
+      toast.info(`Deteniendo grabación de ${selectedRadios.size} radios...`);
+      
+      const selectedRadioList = filteredRadios.filter(radio => selectedRadios.has(radio.id));
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Detener grabaciones una por una
+      for (const radio of selectedRadioList) {
+        try {
+          const result = await recordingService.stopRecording(radio.id);
+          if (result.status === 'success') {
+            successCount++;
+            toast.success(`⏹️ Grabación detenida: ${radio.name}`);
+          } else {
+            errorCount++;
+            toast.error(`❌ Error al detener ${radio.name}: ${result.error}`);
+          }
+        } catch (error) {
+          errorCount++;
+          console.error(`Error deteniendo ${radio.name}:`, error);
+          toast.error(`❌ Error al detener ${radio.name}`);
+        }
+      }
+
+      toast.success(`⏹️ Grabaciones detenidas: ${successCount} exitosas, ${errorCount} errores`);
+      
+      // Limpiar selección después de detener
+      setSelectedRadios(new Set());
+      setSelectedRegions(new Set());
+      
+    } catch (error) {
+      console.error('Error deteniendo grabaciones masivas:', error);
+      toast.error('Error al detener grabaciones masivas');
+    } finally {
+      setBulkRecording(false);
+    }
+  };
+
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
       {/* Header */}
@@ -787,7 +984,7 @@ export default function RadiosPage() {
             Administra las radios monitoreadas en todo Chile
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {/* Botón Recargar Datos */}
           <Button
             onClick={async () => {
@@ -1072,6 +1269,80 @@ export default function RadiosPage() {
 
       {/* Lista de Radios */}
       <div className="space-y-6">
+        {/* Checkbox para seleccionar todas las radios */}
+        {filteredRadios.length > 0 && (
+          <div className="flex items-center justify-between p-4 bg-gray-800 rounded-lg border border-gray-700">
+            <div className="flex items-center space-x-4">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedRadios.size === filteredRadios.length && filteredRadios.length > 0}
+                  onChange={handleSelectAll}
+                  className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-white font-medium">
+                  {selectedRadios.size === filteredRadios.length ? 'Deseleccionar Todas' : 'Seleccionar Todas'} ({filteredRadios.length} radios)
+                </span>
+              </label>
+              
+              {selectedRadios.size > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedRadios(new Set());
+                    setSelectedRegions(new Set());
+                  }}
+                  className="border-gray-600 text-black hover:text-white hover:bg-gray-700"
+                >
+                  Limpiar Selección
+                </Button>
+              )}
+            </div>
+            
+            {/* Botones de grabación masiva alineados a la derecha */}
+            {selectedRadios.size > 0 && (
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleBulkStartRecording}
+                  disabled={bulkRecording}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {bulkRecording ? (
+                    <>
+                      <Loader className="h-4 w-4 mr-2 animate-spin" />
+                      Grabando...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      Grabar Seleccionadas ({selectedRadios.size})
+                    </>
+                  )}
+                </Button>
+                
+                <Button
+                  onClick={handleBulkStopRecording}
+                  disabled={bulkRecording}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  {bulkRecording ? (
+                    <>
+                      <Loader className="h-4 w-4 mr-2 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4 mr-2" />
+                      Detener Seleccionadas ({selectedRadios.size})
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        
         {loading ? (
           // Skeleton loaders mientras carga
           <div className="space-y-4">
@@ -1112,9 +1383,17 @@ export default function RadiosPage() {
         ) : (
           Object.entries(groupedRadios).map(([region, regionRadios]) => (
             <div key={region} className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h3 className="text-xl font-semibold text-white">{region}</h3>
-                <Badge 
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedRegions.has(region)}
+                    onChange={() => handleSelectRegion(region)}
+                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                  />
+                  <h3 className="text-xl font-semibold text-white">{region}</h3>
+                </label>
+                <Badge
                   style={{
                     backgroundColor: '#6b7280',
                     color: 'white',
@@ -1124,24 +1403,33 @@ export default function RadiosPage() {
                 >
                   {regionRadios.length} radios
                 </Badge>
+                
+                {selectedRegions.has(region) && (
+                  <span className="text-green-400 text-sm">
+                    ✓ Región seleccionada
+                  </span>
+                )}
               </div>
               
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {regionRadios.map((radio) => (
-                  <RadioCard
-                    key={radio.id}
-                    radio={radio}
-                    isPlaying={playingRadio === radio.id}
-                    isLoading={isLoading === radio.id}
-                    onToggleStatus={() => toggleRadioStatus(radio.id)}
-                    onPlay={() => handlePlay(radio)}
-                    onEdit={() => setEditingRadio(radio)}
-                    onDelete={() => handleDelete(radio.id)}
-                    onVerify={handleVerifyRadio}
-                    isVerifying={verifyingRadioId === radio.id}
-                    getPlatformIcon={getPlatformIcon}
-                    getPlatformName={getPlatformName}
-                  />
+                  <div key={radio.id} className="relative h-full">
+                    <RadioCard
+                      radio={radio}
+                      isPlaying={playingRadio === radio.id}
+                      isLoading={isLoading === radio.id}
+                      onToggleStatus={() => toggleRadioStatus(radio.id)}
+                      onPlay={() => handlePlay(radio)}
+                      onEdit={() => setEditingRadio(radio)}
+                      onDelete={() => handleDelete(radio.id)}
+                      onVerify={handleVerifyRadio}
+                      isVerifying={verifyingRadioId === radio.id}
+                      getPlatformIcon={getPlatformIcon}
+                      getPlatformName={getPlatformName}
+                      isSelected={selectedRadios.has(radio.id)}
+                      onSelect={handleSelectRadio}
+                    />
+                  </div>
                 ))}
               </div>
             </div>

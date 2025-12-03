@@ -1,19 +1,21 @@
+#!/usr/bin/env node
+
+// Script para generar un token JWT válido para el admin
 const jwt = require('jsonwebtoken');
 
-// Clave secreta del sistema (debería estar en variables de entorno)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+// Clave secreta del JWT (debe coincidir con la del middleware)
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here';
 
-// Generar un token válido para el usuario admin
-const payload = {
-  email: 'admin@example.com',
-  role: 'admin',
-  iat: Math.floor(Date.now() / 1000),
-  exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 días
+// Datos del usuario admin
+const adminUser = {
+  userId: 'admin-1',
+  email: 'admin@ondaverificada.com',
+  role: 'admin'
 };
 
-const token = jwt.sign(payload, JWT_SECRET);
+// Generar token con expiración de 30 días
+const token = jwt.sign(adminUser, JWT_SECRET, { expiresIn: '30d' });
 
-console.log('Token JWT válido generado:');
+console.log('Token JWT generado para admin:');
 console.log(token);
-console.log('');
-console.log('Payload:', JSON.stringify(payload, null, 2));
+console.log('\nPuedes usar este token en tus scripts de sincronización.');

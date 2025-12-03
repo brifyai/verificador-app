@@ -1,8 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseDirect } from '@/lib/supabase-direct';
-import { authOptions } from '@/lib/auth';
-import { getServerSession } from 'next-auth';
 import { logger } from '@/lib/logger';
+import jwt from 'jsonwebtoken';
+
+// Secreto JWT - usar el mismo que el middleware
+const JWT_SECRET = 'supersecret-key-for-nextauth-jwt-2024-verificador-app-secure';
+
+// Función para verificar autenticación JWT (misma que radios-direct)
+async function verifyAuth(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    const tokenCookie = request.cookies.get('auth-token');
+    
+    let token: string | null = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (tokenCookie) {
+      token = tokenCookie.value;
+    }
+    
+    if (!token) {
+      return null;
+    }
+    
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    // Verificar que el usuario exista y esté activo
+    const users = await supabaseDirect.getUsers();
+    const user = users.find((u: any) => u.id === decoded.id && u.email === decoded.email);
+    
+    if (!user || !user.active) {
+      return null;
+    }
+    
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name || 'Usuario',
+      role: user.role || 'user'
+    };
+  } catch (error) {
+    console.error('Error verificando autenticación:', error);
+    return null;
+  }
+}
 
 /**
  * PATCH /api/radios/[id]/status
@@ -13,11 +55,13 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    // Verificar autenticación
-    const session = await getServerSession(authOptions);
-    if (!session) {
+    // Verificar autenticación con JWT (mismo sistema que radios-direct)
+    const user = await verifyAuth(request);
+    if (!user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+
+    logger.info(`[RADIO-STATUS] Usuario autenticado: ${user.email}`);
 
     const { id } = params;
     const body = await request.json();

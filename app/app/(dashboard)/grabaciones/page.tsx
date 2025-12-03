@@ -35,6 +35,8 @@ interface EnrichedRecording {
   radio_city: string;
   radio_programadora: string;
   display_name: string;
+  path?: string; // Ruta relativa
+  download_url?: string; // URL completa para descargar
 }
 
 export default function GrabacionesPage() {
@@ -42,34 +44,28 @@ export default function GrabacionesPage() {
   const [availableRecordings, setAvailableRecordings] = useState<EnrichedRecording[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date()); // Para actualizar cronómetro
   const toast = useEnhancedToast();
   const { playingRadio, isLoading, handlePlay } = useAudioPlayer();
+
+  // Actualizar tiempo cada segundo para el cronómetro
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000); // Actualizar cada segundo
+    
+    return () => clearInterval(timer);
+  }, []);
 
   // Sistema de estado persistente para grabaciones
   useEffect(() => {
     let isMounted = true;
     
-    // Suscribirse al estado persistente de grabaciones
-    const unsubscribe = recordingStateManager.subscribe((recordings) => {
-      if (!isMounted) return;
-      
-      // Convertir Map a array de sesiones
-      const sessions: RecordingSession[] = Array.from(recordings.entries()).map(([radioId, data]) => ({
-        radioId,
-        radioName: data.radioName || `Radio ${radioId}`,
-        status: data.status,
-        startTime: data.startTime || new Date(),
-        recordingId: data.recording_id
-      }));
-      
-      setActiveRecordings(sessions);
-    });
-
     // Cargar datos iniciales
     const loadInitialData = async () => {
       try {
         await Promise.all([
-          recordingStateManager.forceUpdate(),
+          loadActiveRecordings(),
           loadAvailableRecordings()
         ]);
       } catch (error) {
@@ -84,44 +80,120 @@ export default function GrabacionesPage() {
 
     loadInitialData();
     
-    // Sistema de polling automático: verificar nuevas grabaciones cada 30 segundos
+    // Sistema de polling automático: verificar nuevas grabaciones cada 5 segundos
     const pollingInterval = setInterval(() => {
       if (!isMounted) return;
+      loadActiveRecordings();
       loadAvailableRecordings();
-    }, 30000); // 30 segundos
+    }, 5000); // 5 segundos para actualizaciones más frecuentes
     
     // Cleanup
     return () => {
       isMounted = false;
-      unsubscribe();
       clearInterval(pollingInterval);
     };
   }, []);
 
-  const loadAvailableRecordings = async () => {
+  const loadActiveRecordings = async () => {
     try {
-      const result = await recordingService.getRecordingsList();
-      if (result.status === 'success' && result.recordings) {
-        // Ordenar por fecha (más recientes primero)
-        const sorted = result.recordings.sort((a: any, b: any) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-        setAvailableRecordings(sorted as EnrichedRecording[]);
+      // Obtener grabaciones activas directamente del VPS
+      const response = await fetch('/api/recording-vps-fixed', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store'
+      });
+      
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
+      
+      const data = await response.json();
+      
+      if (data.status === 'success' && data.active_recordings) {
+        // Convertir grabaciones del VPS al formato RecordingSession
+        const sessions: RecordingSession[] = Object.entries(data.active_recordings).map(([radioId, recording]: [string, any]) => ({
+          radioId: recording.radio_id || radioId,
+          radioName: recording.radio_name || `Radio ${radioId}`,
+          status: recording.status === 'recording' ? 'recording' as const : 'stopped' as const,
+          startTime: new Date(recording.start_time),
+          recordingId: recording.recording_id
+        }));
+        
+        console.log('📊 Grabaciones activas cargadas:', sessions);
+        setActiveRecordings(sessions);
+      } else {
+        console.log('No se encontraron grabaciones activas en el VPS');
+        setActiveRecordings([]);
       }
     } catch (error) {
-      console.error('Error cargando grabaciones disponibles:', error);
+      console.error('❌ Error cargando grabaciones activas:', error);
+      setActiveRecordings([]);
+    }
+  };
+
+  const loadAvailableRecordings = async () => {
+    try {
+      // Primero obtener la metadata de las grabaciones desde Supabase
+      const response = await fetch('/api/recordings-from-supabase', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store'
+      });
+      
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
+      
+      const data = await response.json();
+      
+      if (data.status === 'success' && data.recordings && data.recordings.length > 0) {
+        // Convertir los datos de Supabase al formato EnrichedRecording
+        const enrichedRecordings: EnrichedRecording[] = data.recordings.map((rec: any) => ({
+          filename: rec.filename,
+          size: rec.file_size,
+          created_at: new Date(rec.recorded_at).toLocaleString('es-CL', {
+            timeZone: 'America/Santiago'
+          }),
+          radio_id: rec.radio_id,
+          radio_name: rec.radio_name,
+          radio_region: rec.radio_region,
+          radio_city: rec.radio_city,
+          radio_programadora: rec.radio_programadora || '',
+          display_name: rec.radio_name,
+          path: rec.file_path,
+          download_url: rec.download_url
+        }));
+        
+        setAvailableRecordings(enrichedRecordings);
+      } else {
+        // Si no hay grabaciones en Supabase, mostrar mensaje
+        console.log('No se encontraron grabaciones en Supabase');
+        setAvailableRecordings([]);
+        
+        // Opcional: Mostrar mensaje al usuario
+        if (data.recordings && data.recordings.length === 0) {
+          toast.info('No hay grabaciones almacenadas en la base de datos');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error cargando grabaciones desde Supabase:', error);
+      toast.error('Error al cargar grabaciones desde la base de datos');
+      setAvailableRecordings([]);
     }
   };
 
   const handleStopRecording = async (radioId: string) => {
     try {
-      const result = await recordingService.stopRecording(radioId);
-      if (result.status === 'success') {
+      const response = await fetch('/api/recording-vps-fixed', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ radio_id: radioId })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
         toast.success('⏹️ Grabación detenida');
-        await recordingStateManager.forceUpdate();
+        // Recargar grabaciones activas
+        await loadActiveRecordings();
         await loadAvailableRecordings();
       } else {
-        toast.error(`Error: ${result.message}`);
+        toast.error('Error al detener grabación');
       }
     } catch (error) {
       toast.error('Error al detener grabación');
@@ -129,19 +201,6 @@ export default function GrabacionesPage() {
     }
   };
 
-  const handleDownloadRecording = async (filename: string) => {
-    try {
-      const result = await recordingService.downloadRecording(filename);
-      if (result.status === 'success') {
-        toast.success('📥 Descarga iniciada');
-      } else {
-        toast.error(`Error: ${result.message}`);
-      }
-    } catch (error) {
-      toast.error('Error al descargar grabación');
-      console.error('Error:', error);
-    }
-  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -175,8 +234,7 @@ export default function GrabacionesPage() {
   };
 
   const formatDuration = (startTime: Date) => {
-    const now = new Date();
-    let diff = now.getTime() - startTime.getTime();
+    let diff = currentTime.getTime() - startTime.getTime();
     
     // CORRECCIÓN: Manejar diferencias de zona horaria
     // Si la diferencia es negativa (tiempo futuro), usar 0
@@ -221,28 +279,90 @@ export default function GrabacionesPage() {
     }
   };
 
-  // Agrupar grabaciones por radio usando useMemo para mejor performance
-  const groupedRecordings = useMemo(() => {
-    return availableRecordings.reduce((acc, recording) => {
-      const radioKey = `${recording.radio_name} (${recording.radio_region})`;
-      if (!acc[radioKey]) {
-        acc[radioKey] = {
+  // Función para extraer fecha del path o filename
+  const extractDateFromPath = (recording: EnrichedRecording): string => {
+    // Primero intentar extraer del path si existe
+    if (recording.path) {
+      // Path formato: "2025-12-01/20/filename.mp3" o "2025-12-01/radio_id/filename.mp3"
+      const pathParts = recording.path.split('/');
+      if (pathParts.length >= 2) {
+        const datePart = pathParts[0];
+        // Validar formato de fecha YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+          return datePart;
+        }
+      }
+    }
+    
+    // Fallback: extraer fecha del filename usando regex
+    // Filename formato: radio_id_YYYYMMDD_HHMMSS_*.mp3
+    const match = recording.filename.match(/_(\d{4})(\d{2})(\d{2})_\d{6}_/);
+    if (match) {
+      return `${match[1]}-${match[2]}-${match[3]}`;
+    }
+    
+    // Último fallback: usar created_at
+    const date = new Date(recording.created_at);
+    return date.toISOString().split('T')[0];
+  };
+
+  // Función para extraer radio_id del recording (ahora viene enriquecido del endpoint)
+  const extractRadioIdFromRecording = (recording: EnrichedRecording): string => {
+    // El radio_id ya viene en el objeto recording desde el endpoint /api/recordings-enriched
+    return recording.radio_id || 'unknown';
+  };
+
+  // Agrupar grabaciones por DÍA y luego por RADIO
+  const groupedByDateAndRadio = useMemo(() => {
+    // Primero agrupar por fecha
+    const byDate = availableRecordings.reduce((dateAcc, recording) => {
+      const date = extractDateFromPath(recording);
+      
+      if (!dateAcc[date]) {
+        dateAcc[date] = {};
+      }
+      
+      // Dentro de cada fecha, agrupar por radio usando solo el nombre
+      // El radio_id ya viene en el objeto recording desde el endpoint enriquecido
+      const radioKey = recording.radio_name;
+      
+      if (!dateAcc[date][radioKey]) {
+        dateAcc[date][radioKey] = {
           name: recording.radio_name,
+          radioId: recording.radio_id || 'unknown',
           region: recording.radio_region,
           city: recording.radio_city,
           programadora: recording.radio_programadora,
           recordings: []
         };
       }
-      acc[radioKey].recordings.push(recording);
-      return acc;
-    }, {} as Record<string, {
+      
+      dateAcc[date][radioKey].recordings.push(recording);
+      return dateAcc;
+    }, {} as Record<string, Record<string, {
       name: string;
+      radioId: string;
       region: string;
       city: string;
       programadora: string;
       recordings: EnrichedRecording[];
-    }>);
+    }>>);
+    
+    // Ordenar fechas (más recientes primero)
+    const sortedDates = Object.keys(byDate).sort((a, b) =>
+      new Date(b).getTime() - new Date(a).getTime()
+    );
+    
+    // Ordenar grabaciones dentro de cada radio por fecha (más recientes primero)
+    sortedDates.forEach(date => {
+      Object.keys(byDate[date]).forEach(radioKey => {
+        byDate[date][radioKey].recordings.sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      });
+    });
+    
+    return { byDate, sortedDates };
   }, [availableRecordings]);
 
   const formatDateTime = (dateValue: any): string => {
@@ -440,14 +560,25 @@ export default function GrabacionesPage() {
           ) : (
             <div className="space-y-3">
               {/* Renderizar grupos de radios con grabaciones */}
-              {Object.entries(groupedRecordings).map(([radioKey, data]) => (
-                <RadioRecordingsGroup
-                  key={radioKey}
-                  radioName={radioKey}
-                  recordings={data.recordings}
-                  itemsPerPage={10}
-                  onDownload={handleDownloadRecording}
-                />
+              {Object.entries(groupedByDateAndRadio.byDate).map(([date, radios]) => (
+                <div key={date} className="mb-6">
+                  <h3 className="text-lg font-semibold text-white mb-3">{date}</h3>
+                  <div className="space-y-3">
+                    {Object.entries(radios).map(([radioKey, data]) => (
+                      <RadioRecordingsGroup
+                        key={`${date}-${radioKey}`}
+                        radioName={radioKey}
+                        recordings={data.recordings.map(rec => ({
+                          ...rec,
+                          radio_region: data.region || rec.radio_region,
+                          radio_city: data.city || rec.radio_city,
+                          radio_programadora: data.programadora || rec.radio_programadora
+                        }))}
+                        itemsPerPage={10}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -462,7 +593,7 @@ export default function GrabacionesPage() {
             <span>Estado del Servidor de Grabación</span>
           </CardTitle>
           <CardDescription className="text-gray-400">
-            Conexión con VPS: {recordingService['API_BASE'] || 'http://213.199.39.147:5000/api'}
+            Conexión con VPS: http://213.199.39.147:5000/api
           </CardDescription>
         </CardHeader>
         <CardContent>

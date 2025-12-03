@@ -1,25 +1,29 @@
 // Cliente directo de Supabase usando API REST
 // Solución temporal mientras resolvemos las credenciales de PostgreSQL
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 class SupabaseDirectClient {
   constructor() {
-    this.baseUrl = SUPABASE_URL;
-    this.apiKey = SUPABASE_ANON_KEY;
-    this.serviceKey = SUPABASE_SERVICE_ROLE_KEY;
-    
-    // Verificar si service key es idéntico a anon key (caso especial)
-    this.isServiceKeyIdentical = this.serviceKey === this.apiKey;
+    // Cargar variables de entorno dinámicamente
+    this.loadEnvVars();
     
     console.log('DEBUG SupabaseDirectClient:');
     console.log('- URL:', this.baseUrl ? '✓ Configurada' : '✗ Vacía');
     console.log('- ANON KEY:', this.apiKey ? '✓ Configurada' : '✗ Vacía');
     console.log('- SERVICE KEY:', this.serviceKey ? '✓ Configurada' : '✗ Vacía');
     console.log('- Service Key Idéntico:', this.isServiceKeyIdentical ? '⚠️ SÍ (usando workaround)' : '✅ NO');
+  }
+  
+  // Método para cargar/actualizar variables de entorno
+  loadEnvVars() {
+    // Intentar cargar desde process.env
+    this.baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    this.apiKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    this.serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     
+    // Verificar si service key es idéntico a anon key (caso especial)
+    this.isServiceKeyIdentical = this.serviceKey === this.apiKey;
+    
+    // Configurar headers base
     this.headers = {
       'Content-Type': 'application/json',
       'apikey': this.apiKey,
@@ -29,6 +33,17 @@ class SupabaseDirectClient {
   }
 
   async request(endpoint, options = {}) {
+    // Verificar si las variables de entorno están disponibles
+    if (!this.baseUrl || !this.apiKey) {
+      console.log('⚠️ Variables de entorno no disponibles, intentando recargar...');
+      this.loadEnvVars();
+    }
+    
+    // Si aún no hay URL, mostrar error detallado
+    if (!this.baseUrl) {
+      throw new Error(`NEXT_PUBLIC_SUPABASE_URL no está configurada. Variables disponibles: ${Object.keys(process.env).filter(k => k.includes('SUPABASE')).join(', ') || 'ninguna'}`);
+    }
+    
     const url = `${this.baseUrl}/rest/v1/${endpoint}`;
     
     // Usar siempre ANON KEY si los keys son idénticos (caso especial del usuario)
@@ -340,6 +355,9 @@ class SupabaseDirectClient {
       const weekDetections = detections.filter(d => new Date(d.timestamp) >= weekAgo).length;
       const monthDetections = detections.filter(d => new Date(d.timestamp) >= monthAgo).length;
 
+      // Calcular estadísticas de estado de radios usando los campos de verificación
+      const radioStatusStats = this.calculateRadioStatusStats(radios);
+
       return {
         overview: {
           totalDetections: detections.length,
@@ -376,11 +394,63 @@ class SupabaseDirectClient {
           unverifiedHighConfidence: detections.filter(d => !d.verified && d.confidence >= 0.8).length,
           verificationRate: detections.length > 0 ? (detections.filter(d => d.verified).length / detections.length) * 100 : 0,
         },
+        // Agregar estadísticas de estado de radios para las cajas de estado
+        radioStatus: radioStatusStats,
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
       throw error;
     }
+  }
+
+  // Calcular estadísticas de estado de radios
+  calculateRadioStatusStats(radios) {
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    let totalOnline = 0;
+    let totalOffline = 0;
+    let totalActiveUnverified = 0;
+    let totalInactive = 0;
+
+    radios.forEach(radio => {
+      // Online: last_verification_status === 'ONLINE'
+      if (radio.last_verification_status === 'ONLINE') {
+        totalOnline++;
+      }
+      // Offline: last_verification_status === 'OFFLINE'
+      else if (radio.last_verification_status === 'OFFLINE') {
+        totalOffline++;
+      }
+      // Activos sin verificar: isActive === true pero sin verificación reciente o sin status de verificación
+      else if (radio.isActive === true) {
+        const hasRecentVerification = radio.last_verified_at && 
+          new Date(radio.last_verified_at) > oneDayAgo;
+        
+        if (!hasRecentVerification || !radio.last_verification_status) {
+          totalActiveUnverified++;
+        }
+      }
+      // Inactivos: isActive === false
+      else if (radio.isActive === false) {
+        totalInactive++;
+      }
+    });
+
+    console.log('📊 Estadísticas de estado de radios calculadas:');
+    console.log(`   🟢 Online: ${totalOnline}`);
+    console.log(`   🔴 Offline: ${totalOffline}`);
+    console.log(`   🟡 Activos sin verificar: ${totalActiveUnverified}`);
+    console.log(`   ⚫ Inactivos: ${totalInactive}`);
+    console.log(`   📻 Total radios: ${radios.length}`);
+
+    return {
+      totalOnline,
+      totalOffline,
+      totalActiveUnverified,
+      totalInactive,
+      totalRadios: radios.length,
+    };
   }
 
   // Verificar conexión

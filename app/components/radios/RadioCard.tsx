@@ -8,11 +8,12 @@ import { Separator } from '@/components/ui/separator';
 import { Radio } from '@/lib/mock-data';
 import { MONITORING_CAPABILITIES } from '@/lib/streaming-platforms';
 import { recordingService } from '@/lib/recording-service';
+import { recordingStateManager } from '@/lib/recording-state-manager';
 import { streamVerifierVPS } from '@/lib/stream-verifier-vps';
 import { streamVerifierBrowser } from '@/lib/stream-verifier-browser';
 import { streamVerifierCombined } from '@/lib/stream-verifier-combined';
+import { streamVerifier } from '@/stream-verifier-fixed';
 import { useEnhancedToast } from '@/hooks/use-enhanced-toast';
-import { fixVpsTimezone } from '@/lib/timer-fix-improved';
 import { useState, useEffect } from 'react';
 import {
   Play, Pause, Edit, Trash2, Globe, MapPin, Zap, Clock,
@@ -31,6 +32,8 @@ interface RadioCardProps {
   isVerifying?: boolean;
   getPlatformIcon: (platform: string) => JSX.Element;
   getPlatformName: (platform: string) => string;
+  isSelected?: boolean;
+  onSelect?: (radioId: string) => void;
 }
 
 export function RadioCard({
@@ -45,115 +48,116 @@ export function RadioCard({
   isVerifying = false,
   getPlatformIcon,
   getPlatformName,
+  isSelected = false,
+  onSelect,
 }: RadioCardProps) {
-  const [isRecording, setIsRecording] = useState(false);
   const [recordingLoading, setRecordingLoading] = useState(false);
-  const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null);
   const [recordingDuration, setRecordingDuration] = useState('00:00');
-  const [lastRecordingStart, setLastRecordingStart] = useState<Date | null>(null);
+  const [recordingUpdateCounter, setRecordingUpdateCounter] = useState(0);
+  const [localRecordingStart, setLocalRecordingStart] = useState<Date | null>(null);
   const toast = useEnhancedToast();
 
-  // Función para capitalizar el nombre de la ciudad correctamente
-  const capitalizeCity = (city: string | null | undefined): string => {
-    if (!city) return '';
-    
-    // Convertir a minúsculas primero
-    const lowerCase = city.toLowerCase();
-    
-    // Capitalizar la primera letra
-    return lowerCase.charAt(0).toUpperCase() + lowerCase.slice(1);
-  };
+  // ✅ CORRECCIÓN: Usar RecordingStateManager en lugar de estado local
+  const isRecording = recordingStateManager?.isRecording(radio.id.toString()) || false;
+  const recordingData = recordingStateManager?.getRecordingStatus(radio.id.toString());
+  const recordingStartTime = recordingData?.start_time ? new Date(recordingData.start_time) : null;
+  
+  // ✅ PRIORIDAD: Usar tiempo local si está disponible, sino usar tiempo del VPS
+  const effectiveStartTime = localRecordingStart || recordingStartTime;
+  
+  // ✅ SOLUCIÓN TEMPORAL: Forzar actualización inmediata del cronómetro
+  const [forceUpdate, setForceUpdate] = useState(0);
 
-  // Verificar estado de grabación al montar (solo una vez)
+  // ✅ CORRECCIÓN: Suscribirse a cambios del RecordingStateManager
   useEffect(() => {
-    checkRecordingStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Solo ejecutar una vez al montar el componente
-
+    if (!recordingStateManager) return;
+    
+    const unsubscribe = recordingStateManager.subscribe(() => {
+      // Force re-render when recording state changes
+      console.log('🔄 RadioCard: Estado de grabación actualizado para radio:', radio.id);
+      setRecordingUpdateCounter(prev => prev + 1);
+      
+      // Si la radio comenzó a grabar, forzar actualización inmediata del cronómetro
+      const newRecordingStatus = recordingStateManager?.isRecording(radio.id.toString());
+      if (newRecordingStatus && !isRecording) {
+        console.log('🎬 RadioCard: Nueva grabación detectada, forzando actualización del cronómetro');
+        setRecordingUpdateCounter(prev => prev + 1);
+      }
+    });
+    
+    return unsubscribe;
+  }, [radio.id, isRecording]);
 
   // Temporizador para actualizar duración de grabación
   useEffect(() => {
-    console.log('⏰ Temporizador useEffect ejecutado:', {
-      isRecording,
-      recordingStartTime,
-      hasStartTime: !!recordingStartTime
-    });
-
     let interval: NodeJS.Timeout;
     
-    if (isRecording && recordingStartTime) {
-      console.log('⏰ Iniciando temporizador con startTime:', recordingStartTime);
-      
-      // Actualizar inmediatamente antes de iniciar el intervalo
+    // ✅ PRIORIDAD: Usar tiempo local si está disponible, sino usar tiempo del VPS
+    const effectiveStartTime = localRecordingStart || recordingStartTime;
+    
+    if (isRecording && effectiveStartTime) {
       const updateDuration = () => {
-        const now = new Date();
-        let diff = now.getTime() - recordingStartTime.getTime();
-        
-        console.log('⏰ DEBUG Temporizador:', {
-          now: now.toISOString(),
-          nowTime: now.getTime(),
-          recordingStartTime: recordingStartTime.toISOString(),
-          recordingStartTimeTime: recordingStartTime.getTime(),
-          diff: diff,
-          diffSeconds: diff / 1000
-        });
-        
-        // SOLUCIÓN MEJORADA: Ser más permisivo con los desfases
-        
-        // Caso 1: Solo corregir diferencias MUY negativas (más de 30 segundos en el futuro)
-        if (diff < -30000) {
-          console.warn('⚠️ Diferencia MUY negativa detectada (>30s):', diff);
-          console.log('🔧 Usando tiempo actual del navegador');
-          // Crear un nuevo tiempo de inicio basado en el tiempo actual
-          const correctedStartTime = new Date(now.getTime() - 1000); // 1 segundo atrás para que empiece en 00:01
-          setRecordingStartTime(correctedStartTime);
-          diff = 1000; // 1 segundo de diferencia
+        try {
+          const now = new Date();
+          const startTime = new Date(effectiveStartTime);
+          
+          // Validar que el tiempo de inicio sea válido
+          if (isNaN(startTime.getTime())) {
+            console.warn('❌ Tiempo de inicio de grabación inválido:', effectiveStartTime);
+            setRecordingDuration('00:00');
+            return;
+          }
+          
+          // Calcular diferencia en milisegundos
+          const diffMs = now.getTime() - startTime.getTime();
+          
+          // Validar que la diferencia sea positiva y razonable
+          if (diffMs < 0) {
+            console.warn('❌ Tiempo transcurrido negativo:', diffMs);
+            setRecordingDuration('00:00');
+            return;
+          }
+          
+          // Limitar duración máxima a 24 horas
+          const maxDuration = 24 * 60 * 60 * 1000; // 24 horas en ms
+          const validDiffMs = Math.min(diffMs, maxDuration);
+          
+          // Convertir a minutos y segundos
+          const totalSeconds = Math.floor(validDiffMs / 1000);
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          
+          const newDuration = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          
+          // Siempre actualizar para asegurar que el cronómetro funcione
+          setRecordingDuration(newDuration);
+          
+          console.log(`⏱️ Cronómetro actualizado para radio ${radio.id}: ${newDuration} (inicio: ${startTime.toISOString()}, local: ${!!localRecordingStart})`);
+          
+        } catch (error) {
+          console.error('❌ Error calculando duración de grabación:', error);
+          setRecordingDuration('00:00');
         }
-        // Caso 2: Pequeñas diferencias negativas (hasta 30 segundos) - PERMITIR que avancen
-        else if (diff < 0 && diff >= -30000) {
-          console.log('ℹ️ Pequeña diferencia negativa permitida:', diff);
-          // Convertir a positivo para que el tiempo avance desde 0
-          diff = Math.abs(diff);
-          console.log('🔧 Convertido a positivo:', diff);
-        }
-        // Caso 3: Diferencias normales (positivas) - procesar normalmente
-        else if (diff >= 0) {
-          console.log('✅ Diferencia normal, procesando:', diff);
-          // No hacer nada, procesar normalmente
-        }
-        
-        // Caso 4: Diferencia demasiado grande (más de 24 horas) - limitar
-        if (diff > 24 * 60 * 60 * 1000) {
-          console.warn('⚠️ Diferencia demasiado grande (>24h), limitando a 24h');
-          diff = 24 * 60 * 60 * 1000;
-        }
-        
-        const minutes = Math.floor(diff / (1000 * 60));
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-        const newDuration = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        console.log('⏰ Actualizando duración:', newDuration, { now, diff, minutes, seconds });
-        setRecordingDuration(newDuration);
       };
 
       // Actualizar inmediatamente
       updateDuration();
       
-      // Luego iniciar el intervalo
+      // Actualizar cada segundo
       interval = setInterval(updateDuration, 1000);
       
-      console.log('⏰ Temporizador iniciado con intervalo de 1 segundo');
+      console.log('⏱️ Cronómetro iniciado para radio:', radio.id, 'Inicio:', effectiveStartTime, 'Local:', !!localRecordingStart);
     } else {
-      console.log('⏰ Temporizador detenido o condiciones no cumplidas');
       setRecordingDuration('00:00');
+      console.log('⏱️ Cronómetro detenido para radio:', radio.id);
     }
     
     return () => {
       if (interval) {
-        console.log('⏰ Limpiando temporizador');
         clearInterval(interval);
       }
     };
-  }, [isRecording, recordingStartTime]);
+  }, [isRecording, effectiveStartTime, recordingDuration, radio.id, recordingUpdateCounter, localRecordingStart]);
 
   const handleStopRecording = async () => {
     if (!isRecording) return;
@@ -162,10 +166,7 @@ export function RadioCard({
     try {
       const result = await recordingService.stopRecording(radio.id);
       
-      if (result.status === 'success') {
-        setIsRecording(false);
-        setRecordingStartTime(null);
-        setRecordingDuration('00:00');
+      if (result.success) {
         toast.success('⏹️ Grabación detenida');
       } else {
         toast.error(`Error al detener grabación: ${result.message}`);
@@ -177,79 +178,6 @@ export function RadioCard({
       setRecordingLoading(false);
     }
   };
-
-  // Detener grabación cuando la radio se desactiva
-  useEffect(() => {
-    if (!radio.isActive && isRecording) {
-      handleStopRecording();
-    }
-  }, [radio.isActive, isRecording]);
-
-
-  const checkRecordingStatus = async () => {
-    console.log('🔍 Verificando estado de grabación para radio:', radio.id);
-    
-    try {
-      const result = await recordingService.getActiveRecordings();
-      console.log('🔍 Resultado de grabaciones activas:', result);
-      
-      const status = recordingService.isRecording(radio.id);
-      const recordingData = recordingService.getRecordingStatus(radio.id);
-      
-      console.log('🔍 Estado de grabación para esta radio:', {
-        radioId: radio.id,
-        isRecording: status,
-        recordingData: recordingData,
-        allRecordings: recordingService.getLocalRecordingState()
-      });
-      
-      setIsRecording(status);
-      
-      if (status && recordingData?.startTime) {
-        console.log('🔍 Estableciendo tiempo de inicio:', recordingData.startTime);
-        console.log('🔍 Tipo de startTime:', typeof recordingData.startTime);
-        console.log('🔍 Valor de startTime:', recordingData.startTime);
-        
-        // Asegurarse de que sea un objeto Date válido
-        let startTimeDate: Date;
-        if (recordingData.startTime instanceof Date) {
-          startTimeDate = recordingData.startTime;
-        } else if (typeof recordingData.startTime === 'string') {
-          // CORRECCIÓN: Aplicar fix de zona horaria para el VPS
-          startTimeDate = fixVpsTimezone(recordingData.startTime);
-        } else if (typeof recordingData.startTime === 'number') {
-          startTimeDate = new Date(recordingData.startTime);
-        } else {
-          console.warn('⚠️ Tipo de startTime no reconocido, usando fecha actual');
-          startTimeDate = new Date();
-        }
-        
-        console.log('🔍 Fecha final establecida:', startTimeDate.toISOString());
-        setRecordingStartTime(startTimeDate);
-      } else {
-        // IMPORTANTE: No limpiar si acabamos de iniciar grabación recientemente
-        const timeSinceLastStart = lastRecordingStart ? new Date().getTime() - lastRecordingStart.getTime() : Infinity;
-        const isRecentStart = timeSinceLastStart < 5000; // 5 segundos
-        
-        if (!isRecentStart) {
-          console.log('🔍 Limpiando tiempo de inicio (no es inicio reciente)');
-          setRecordingStartTime(null);
-          setRecordingDuration('00:00');
-        } else {
-          console.log('🔍 Manteniendo tiempo de inicio (inicio reciente detectado)');
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error verificando estado de grabación:', error);
-    }
-  };
-
-  // Detener grabación cuando la radio se desactiva
-  useEffect(() => {
-    if (!radio.isActive && isRecording) {
-      handleStopRecording();
-    }
-  }, [radio.isActive, isRecording]);
 
   const handlePlayWithRecording = async () => {
     console.log('🎯 === INICIO handlePlayWithRecording ===');
@@ -263,14 +191,13 @@ export function RadioCard({
       streamUrl: radio.streamUrl,
       timestamp: new Date().toISOString(),
       recordingServiceAvailable: !!recordingService,
-      streamVerifierAvailable: !!streamVerifierVPS,
+      streamVerifierAvailable: !!streamVerifier,
       onPlayAvailable: !!onPlay,
       onPlayFunction: typeof onPlay,
       onPlayToString: onPlay.toString()
     });
 
     try {
-      // Solo manejar grabación, eliminar reproducción de audio
       console.log('🎵 Funcionalidad de reproducción de audio deshabilitada. Solo grabación.');
       
       // 1. Manejar grabación (independiente de la reproducción de audio)
@@ -280,7 +207,7 @@ export function RadioCard({
         
         // Verificar el streaming primero
         console.log('🔍 Verificando streaming antes de grabar...');
-        console.log('🔍 Llamando a streamVerifierCombined.verifyStreamWithFallback con:', {
+        console.log('🔍 Llamando a streamVerifier.verifyStreamBeforeRecording con:', {
           radioId: radio.id,
           streamUrl: radio.streamUrl,
           radioName: radio.name
@@ -289,24 +216,30 @@ export function RadioCard({
         let verificationResult;
         
         try {
-          // Usar el verificador combinado (VPS + navegador + fallback)
-          verificationResult = await streamVerifierCombined.verifyStreamWithFallback(
-            radio.id,
+          // Usar el nuevo verificador sin errores CORS
+          const streamResult = await streamVerifier.verifyStreamBeforeRecording(
             radio.streamUrl,
             radio.name
           );
           
-          console.log('✅ Verificación combinada exitosa');
-          console.log('📊 Método usado:', verificationResult.method);
-          console.log('📊 Resultado:', verificationResult.status);
+          console.log('✅ Verificación exitosa con nuevo verificador');
+          console.log('📊 Resultado:', streamResult);
+          
+          // Convertir el resultado del nuevo verificador al formato esperado
+          verificationResult = {
+            status: streamResult.success ? 'ONLINE' as const : 'OFFLINE' as const,
+            details: streamResult.message,
+            responseTime: 0,
+            method: 'PROXY' as const
+          };
           
         } catch (error) {
-          console.error('❌ Falló verificación combinada:', error);
+          console.error('❌ Falló verificación:', error);
           
           // Si todo falla, permitir grabación con advertencia
           verificationResult = {
             status: 'ONLINE' as const,
-            details: 'No se pudo verificar técnincamente, pero se permite grabación',
+            details: 'No se pudo verificar técnicamente, pero se permite grabación',
             responseTime: 0,
             method: 'FALLBACK' as const
           };
@@ -321,47 +254,51 @@ export function RadioCard({
           console.log('✅ Streaming verificado, iniciando grabación...');
           
           // Mostrar mensaje amigable al usuario
-          const userMessage = streamVerifierCombined.getUserFriendlyMessage(verificationResult);
+          const userMessage = `✅ Streaming verificado: ${radio.name} está online`;
           toast.info(userMessage);
           
           // Si el streaming está online, iniciar grabación
           console.log('🔍 Llamando a recordingService.startRecording con:', {
             radioId: radio.id,
-            radioName: radio.name
+            radioName: radio.name,
+            streamUrl: radio.streamUrl
           });
           
-          const result = await recordingService.startRecording(radio.id, radio.name);
+          const result = await recordingService.startRecording({
+            radio_id: radio.id,
+            stream_url: radio.streamUrl,
+            duration: 3600 // 1 hora por defecto
+          });
           
           console.log('🔴 Resultado de grabación:', result);
           
-          if (result.status === 'success') {
+          if (result.success) {
             console.log('✅ Grabación iniciada exitosamente');
-            setIsRecording(true);
-            
-            // ESTABLECER TIEMPO DE INICIO CORRECTO DESDE LA RESPUESTA
-            if (result.start_time) {
-              const startTime = new Date(result.start_time);
-              console.log('⏰ Estableciendo tiempo de inicio desde respuesta:', startTime.toISOString());
-              setRecordingStartTime(startTime);
-              setLastRecordingStart(startTime);
-            } else {
-              // Fallback a tiempo actual si no hay start_time
-              const now = new Date();
-              console.log('⏰ Usando tiempo actual como fallback');
-              setRecordingStartTime(now);
-              setLastRecordingStart(now);
-            }
-            
-            // Forzar actualización del estado después de un delay para sincronizar con servidor
-            setTimeout(() => {
-              console.log('🔄 Forzando actualización de estado después de inicio');
-              checkRecordingStatus();
-            }, 2000);
-            
             toast.success(`🔴 Grabación iniciada: ${radio.name}`);
+            
+            // ✅ SOLUCIÓN INMEDIATA: Iniciar cronómetro local inmediatamente
+            setLocalRecordingStart(new Date());
+            setRecordingDuration('00:00');
+            
+            // Actualizar estado de grabaciones inmediatamente
+            recordingStateManager?.forceUpdate();
           } else {
             console.log('❌ Error al iniciar grabación:', result.message);
-            toast.error(`Error al iniciar grabación: ${result.message}`);
+            
+            // Manejo específico para errores del VPS
+            if ((result as any).details?.error_type === 'RADIO_NOT_REGISTERED') {
+              toast.error(`🚫 ${radio.name} no está registrada en el sistema de grabación`, {
+                description: 'Esta radio debe ser configurada manualmente en el servidor de grabación VPS',
+                action: {
+                  label: 'Más información',
+                  onClick: () => {
+                    console.log('Detalles del error:', (result as any).details);
+                  }
+                }
+              });
+            } else {
+              toast.error(`Error al iniciar grabación: ${result.message}`);
+            }
           }
         } else {
           console.log('❌ Streaming no disponible:', verificationResult.details);
@@ -382,10 +319,11 @@ export function RadioCard({
         
         console.log('⏹️ Resultado de detener grabación:', result);
         
-        if (result.status === 'success') {
+        if (result.success) {
           console.log('✅ Grabación detenida exitosamente');
-          setIsRecording(false);
           toast.success('⏹️ Grabación detenida');
+          // Actualizar estado de grabaciones inmediatamente
+          recordingStateManager?.forceUpdate();
         } else {
           console.log('❌ Error al detener grabación:', result.message);
           toast.error(`Error al detener grabación: ${result.message}`);
@@ -401,11 +339,23 @@ export function RadioCard({
       setRecordingLoading(false);
     }
   };
+
+  // Función para capitalizar el nombre de la ciudad correctamente
+  const capitalizeCity = (city: string | null | undefined): string => {
+    if (!city) return '';
+    
+    // Convertir a minúsculas primero
+    const lowerCase = city.toLowerCase();
+    
+    // Capitalizar la primera letra
+    return lowerCase.charAt(0).toUpperCase() + lowerCase.slice(1);
+  };
+
   return (
     <Card
-      className={`bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 relative group ${
+      className={`h-full bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/10 relative group flex flex-col ${
         isPlaying ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-500/20' : ''
-      }`}
+      } ${isSelected ? 'ring-2 ring-green-500 shadow-lg shadow-green-500/20' : ''}`}
     >
       {/* Botón de eliminar en la esquina superior derecha */}
       <Button
@@ -419,54 +369,38 @@ export function RadioCard({
       </Button>
       
       <CardHeader className="pb-4 pr-12">
-        <div className="flex items-start justify-between">
-          <div className="space-y-2 flex-1">
-            <div className="flex items-center space-x-2">
-              {(() => {
-                const verificationStatus = (radio as any).lastVerificationStatus as 'ONLINE' | 'OFFLINE' | undefined;
-                const isOnline = verificationStatus === 'ONLINE';
-                const isOffline = verificationStatus === 'OFFLINE';
-                const hasVerification = !!verificationStatus;
-                const dotClass = hasVerification
-                  ? (isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500')
-                  : (radio.isActive ? 'bg-yellow-500 animate-pulse' : 'bg-white');
-                const title = hasVerification
-                  ? (isOnline ? 'Online' : 'Offline')
-                  : (radio.isActive ? 'Activo' : 'Inactivo');
-                return (
-                  <div
-                    className={`w-3 h-3 rounded-full ${dotClass}`}
-                    title={title}
-                  />
-                );
-              })()}
-              <CardTitle className="text-lg text-white leading-tight font-semibold">{radio.name}</CardTitle>
-              {/* Eliminado indicador duplicado de verificación para mantener un solo punto */}
-            </div>
+        <div className="flex items-center space-x-4">
+          {/* Checkbox de selección blanco a la izquierda */}
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onSelect?.(radio.id)}
+            className="w-5 h-5 text-green-600 bg-white border-gray-300 rounded focus:ring-green-500 focus:ring-2"
+            title={isSelected ? 'Radio seleccionada' : 'Seleccionar radio'}
+          />
+          
+          {/* Círculo de estado en el centro */}
+          <div
+            className={`w-4 h-4 rounded-full ${
+              radio.last_verification_status === 'ONLINE' ? 'bg-green-500' :
+              radio.last_verification_status === 'OFFLINE' ? 'bg-red-500' :
+              radio.last_verification_status === 'UNKNOWN' ? 'bg-yellow-500' :
+              'bg-gray-400'
+            }`}
+            title={`Estado: ${radio.last_verification_status || 'DESCONOCIDO'}`}
+          />
+          
+          {/* Nombre de la radio a la derecha */}
+          <div className="flex-1">
+            <CardTitle className="text-lg text-white leading-tight font-semibold">{radio.name}</CardTitle>
             <CardDescription className="text-gray-400 font-medium">
               {radio.programadora}
             </CardDescription>
           </div>
-          <div className="flex items-center space-x-3">
-            <Switch
-              checked={radio.isActive}
-              onCheckedChange={onToggleStatus}
-              className="data-[state=checked]:bg-green-600"
-            />
-            <Badge
-              className={`font-medium px-3 py-1 ${
-                radio.isActive
-                  ? 'bg-green-500/20 text-green-400 border-green-500/50'
-                  : 'bg-gray-500/20 text-gray-400 border-gray-500/50'
-              }`}
-            >
-              {radio.isActive ? 'Activa' : 'Inactiva'}
-            </Badge>
-          </div>
         </div>
       </CardHeader>
       
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 flex flex-col flex-1 flex-grow">
         {/* Información básica */}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center space-x-2 bg-gray-700/30 rounded-lg px-3 py-2">
@@ -492,16 +426,29 @@ export function RadioCard({
               <span className="text-gray-300 text-sm font-medium">{getPlatformName(radio.streamPlatform)}</span>
             </div>
           </div>
-          {radio.website && (
-            <a 
-              href={radio.website} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-blue-400 hover:text-blue-300 transition-colors p-2 hover:bg-blue-500/10 rounded-lg"
-            >
-              <Globe className="h-4 w-4" />
-            </a>
-          )}
+          <div className="flex items-center space-x-3">
+            {/* Switch para activar/desactivar radio */}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-400 font-medium">
+                {radio.isActive ? 'Activa' : 'Inactiva'}
+              </span>
+              <Switch
+                checked={radio.isActive}
+                onCheckedChange={onToggleStatus}
+                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-600"
+              />
+            </div>
+            {radio.website && (
+              <a 
+                href={radio.website} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-blue-400 hover:text-blue-300 transition-colors p-2 hover:bg-blue-500/10 rounded-lg"
+              >
+                <Globe className="h-4 w-4" />
+              </a>
+            )}
+          </div>
         </div>
         
         
@@ -584,16 +531,16 @@ export function RadioCard({
           </div>
         </div>
         
-        {/* Stream URL */}
-        <div className="bg-gray-700/20 rounded-lg p-3">
+        {/* Stream URL - Se mantiene en la parte inferior */}
+        <div className="bg-gray-700/20 rounded-lg p-3 mt-auto flex-shrink-0">
           <div className="text-xs text-gray-400 mb-2 font-medium">Stream URL:</div>
           <div className="text-xs text-gray-300 truncate font-mono bg-gray-800/50 px-2 py-1 rounded">
             {radio.streamUrl}
           </div>
         </div>
         
-        {/* Capacidades de monitoreo */}
-        <div className="flex flex-wrap gap-2">
+        {/* Capacidades de monitoreo - Se mantiene en la parte inferior */}
+        <div className="flex flex-wrap gap-2 mt-auto flex-shrink-0">
           {MONITORING_CAPABILITIES[radio.streamPlatform]?.audioCapture && (
             <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
               <Volume2 className="h-3 w-3" />

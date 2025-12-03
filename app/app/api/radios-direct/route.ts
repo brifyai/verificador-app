@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     // CASO 1: Para la página "Configurar Nuevo Análisis"
     if (context === 'setup') {
       const radios = await supabaseDirect.request(
-        'radios?select=id,name,region&status=eq.ACTIVE&order=name.asc'
+        'radios?select=id_radio,name,region&status=eq.ACTIVE&order=name.asc'
       );
       return NextResponse.json({ success: true, data: radios });
     }
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     
     // Obtener total de radios
-    const allRadios = await supabaseDirect.request('radios?select=id');
+    const allRadios = await supabaseDirect.request('radios?select=id_radio');
     const totalRadios = allRadios.length;
 
     // Obtener radios paginadas
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
     const transformedRadios = radios.map((radio: any) => {
       const metadata = radio.metadata || {};
       return {
-        id: radio.id,
+        id: radio.id_radio,
         name: radio.name,
         programadora: metadata.programadora || '',
         frequency: metadata.frequency || '',
@@ -102,8 +102,8 @@ export async function GET(request: NextRequest) {
         priority: radio.priority || 1,
         costPerHour: radio.cost_per_hour || 0.0,
         lastMonitored: metadata.last_monitored || 'Nunca',
-        lastVerificationStatus: radio.last_verification_status || null,
-        lastVerifiedAt: radio.last_verified_at || null,
+        last_verification_status: radio.last_verification_status || null,
+        last_verified_at: radio.last_verified_at || null,
         createdAt: radio.created_at,
         updatedAt: radio.updated_at,
       };
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
 
     // Transformar datos antes de devolver
     const transformedRadio = {
-      id: newRadio[0].id,
+      id: newRadio[0].id_radio,
       name: newRadio[0].name,
       programadora: metadata.programadora,
       frequency: metadata.frequency,

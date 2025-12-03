@@ -80,6 +80,10 @@ export interface Radio {
   pricingRuleId?: string; // ID de la regla de precio asignada
   priceHistory?: PriceHistory[]; // Historial de cambios de precio
   monitoring_enabled?: boolean; // Estado de monitoreo
+  // Campos de verificación
+  status?: 'ACTIVE' | 'INACTIVE'; // Estado de la radio
+  last_verification_status?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'; // Estado de verificación
+  last_verified_at?: string; // Fecha de última verificación
 }
 
 export interface PriceHistory {

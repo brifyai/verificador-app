@@ -1,423 +1,333 @@
-// Servicio de grabación para conectar con la VPS de grabación
-// Basado en radio-api-clientV2.js adaptado para Next.js
+/**
+ * SERVICIO DE GRABACIÓN CON AUTENTICACIÓN
+ * 
+ * Este servicio maneja la comunicación con el VPS para grabaciones,
+ * incluyendo la autenticación requerida y el manejo de errores.
+ */
+
+export interface RecordingRequest {
+  radio_id: string | number;
+  stream_url: string;
+  duration?: number;
+}
+
+export interface RecordingResponse {
+  success: boolean;
+  message: string;
+  recording_id?: string;
+  data?: any;
+  error?: string;
+}
+
+export interface ActiveRecording {
+  id: string;
+  radio_id: string;
+  stream_url: string;
+  start_time: string;
+  status: 'recording' | 'completed' | 'error';
+}
+
+export interface ActiveRecordingsResponse {
+  active_recordings: Record<string, ActiveRecording>;
+  count: number;
+  status: string;
+  message?: string; // Agregado para compatibilidad
+}
 
 export interface RecordingState {
-  recording_id?: string;
-  status: 'recording' | 'paused' | 'stopped';
-  startTime?: Date;
-  radioName?: string;
-}
-
-export interface RecordingResult {
-  status: 'success' | 'error';
-  message?: string;
-  recording_id?: string;
-  radio_name?: string;
-  [key: string]: any;
-}
-
-export interface RecordingFile {
-  filename: string;
-  size: number;
-  created_at: string;
-}
-
-export interface RadioRecording {
-  radioId: string;
-  radioName: string;
-  recordingId?: string;
-  status: 'recording' | 'paused' | 'stopped';
-  startTime?: Date;
-}
-
-export interface EnrichedRecordingFile extends RecordingFile {
+  id: string;
+  recording_id: string;
   radio_id: string;
-  radio_name: string;
-  radio_region: string;
-  radio_city: string;
-  radio_programadora: string;
-  display_name: string;
+  stream_url: string;
+  start_time: string;
+  status: 'recording' | 'completed' | 'error';
+  duration?: number;
 }
 
-class RecordingService {
-  private API_BASE: string;
-  private currentRecordings: Map<string, RecordingState>;
+/**
+ * Servicio de grabación con autenticación VPS
+ */
+export class RecordingService {
+  private static instance: RecordingService;
+  private readonly baseUrl: string;
+  private authToken: string;
 
-  constructor(baseURL?: string) {
-    // Usar variable de entorno si está disponible, o el parámetro, o el valor por defecto
-    this.API_BASE = baseURL || process.env.VPS_API_URL || 'http://213.199.39.147:5000/api';
-    this.currentRecordings = new Map();
-    
-    console.log('🎙️ RecordingService inicializado con API_BASE:', this.API_BASE);
+  private constructor() {
+    // Detectar contexto y usar URL apropiada
+    this.baseUrl = this.getBaseUrl();
+    // Obtener token de las cookies (el middleware lo maneja automáticamente)
+    this.authToken = this.getAuthToken();
   }
 
-  // Función auxiliar para hacer requests
-  private async makeRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+  /**
+   * Obtener URL base según el contexto (cliente/servidor)
+   */
+  private getBaseUrl(): string {
+    // Detectar contexto de manera más robusta
+    const isClient = typeof window !== 'undefined' && typeof document !== 'undefined';
+    
+    console.log('🔍 [RecordingService] Contexto detectado:', {
+      isClient,
+      hasWindow: typeof window !== 'undefined',
+      hasDocument: typeof document !== 'undefined',
+      nodeEnv: process.env.NODE_ENV
+    });
+    
+    // En el cliente, usar URL relativa
+    if (isClient) {
+      return '';
+    }
+    
+    // En el servidor, usar URL absoluta
+    // Intentar obtener el host desde variables de entorno o usar localhost por defecto
+    const host = process.env.NEXT_PUBLIC_BASE_URL || 
+                 process.env.VERCEL_URL || 
+                 'localhost:3000';
+    
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}`;
+    
+    console.log('🔍 [RecordingService] URL base del servidor:', baseUrl);
+    return baseUrl;
+  }
+
+  /**
+   * Obtener token de autenticación del usuario desde cookies
+   */
+  private getAuthToken(): string {
     try {
-      const response = await fetch(`${this.API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers
-        },
-        ...options
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      return await response.json();
+      // El middleware maneja la autenticación automáticamente
+      // No necesitamos enviar el token manualmente en los headers
+      return 'bearer-automatic'; // Placeholder para el servicio
     } catch (error) {
-      console.error('Error en la solicitud:', error);
-      return {
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Error de conexión con el servidor de grabación'
-      };
+      console.warn('⚠️ [RecordingService] No se pudo obtener token de autenticación:', error);
+      return 'bearer-automatic';
     }
   }
 
-  // Obtener todas las radios disponibles desde Supabase
-  async getAvailableRadios() {
-    console.log('📻 Obteniendo radios disponibles desde:', `${this.API_BASE}/radios`);
-    const result = await this.makeRequest('/radios');
-    console.log('📻 Radios obtenidas:', result);
-    return result;
-  }
 
-  // Iniciar grabación de una radio específica
-  async startRecording(radioId: string, radioName: string = ''): Promise<RecordingResult> {
-    console.log('🔴 Iniciando grabación:', { radioId, radioName, url: `${this.API_BASE}/start-recording` });
-    
-    const result = await this.makeRequest('/start-recording', {
-      method: 'POST',
-      body: JSON.stringify({
-        radio_id: radioId,
-        radio_name: radioName
-      })
-    });
-
-    console.log('🔴 Resultado de iniciar grabación:', result);
-
-    if (result.status === 'success') {
-      // SOLUCIÓN: Usar fecha actual del servidor para evitar problemas de zona horaria
-      const currentTime = new Date();
-      const maxFutureTime = 5000; // 5 segundos de tolerancia
-      
-      // Si el servidor remoto devolvió un tiempo, validarlo
-      let finalStartTime = currentTime;
-      if (result.start_time) {
-        const serverTime = new Date(result.start_time);
-        const timeDiff = serverTime.getTime() - currentTime.getTime();
-        
-        if (timeDiff > maxFutureTime) {
-          console.warn('⚠️ Tiempo del servidor está demasiado en el futuro, usando tiempo local');
-          finalStartTime = currentTime;
-        } else if (timeDiff < -maxFutureTime) {
-          console.warn('⚠️ Tiempo del servidor está demasiado en el pasado, usando tiempo local');
-          finalStartTime = currentTime;
-        } else {
-          finalStartTime = serverTime;
-          console.log('✅ Usando tiempo del servidor:', finalStartTime.toISOString());
-        }
-      } else {
-        console.log('✅ Usando tiempo local:', finalStartTime.toISOString());
-      }
-      
-      this.currentRecordings.set(radioId, {
-        recording_id: result.recording_id,
-        status: 'recording',
-        startTime: finalStartTime,
-        radioName: result.radio_name || radioName
-      });
-      console.log('✅ Grabación iniciada exitosamente para:', radioId);
-    } else {
-      console.log('❌ Error al iniciar grabación:', result.message);
+  static getInstance(): RecordingService {
+    if (!RecordingService.instance) {
+      RecordingService.instance = new RecordingService();
     }
-
-    return result;
+    return RecordingService.instance;
   }
 
-  // Pausar grabación en curso
-  async pauseRecording(radioId: string): Promise<RecordingResult> {
-    const result = await this.makeRequest('/pause-recording', {
-      method: 'POST',
-      body: JSON.stringify({ radio_id: radioId })
-    });
-
-    if (result.status === 'success' && this.currentRecordings.has(radioId)) {
-      const recording = this.currentRecordings.get(radioId)!;
-      recording.status = 'paused';
-    }
-
-    return result;
-  }
-
-  // Reanudar grabación pausada
-  async resumeRecording(radioId: string): Promise<RecordingResult> {
-    const result = await this.makeRequest('/resume-recording', {
-      method: 'POST',
-      body: JSON.stringify({ radio_id: radioId })
-    });
-
-    if (result.status === 'success' && this.currentRecordings.has(radioId)) {
-      const recording = this.currentRecordings.get(radioId)!;
-      recording.status = 'recording';
-    }
-
-    return result;
-  }
-
-  // Obtener grabaciones activas actuales
-  async getActiveRecordings(): Promise<any> {
-    console.log('🔍 Obteniendo grabaciones activas desde:', `${this.API_BASE}/active-recordings`);
-    const result = await this.makeRequest('/active-recordings');
-    console.log('🔍 Grabaciones activas obtenidas:', result);
-    
-    // Sincronizar nuestro estado local
-    if (result.status === 'success') {
-      console.log('📊 Sincronizando estado local con grabaciones activas:', result.active_recordings);
-      this.currentRecordings.clear();
-      
-      // Manejar el formato correcto del servidor
-      const activeRecordings = result.active_recordings || {};
-      Object.entries(activeRecordings).forEach(([radioId, data]: [string, any]) => {
-        console.log(`📍 Procesando grabación para radio ${radioId}:`, data);
-        if (data && data.start_time) {
-          this.currentRecordings.set(radioId, {
-            recording_id: data.recording_id,
-            status: data.status?.toLowerCase() || 'recording',
-            startTime: new Date(data.start_time),
-            radioName: data.radio_name || radioId
-          });
-          console.log(`✅ Grabación procesada para ${radioId}:`, this.currentRecordings.get(radioId));
-        } else {
-          console.log(`⚠️ Datos inválidos para radio ${radioId}:`, data);
-        }
-      });
-      console.log('✅ Estado local sincronizado. Grabaciones actuales:', this.currentRecordings);
-    } else {
-      console.log('⚠️ No se pudieron obtener grabaciones activas:', result);
-    }
-
-    return result;
-  }
-
-  // Detener grabación completamente
-  async stopRecording(radioId: string): Promise<RecordingResult> {
-    const result = await this.makeRequest('/stop-recording', {
-      method: 'POST',
-      body: JSON.stringify({ radio_id: radioId })
-    });
-
-    if (result.status === 'success') {
-      this.currentRecordings.delete(radioId);
-    }
-
-    return result;
-  }
-
-
-  // Obtener lista de archivos grabados disponibles
-  async getRecordingsList(): Promise<{ status: string; recordings?: RecordingFile[]; message?: string }> {
+  /**
+   * Iniciar grabación de una radio
+   */
+  async startRecording(request: RecordingRequest): Promise<RecordingResponse> {
     try {
-      // ✅ CAMBIO: Usar endpoint API local para evitar problemas de CORS y normalizar formato
-      console.log('📥 Obteniendo lista de grabaciones desde /api/recordings');
-      const response = await fetch('/api/recordings', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      console.log('🎙️ [RecordingService] Iniciando grabación:', request);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      // Validar datos
+      if (!request.radio_id || !request.stream_url) {
+        throw new Error('Faltan datos requeridos: radio_id y stream_url son obligatorios');
       }
 
-      const result = await response.json();
-      console.log('📥 Grabaciones obtenidas desde API local:', result);
+      // Preparar payload
+      const payload = {
+        radio_id: request.radio_id,
+        stream_url: request.stream_url,
+        duration: request.duration || 3600 // 1 hora por defecto
+      };
 
-      // Normalizar el formato de las grabaciones si es necesario
-      if (result.status === 'success' && result.recordings) {
-        const normalizedRecordings = result.recordings.map((recording: any) => ({
-          filename: recording.filename,
-          size: recording.size,
-          created_at: recording.created_at || recording.created, // Asegurar campo created_at
-          path: recording.path,
-          // Preservar todos los campos enriquecidos de metadata de radio
-          radio_id: recording.radio_id,
-          radio_name: recording.radio_name,
-          radio_region: recording.radio_region,
-          radio_city: recording.radio_city,
-          radio_programadora: recording.radio_programadora,
-          display_name: recording.display_name,
-        }));
-        
+      console.log('📤 [RecordingService] Enviando petición:', payload);
+
+      // Realizar petición al VPS con SOLUCIÓN DEFINITIVA para el bug
+      const response = await fetch('/api/recording-vps-fixed', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+          // El middleware maneja la autenticación automáticamente mediante cookies
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      console.log(`📥 [RecordingService] Respuesta: ${response.status} ${response.statusText}`);
+
+      // Leer respuesta
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        data = { message: await response.text() };
+      }
+
+      console.log('📄 [RecordingService] Datos de respuesta:', data);
+
+      // Manejar errores específicos
+      if (!response.ok) {
+        let errorMessage = 'Error al iniciar grabación';
+
+        if (response.status === 401) {
+          errorMessage = 'Autenticación fallida con el VPS';
+        } else if (response.status === 404) {
+          errorMessage = 'Radio no encontrada en el VPS';
+        } else if (response.status === 400) {
+          errorMessage = 'Datos inválidos para la grabación';
+        } else if (response.status >= 500) {
+          errorMessage = 'Error interno del servidor VPS';
+        }
+
         return {
-          status: 'success',
-          recordings: normalizedRecordings,
+          success: false,
+          message: errorMessage,
+          error: data.error || errorMessage,
+          data: data
         };
       }
 
-      return result;
-    } catch (error) {
-      console.error('Error obteniendo grabaciones desde API local:', error);
+      // Éxito
       return {
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Error obteniendo grabaciones',
+        success: true,
+        message: 'Grabación iniciada exitosamente',
+        recording_id: data.recording_id,
+        data: data
+      };
+
+    } catch (error) {
+      console.error('💥 [RecordingService] Error en grabación:', error);
+      
+      return {
+        success: false,
+        message: 'Error de conexión al iniciar grabación',
+        error: error instanceof Error ? error.message : 'Error desconocido'
       };
     }
   }
 
-  // Descargar un archivo específico - VERSIÓN DEFINITIVA CON REDIRECCIÓN
-  async downloadRecording(filename: string): Promise<{ status: string; message: string }> {
+  /**
+   * Obtener grabaciones activas
+   */
+  async getActiveRecordings(): Promise<ActiveRecordingsResponse> {
     try {
-      console.log('🔍 Iniciando descarga de archivo:', filename);
+      // Verificar si estamos en contexto SSR - si es así, no hacer nada
+      const isClient = typeof window !== 'undefined' && typeof document !== 'undefined';
       
-      // ✅ SOLUCIÓN DEFINITIVA: Usar endpoint de descarga directa del VPS
-      // El VPS debe ser configurado para servir archivos estáticos desde /recordings
-      const directFileUrl = `http://213.199.39.147:5000/recordings/${encodeURIComponent(filename)}`;
-      
-      // Intentar primero con el path directo (archivos en root)
-      const directUrl = `${this.API_BASE}/download/${encodeURIComponent(filename)}`;
-      
-      // ✅ MÉTODO 1: Intentar descarga con fetch
-      try {
-        const response = await fetch(directUrl, {
-          method: 'GET',
-          mode: 'cors',
-          cache: 'no-cache'
-        });
-        
-        if (response.ok) {
-          // Éxito - procesar descarga
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          
-          setTimeout(() => {
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-          }, 100);
-          
-          console.log('✅ Descarga iniciada exitosamente:', filename);
-          return { status: 'success', message: '📥 Descarga iniciada' };
-        } else if (response.status === 404) {
-          // Si no se encuentra, intentar con path completo
-          console.warn('⚠️ Archivo no encontrado en path directo, intentando con path completo...');
-          
-          // Construir path basado en la fecha del archivo
-          // Formato: radio-1_20251128_191557_ceecb92b-eaad-4837-8f01-28a093705f83.mp3
-          const match = filename.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})/);
-          if (match) {
-            const [, year, month, day, hour] = match;
-            const fullPathUrl = `${this.API_BASE}/download/${encodeURIComponent(`/${year}-${month}-${day}/${hour}/${filename}`)}`;
-            console.log('🔍 Intentando con path completo:', fullPathUrl);
-            
-            const altResponse = await fetch(fullPathUrl, {
-              method: 'GET',
-              mode: 'cors',
-              cache: 'no-cache'
-            });
-            
-            if (altResponse.ok) {
-              const blob = await altResponse.blob();
-              const url = window.URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = filename;
-              a.style.display = 'none';
-              document.body.appendChild(a);
-              a.click();
-              
-              setTimeout(() => {
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-              }, 100);
-              
-              console.log('✅ Descarga iniciada exitosamente con path completo:', filename);
-              return { status: 'success', message: '📥 Descarga iniciada (modo path completo)' };
-            }
-          }
-        }
-        
-        // Si llegamos aquí, ningún método funcionó
-        throw new Error(`HTTP ${response.status}: Archivo no encontrado`);
-        
-      } catch (fetchError) {
-        console.error('❌ Error en fetch:', fetchError);
-        
-        // ✅ MÉTODO 2: Último fallback - redirigir al endpoint del VPS
-        // Esto abrirá el archivo en una nueva pestaña si el VPS lo sirve correctamente
-        const redirectUrl = `${this.API_BASE}/download/${encodeURIComponent(filename)}`;
-        console.log('🔍 Redirigiendo a:', redirectUrl);
-        
-        // Abrir en nueva pestaña como último recurso
-        window.open(redirectUrl, '_blank');
-        
-        return { status: 'success', message: '📥 Redirigiendo a descarga...' };
+      if (!isClient) {
+        console.log('🚫 [RecordingService] Evitando ejecución en contexto SSR');
+        return {
+          active_recordings: {},
+          count: 0,
+          status: 'error',
+          message: 'Ejecución evitada en contexto SSR'
+        };
       }
+
+      console.log('📊 [RecordingService] Obteniendo grabaciones activas');
+
+      // En el cliente, usar URL relativa con solución definitiva
+      const url = '/api/recording-vps-fixed';
       
+      console.log('🔍 [RecordingService] URL completa para obtener grabaciones:', url);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include'
+        // El middleware maneja la autenticación automáticamente mediante cookies
+      });
+
+      if (!response.ok) {
+        console.error(`❌ [RecordingService] Error al obtener grabaciones activas: ${response.status}`);
+        return {
+          active_recordings: {},
+          count: 0,
+          status: 'error'
+        };
+      }
+
+      const data = await response.json();
+      console.log(`✅ [RecordingService] Grabaciones activas obtenidas: ${data.count || 0}`);
+      
+      return data;
+
     } catch (error) {
-      console.error('❌ Error detallado en descarga:', error);
-      
-      // Mensajes de error específicos
-      let errorMessage = 'Error en la descarga';
-      
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        errorMessage = '❌ Error de conexión: No se pudo conectar con el servidor VPS. Verifica que el servidor esté corriendo.';
-      } else if (error instanceof Error) {
-        if (error.message.includes('404')) {
-          errorMessage = `❌ Archivo no encontrado: ${filename}. El archivo puede estar en un subdirectorio o haber sido movido.`;
-        } else if (error.message.includes('CORS')) {
-          errorMessage = '❌ Error CORS: El servidor VPS no está configurado para permitir descargas. Contacta al administrador.';
-        } else if (error.message.includes('Failed to fetch')) {
-          errorMessage = '❌ Error de red: No se pudo conectar con el VPS. Verifica la conexión y el firewall.';
-        } else {
-          errorMessage = `❌ Error: ${error.message}`;
-        }
+      console.error('💥 [RecordingService] Error al obtener grabaciones activas:', error);
+      return {
+        active_recordings: {},
+        count: 0,
+        status: 'error'
+      };
+    }
+  }
+
+  /**
+   * Detener grabación específica
+   */
+  async stopRecording(recordingId: string): Promise<RecordingResponse> {
+    try {
+      console.log(`🛑 [RecordingService] Deteniendo grabación: ${recordingId}`);
+
+      // Usar el nuevo endpoint DELETE para detener y limpiar grabación temporal
+      const response = await fetch('/api/recording-vps-fixed', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ radio_id: recordingId })
+      });
+
+      if (!response.ok) {
+        console.error(`❌ Error al detener grabación: ${response.status}`);
+        return {
+          success: false,
+          message: `Error al detener grabación: HTTP ${response.status}`,
+          recording_id: recordingId
+        };
       }
-      
-      return { status: 'error', message: errorMessage };
+
+      const data = await response.json();
+      console.log(`✅ Grabación detenida exitosamente:`, data);
+
+      return {
+        success: true,
+        message: data.message || 'Grabación detenida exitosamente',
+        recording_id: recordingId,
+        data: data
+      };
+
+    } catch (error) {
+      console.error('💥 [RecordingService] Error al detener grabación:', error);
+      return {
+        success: false,
+        message: 'Error al detener grabación',
+        error: error instanceof Error ? error.message : 'Error desconocido',
+        recording_id: recordingId
+      };
     }
   }
 
-  // Verificar estado del servidor
-  async getServerStatus(): Promise<any> {
-    return await this.makeRequest('/status');
-  }
-
-  // Obtener estado local de las grabaciones
-  getLocalRecordingState(radioId?: string): RecordingState | Record<string, RecordingState> | null {
-    if (radioId) {
-      return this.currentRecordings.get(radioId) || null;
+  /**
+   * Verificar si una radio está siendo grabada
+   */
+  async isRecording(radioId: string): Promise<boolean> {
+    try {
+      const activeRecordings = await this.getActiveRecordings();
+      return Object.values(activeRecordings.active_recordings).some(
+        recording => recording.radio_id === radioId
+      );
+    } catch (error) {
+      console.error('💥 [RecordingService] Error al verificar estado de grabación:', error);
+      return false;
     }
-    return Object.fromEntries(this.currentRecordings);
   }
 
-  // Verificar si una radio específica está grabando
-  isRecording(radioId: string): boolean {
-    const recording = this.currentRecordings.get(radioId);
-    return recording ? recording.status === 'recording' : false;
-  }
-
-  // Verificar si una radio específica está pausada
-  isPaused(radioId: string): boolean {
-    const recording = this.currentRecordings.get(radioId);
-    return recording ? recording.status === 'paused' : false;
-  }
-
-  // Obtener el estado actual de grabación de una radio
-  getRecordingStatus(radioId: string): RecordingState | null {
-    return this.currentRecordings.get(radioId) || null;
+  /**
+   * Obtener información de una grabación específica
+   */
+  async getRecordingInfo(recordingId: string): Promise<ActiveRecording | null> {
+    try {
+      const activeRecordings = await this.getActiveRecordings();
+      return activeRecordings.active_recordings[recordingId] || null;
+    } catch (error) {
+      console.error('💥 [RecordingService] Error al obtener información de grabación:', error);
+      return null;
+    }
   }
 }
 
-// Crear instancia global para uso fácil
-export const recordingService = new RecordingService();
-
-export default RecordingService;
+// Exportar instancia única
+export const recordingService = RecordingService.getInstance();

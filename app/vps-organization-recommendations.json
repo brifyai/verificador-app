@@ -1,0 +1,86 @@
+{
+  "timestamp": "2025-12-01T20:11:53.319Z",
+  "analysis": {
+    "total": 2,
+    "byDate": {
+      "unknown": [
+        {
+          "created": "2025-12-01T20:21:51.337938",
+          "filename": "radio_mijm9xsi_6nx1sqf_20251201_201205_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "path": "/home/radioapp/radio-recorder/recordings/2025-12-01/20/radio_mijm9xsi_6nx1sqf_20251201_201205_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "size": 9601325
+        },
+        {
+          "created": "2025-12-01T20:12:03.084033",
+          "filename": "radio_mijm9xsi_6nx1sqf_20251201_200216_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "path": "/home/radioapp/radio-recorder/recordings/2025-12-01/20/radio_mijm9xsi_6nx1sqf_20251201_200216_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "size": 9601325
+        }
+      ]
+    },
+    "byRadio": {
+      "unknown": [
+        {
+          "created": "2025-12-01T20:21:51.337938",
+          "filename": "radio_mijm9xsi_6nx1sqf_20251201_201205_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "path": "/home/radioapp/radio-recorder/recordings/2025-12-01/20/radio_mijm9xsi_6nx1sqf_20251201_201205_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "size": 9601325
+        },
+        {
+          "created": "2025-12-01T20:12:03.084033",
+          "filename": "radio_mijm9xsi_6nx1sqf_20251201_200216_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "path": "/home/radioapp/radio-recorder/recordings/2025-12-01/20/radio_mijm9xsi_6nx1sqf_20251201_200216_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "size": 9601325
+        }
+      ]
+    },
+    "byStatus": {
+      "active": [],
+      "completed": [
+        {
+          "created": "2025-12-01T20:21:51.337938",
+          "filename": "radio_mijm9xsi_6nx1sqf_20251201_201205_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "path": "/home/radioapp/radio-recorder/recordings/2025-12-01/20/radio_mijm9xsi_6nx1sqf_20251201_201205_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "size": 9601325
+        },
+        {
+          "created": "2025-12-01T20:12:03.084033",
+          "filename": "radio_mijm9xsi_6nx1sqf_20251201_200216_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "path": "/home/radioapp/radio-recorder/recordings/2025-12-01/20/radio_mijm9xsi_6nx1sqf_20251201_200216_62f9e282-1998-403d-9057-7f12796fe807.mp3",
+          "size": 9601325
+        }
+      ],
+      "failed": []
+    },
+    "recommendations": [
+      "Organizar grabaciones por radio (1 radios diferentes)",
+      "Espacio total utilizado: 0.02 GB"
+    ]
+  },
+  "recommendations": [
+    {
+      "priority": "ALTA",
+      "action": "Ejecutar script de organización en el VPS",
+      "details": "El script organizará todas las grabaciones en carpetas según su estado",
+      "command": "bash vps-organization-script.sh"
+    },
+    {
+      "priority": "MEDIA",
+      "action": "Configurar mantenimiento automático",
+      "details": "Agregar tarea cron para ejecutar mantenimiento diario",
+      "command": "crontab -e\n# Agregar: 0 2 * * * /home/radioapp/radio-recorder/scripts/maintenance.sh"
+    },
+    {
+      "priority": "MEDIA",
+      "action": "Monitorear espacio en disco",
+      "details": "Actualmente se utilizan NaN GB",
+      "threshold": "Configurar alerta cuando el espacio supere el 80%"
+    },
+    {
+      "priority": "BAJA",
+      "action": "Revisar grabaciones fallidas",
+      "details": "Hay 0 grabaciones que pueden necesitar atención",
+      "location": "/home/radioapp/radio-recorder/recordings/failed/"
+    }
+  ]
+}

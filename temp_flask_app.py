@@ -297,3 +297,89 @@ def get_recordings_by_radio(radio_id):
             'message': f'Error al obtener grabaciones: {str(e)}'
         }), 500
 
+
+
+# NUEVO ENDPOINT: Verificar streaming antes de grabar
+@app.route('/api/verify-stream', methods=['POST'])
+def verify_stream():
+    """
+    Verifica si el streaming de una radio está funcionando correctamente
+    antes de iniciar la grabación
+    """
+    try:
+        data = request.json
+        radio_id = data.get('radio_id')
+        stream_url = data.get('stream_url')
+        radio_name = data.get('radio_name')
+        
+        if not radio_id or not stream_url:
+            return jsonify({
+                "status": "error", 
+                "message": "radio_id y stream_url son requeridos"
+            }), 400
+        
+        logging.info(f"Verificando streaming para {radio_name} ({radio_id}): {stream_url}")
+        
+        # Importar requests para hacer la verificación
+        import requests
+        
+        try:
+            # Hacer una petición HEAD para verificar el stream
+            response = requests.head(stream_url, timeout=10, allow_redirects=True)
+            
+            # Verificar si la respuesta indica que el stream está activo
+            if response.status_code == 200:
+                content_type = response.headers.get('Content-Type', '')
+                content_length = response.headers.get('Content-Length')
+                
+                # Verificar si es un tipo de contenido de audio válido
+                is_audio = any(audio_type in content_type.lower() for audio_type in [
+                    'audio', 'mpeg', 'mp3', 'aac', 'ogg', 'wav'
+                ])
+                
+                if is_audio or not content_type:  # Si no hay content-type, asumimos que es válido
+                    return jsonify({
+                        "status": "success",
+                        "message": "Streaming funcionando correctamente",
+                        "content_type": content_type,
+                        "content_length": content_length,
+                        "response_code": response.status_code
+                    })
+                else:
+                    return jsonify({
+                        "status": "error",
+                        "message": f"El contenido no parece ser audio (Content-Type: {content_type})",
+                        "content_type": content_type,
+                        "response_code": response.status_code
+                    })
+            else:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Stream respondió con código {response.status_code}",
+                    "response_code": response.status_code
+                })
+                
+        except requests.exceptions.Timeout:
+            return jsonify({
+                "status": "error",
+                "message": "Tiempo de espera agotado al verificar el streaming"
+            }), 408
+            
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                "status": "error", 
+                "message": "No se pudo conectar al stream de la radio"
+            }), 503
+            
+        except requests.exceptions.RequestException as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Error al verificar el streaming: {str(e)}"
+            }), 500
+            
+    except Exception as e:
+        logging.error(f"Error verificando streaming: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Error interno del servidor: {str(e)}"
+        }), 500

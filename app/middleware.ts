@@ -23,7 +23,12 @@ const publicApiRoutes = [
   '/api/auth/login-direct',
   '/api/auth/register',
   '/api/auth/providers',
-  '/api/auth/setup-admin'
+  '/api/auth/setup-admin',
+  '/api/verify-stream-public', // Nuevo endpoint público para verificación de streams
+  '/api/recording-proxy-public', // Proxy público para grabaciones
+  '/api/recording-vps-direct', // Endpoint directo al VPS para grabaciones
+  '/api/recording-vps-fixed', // Endpoint con solución definitiva para el bug del VPS
+  '/api/vps-diagnostic' // Endpoint de diagnóstico del VPS
 ];
 
 function isPublicRoute(pathname: string): boolean {

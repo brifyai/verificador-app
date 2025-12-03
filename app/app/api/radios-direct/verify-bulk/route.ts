@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     // Obtener todas las radios activas
     const radios = await supabaseDirect.request(
-      'radios?select=id,name,stream_url,region&status=eq.ACTIVE&order=name.asc'
+      'radios?select=id_radio,name,stream_url,region&status=eq.ACTIVE&order=name.asc'
     );
 
     if (radios.length === 0) {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
             
             // Actualizar en la base de datos
             await supabaseDirect.request(
-              `radios?id=eq.${radio.id}`,
+              `radios?id_radio=eq.${radio.id_radio}`,
               {
                 method: 'PATCH',
                 body: JSON.stringify({
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
             }
 
             return {
-              radioId: radio.id,
+              radioId: radio.id_radio,
               radioName: radio.name,
               region: radio.region,
               status: verification.status,
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
             logger.error(`Error verificando radio ${radio.name}:`, error);
             offlineCount++;
             return {
-              radioId: radio.id,
+              radioId: radio.id_radio,
               radioName: radio.name,
               region: radio.region,
               status: 'OFFLINE' as const,

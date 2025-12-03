@@ -1121,6 +1121,12 @@ const handlePlay = async (radioId: string) => {
                     onPlay={() => handlePlay(radio.id)}
                     onEdit={() => setEditingRadio(radio)}
                     onDelete={() => handleDelete(radio.id)}
+                    onVerify={handleVerifyRadio}
+                    isVerifying={verifyingRadioId === radio.id}
+                    getPlatformIcon={getPlatformIcon}
+                    getPlatformName={getPlatformName}
+                    isSelected={selectedRadios.has(radio.id)}
+                    onSelect={handleSelectRadio}
                   />
                 ))}
               </div>

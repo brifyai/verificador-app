@@ -61,7 +61,7 @@ export default function Dashboard() {
               todayDetections: result.overview.todayDetections || 0,
               weekDetections: result.overview.weekDetections || 0,
               monthDetections: result.overview.monthDetections || 0,
-              activeSessions: result.overview.activeSessions || 0,
+              activeSessions: result.radioStatus?.totalOnline || 0, // ← CORREGIDO: usar radioStatus.totalOnline
               totalRadios: result.overview.totalRadios || 0,
               totalPhrases: result.overview.totalPhrases || 0,
               verificationRate: result.verification?.verificationRate || '0',

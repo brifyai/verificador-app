@@ -7,7 +7,7 @@ import { recordingService, RecordingState } from './recording-service';
 import { useState, useEffect } from 'react';
 
 class RecordingStateManager {
-  private static instance: RecordingStateManager;
+  private static instance: RecordingStateManager | null = null;
   private activeRecordings: Map<string, RecordingState> = new Map();
   private updateInterval: NodeJS.Timeout | null = null;
   private listeners: Set<(recordings: Map<string, RecordingState>) => void> = new Set();
@@ -18,34 +18,88 @@ class RecordingStateManager {
     this.startPeriodicUpdate();
   }
 
-  public static getInstance(): RecordingStateManager {
+  public static getInstance(): RecordingStateManager | null {
+    // No crear instancia en contexto SSR
+    if (typeof window === 'undefined') {
+      console.log('RecordingStateManager: No se puede crear instancia en contexto SSR');
+      return null;
+    }
+
     if (!RecordingStateManager.instance) {
       RecordingStateManager.instance = new RecordingStateManager();
     }
     return RecordingStateManager.instance;
   }
 
-  // Iniciar actualización periódica cada 10 segundos
+  // Iniciar actualización periódica cada 10 segundos (más frecuente para mejor sincronización)
   private startPeriodicUpdate() {
+    // Solo ejecutar en el cliente, no en SSR
+    if (typeof window === 'undefined') {
+      console.log('RecordingStateManager: Saltando actualización en contexto SSR');
+      return;
+    }
+
     if (this.updateInterval) {
       clearInterval(this.updateInterval);
     }
 
+    // Reducir intervalo a 10 segundos para mejor sincronización del cronómetro
     this.updateInterval = setInterval(async () => {
       await this.updateRecordingStates();
     }, 10000); // Actualizar cada 10 segundos
 
-    // Actualización inicial
-    this.updateRecordingStates();
+    // Actualización inicial más rápida
+    setTimeout(() => {
+      this.updateRecordingStates();
+    }, 500); // Esperar 500ms antes de la primera actualización
   }
 
   // Actualizar estados de grabaciones desde el servidor
   private async updateRecordingStates() {
-    if (this.isUpdating) return; // Evitar actualizaciones concurrentes
+    // Solo ejecutar en el cliente, no en SSR
+    if (typeof window === 'undefined') {
+      console.log('RecordingStateManager: Saltando actualización en contexto SSR');
+      return;
+    }
+
+    if (this.isUpdating) {
+      console.log('RecordingStateManager: Ya hay una actualización en progreso, omitiendo...');
+      return; // Evitar actualizaciones concurrentes
+    }
     this.isUpdating = true;
 
     try {
-      console.log('🔄 RecordingStateManager: Actualizando estados de grabaciones...');
+      // NUEVA LÓGICA: Verificar si hay grabaciones temporales activas
+      // que no estén en el servidor pero sí en localStorage
+      const tempRecordings = localStorage.getItem('temp_active_recordings');
+      if (tempRecordings) {
+        try {
+          const parsed = JSON.parse(tempRecordings);
+          Object.entries(parsed).forEach(([radioId, data]: [string, any]) => {
+            if (data && data.start_time && !this.activeRecordings.has(radioId)) {
+              // Restaurar grabación temporal desde localStorage
+              const restoredState: RecordingState = {
+                id: radioId,
+                recording_id: data.recording_id || `temp_${radioId}_${Date.now()}`,
+                radio_id: radioId,
+                stream_url: data.stream_url || '',
+                status: 'recording',
+                start_time: data.start_time
+              };
+              
+              this.activeRecordings.set(radioId, restoredState);
+              console.log(`RecordingStateManager: Restaurada grabación temporal para ${radioId}`);
+            }
+          });
+        } catch (error) {
+          console.error('Error restaurando grabaciones temporales:', error);
+        }
+      }
+      
+      // Reducir logging para evitar spam en consola
+      if (Math.random() < 0.1) { // Solo loggear 10% de las veces
+        console.log('RecordingStateManager: Actualizando estados de grabaciones...');
+      }
       
       const result = await recordingService.getActiveRecordings();
       
@@ -60,16 +114,18 @@ class RecordingStateManager {
             // El servidor ya nos da el tiempo correcto de inicio
             const serverTime = new Date(data.start_time);
             
-            console.log(`📍 RecordingStateManager: Procesando grabación para ${radioId}`);
-            console.log(`   📅 Tiempo del servidor: ${serverTime.toISOString()}`);
-            console.log(`   ⏰ Tiempo local actual: ${new Date().toISOString()}`);
+            console.log(`RecordingStateManager: Procesando grabación para ${radioId}`);
+            console.log(`   Tiempo del servidor: ${serverTime.toISOString()}`);
+            console.log(`   Tiempo local actual: ${new Date().toISOString()}`);
             
             // Guardar el tiempo exacto del servidor - sin ajustes
             const newState: RecordingState = {
+              id: radioId,
               recording_id: data.recording_id,
+              radio_id: radioId,
+              stream_url: data.stream_url || '',
               status: data.status?.toLowerCase() || 'recording',
-              startTime: serverTime, // Usar tiempo exacto del servidor
-              radioName: data.radio_name || radioId
+              start_time: serverTime.toISOString() // Convertir a string ISO
             };
 
             // Verificar si hay cambios
@@ -79,12 +135,12 @@ class RecordingStateManager {
                 existingState.recording_id !== newState.recording_id) {
               this.activeRecordings.set(radioId, newState);
               hasChanges = true;
-              console.log(`✅ RecordingStateManager: Actualizada grabación ${radioId} - Estado: ${newState.status}`);
+              console.log(`RecordingStateManager: Actualizada grabación ${radioId} - Estado: ${newState.status}`);
               
               // ACTUALIZAR ÚLTIMO MONITOREO: Cuando se inicia una grabación, actualizar lastMonitored
               if (newState.status === 'recording' && data.recording_id) {
                 this.updateLastMonitored(radioId).catch(error => {
-                  console.error(`❌ Error updating lastMonitored for radio ${radioId}:`, error);
+                  console.error(`Error updating lastMonitored for radio ${radioId}:`, error);
                 });
               }
             }
@@ -97,7 +153,7 @@ class RecordingStateManager {
           if (!serverRadioIds.includes(radioId)) {
             this.activeRecordings.delete(radioId);
             hasChanges = true;
-            console.log(`⏹️ RecordingStateManager: Eliminada grabación inactiva ${radioId}`);
+            console.log(`RecordingStateManager: Eliminada grabación inactiva ${radioId}`);
           }
         }
 
@@ -106,31 +162,59 @@ class RecordingStateManager {
           this.notifyListeners();
         }
       } else {
-        console.log('⚠️ RecordingStateManager: No se pudieron obtener grabaciones activas del servidor');
+        // Reducir logging de errores
+        if (Math.random() < 0.1) { // Solo loggear 10% de las veces
+          console.log('RecordingStateManager: No se pudieron obtener grabaciones activas del servidor');
+        }
       }
     } catch (error) {
-      console.error('❌ RecordingStateManager: Error actualizando estados:', error);
+      // Reducir logging de errores
+      if (Math.random() < 0.1) { // Solo loggear 10% de las veces
+        console.error('RecordingStateManager: Error actualizando estados:', error);
+      }
     } finally {
       this.isUpdating = false;
     }
   }
 
+  // Guardar estado en localStorage para persistencia
+  private saveToLocalStorage() {
+    if (typeof window === 'undefined') return;
+    
+    const stateToSave = {};
+    this.activeRecordings.forEach((state, radioId) => {
+      stateToSave[radioId] = {
+        recording_id: state.recording_id,
+        radio_id: state.radio_id,
+        stream_url: state.stream_url,
+        start_time: state.start_time,
+        status: state.status
+      };
+    });
+    
+    localStorage.setItem('temp_active_recordings', JSON.stringify(stateToSave));
+    console.log('RecordingStateManager: Estado guardado en localStorage');
+  }
+
   // Notificar a todos los listeners sobre cambios
   private notifyListeners() {
-    console.log(`📢 RecordingStateManager: Notificando ${this.listeners.size} listeners`);
+    console.log(`RecordingStateManager: Notificando ${this.listeners.size} listeners`);
     this.listeners.forEach(listener => {
       try {
         listener(new Map(this.activeRecordings));
       } catch (error) {
-        console.error('❌ RecordingStateManager: Error notificando listener:', error);
+        console.error('RecordingStateManager: Error notificando listener:', error);
       }
     });
+    
+    // Guardar en localStorage después de notificar
+    this.saveToLocalStorage();
   }
 
   // Suscribirse a cambios en el estado de grabaciones
   public subscribe(callback: (recordings: Map<string, RecordingState>) => void): () => void {
     this.listeners.add(callback);
-    console.log(`➕ RecordingStateManager: Nuevo listener suscrito (total: ${this.listeners.size})`);
+    console.log(`RecordingStateManager: Nuevo listener suscrito (total: ${this.listeners.size})`);
     
     // Llamar inmediatamente con el estado actual
     callback(new Map(this.activeRecordings));
@@ -138,7 +222,7 @@ class RecordingStateManager {
     // Retornar función de limpieza
     return () => {
       this.listeners.delete(callback);
-      console.log(`➖ RecordingStateManager: Listener desuscrito (total: ${this.listeners.size})`);
+      console.log(`RecordingStateManager: Listener desuscrito (total: ${this.listeners.size})`);
     };
   }
 
@@ -176,7 +260,7 @@ class RecordingStateManager {
     }
     this.listeners.clear();
     this.activeRecordings.clear();
-    console.log('🛑 RecordingStateManager: Detenido');
+    console.log('RecordingStateManager: Detenido');
   }
 
   /**
@@ -184,7 +268,7 @@ class RecordingStateManager {
    */
   private async updateLastMonitored(radioId: string): Promise<void> {
     try {
-      console.log(`📡 RecordingStateManager: Actualizando lastMonitored para radio ${radioId}...`);
+      console.log(`RecordingStateManager: Actualizando lastMonitored para radio ${radioId}...`);
       
       // Importar supabaseDirect dinámicamente para evitar dependencias circulares
       const { supabaseDirect } = await import('./supabase-direct');
@@ -206,9 +290,9 @@ class RecordingStateManager {
         })
       });
       
-      console.log(`✅ RecordingStateManager: lastMonitored actualizado para radio ${radioId}`);
+      console.log(`RecordingStateManager: lastMonitored actualizado para radio ${radioId}`);
     } catch (error) {
-      console.error(`❌ RecordingStateManager: Error al actualizar lastMonitored para radio ${radioId}:`, error);
+      console.error(`RecordingStateManager: Error al actualizar lastMonitored para radio ${radioId}:`, error);
     }
   }
 }
@@ -221,6 +305,12 @@ export function useRecordingState() {
   const [recordings, setRecordings] = useState<Map<string, RecordingState>>(new Map());
 
   useEffect(() => {
+    // Verificar que recordingStateManager no sea null
+    if (!recordingStateManager) {
+      console.warn('useRecordingState: recordingStateManager es null (posiblemente en SSR)');
+      return;
+    }
+
     // Suscribirse a cambios
     const unsubscribe = recordingStateManager.subscribe((newRecordings) => {
       setRecordings(new Map(newRecordings));
@@ -234,10 +324,10 @@ export function useRecordingState() {
 
   return {
     recordings,
-    isRecording: (radioId: string) => recordingStateManager.isRecording(radioId),
-    getRecordingStatus: (radioId: string) => recordingStateManager.getRecordingStatus(radioId),
-    getActiveCount: () => recordingStateManager.getActiveCount(),
-    forceUpdate: () => recordingStateManager.forceUpdate()
+    isRecording: (radioId: string) => recordingStateManager?.isRecording(radioId) || false,
+    getRecordingStatus: (radioId: string) => recordingStateManager?.getRecordingStatus(radioId) || null,
+    getActiveCount: () => recordingStateManager?.getActiveCount() || 0,
+    forceUpdate: () => recordingStateManager?.forceUpdate()
   };
 }
 
